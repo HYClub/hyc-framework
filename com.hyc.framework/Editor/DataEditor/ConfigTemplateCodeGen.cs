@@ -1147,7 +1147,7 @@ namespace HYC.Framework.Config.Editor
                     sb.AppendLine($"            if (!string.IsNullOrEmpty({src}))");
                     sb.AppendLine("            {");
                     sb.AppendLine("                HYC.Framework.Config.Editor.LocAccess.EnsureLoaded();");
-                    sb.AppendLine("                var locType = System.Type.GetType(\"HYC.Framework.Loc.LocalizationManager, HYC.Framework.Loc.Runtime\");");
+                    sb.AppendLine("                var locType = System.Type.GetType(\"HYC.Framework.Loc.LocalizationManager, HYC.Framework.Runtime\");");
                     sb.AppendLine("                if (locType != null)");
                     sb.AppendLine("                {");
                     sb.AppendLine("                    var hasKey = locType.GetMethod(\"HasKey\", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static, null, new[] { typeof(string) }, null);");

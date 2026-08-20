@@ -12,7 +12,7 @@ namespace HYC.Framework.Config.Editor
     /// </summary>
     public static class LocAccess
     {
-        private const string ManagerTypeName = "HYC.Framework.Loc.LocalizationManager, HYC.Framework.Loc.Runtime";
+        private const string ManagerTypeName = "HYC.Framework.Loc.LocalizationManager, HYC.Framework.Runtime";
 
         private static Type sManagerType;
         private static bool sResolved;
