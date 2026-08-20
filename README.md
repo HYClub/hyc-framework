@@ -23,8 +23,8 @@ Unity UPM 私有框架包（HYC 前缀）。由 9 个包组成，按需引用。
 ```json
 {
   "dependencies": {
-    "com.hyc.framework.dots": "https://github.com/HYClub/hyc-framework.git?path=Packages/com.hyc.framework.dots#<tag>",
-    "com.hyc.framework.config": "https://github.com/HYClub/hyc-framework.git?path=Packages/com.hyc.framework.config#<tag>"
+    "com.hyc.framework.dots": "https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework.dots#<tag>",
+    "com.hyc.framework.config": "https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework.config#<tag>"
   }
 }
 ```
