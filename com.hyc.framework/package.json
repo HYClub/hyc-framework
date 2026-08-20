@@ -1,7 +1,7 @@
 {
     "name": "com.hyc.framework",
     "displayName": "HYC Framework",
-    "version": "1.0.0",
+    "version": "2.0.4",
     "unity": "2022.3",
     "description": "HYC Framework - 合并大包：DOTS 基础设施、配置管线(模板/枚举/多语言Key/Blob)、多语言、ECS UI、输入、运行时、Timeline。",
     "keywords": [
