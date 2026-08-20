@@ -1,21 +1,21 @@
-﻿{
-    "name": "HYC.Framework.Runtime.Core",
+{
+    "name": "HYC.Framework.Runtime",
     "rootNamespace": "HYC.Framework",
     "references": [
         "Unity.Entities",
+        "Unity.Entities.Hybrid",
         "Unity.Collections",
         "Unity.InputSystem",
+        "UnityEngine.UI",
         "Unity.TextMeshPro",
-        "HYC.Framework.Dots.Runtime",
-        "HYC.Framework.UI.Runtime",
-        "HYC.Framework.Input.Runtime",
-        "HYC.Framework.Config.Runtime",
-        "HYC.Framework.Loc.Runtime",
-        "HYC.Framework.Data.Runtime"
+        "Unity.Addressables",
+        "Unity.ResourceManager",
+        "Unity.Mathematics",
+        "Unity.Timeline"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
-    "allowUnsafeCode": false,
+    "allowUnsafeCode": true,
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
