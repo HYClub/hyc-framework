@@ -1054,7 +1054,7 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>框架级模板目录（ConfigBase 等，用户不可改）。</summary>
-        public const string FrameworkTemplatesFolder = "Packages/com.hyc.framework.config/Editor/DataEditor/FrameworkTemplates";
+        public const string FrameworkTemplatesFolder = "Packages/com.hyc.framework/Editor/DataEditor/FrameworkTemplates";
 
         /// <summary>获取框架级 ConfigBase 模板（所有配置的默认基类），不存在返回 null。</summary>
         public static ConfigTemplate GetConfigBaseTemplate()
