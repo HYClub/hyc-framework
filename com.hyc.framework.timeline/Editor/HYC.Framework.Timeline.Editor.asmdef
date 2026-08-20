@@ -1,0 +1,26 @@
+﻿{
+    "name":  "HYC.Framework.Timeline.Editor",
+    "rootNamespace":  "HYC.Framework",
+    "references":  [
+                       "HYC.Framework.Timeline.Runtime"
+                   ],
+    "includePlatforms":  [
+
+                         ],
+    "excludePlatforms":  [
+
+                         ],
+    "allowUnsafeCode":  false,
+    "overrideReferences":  false,
+    "precompiledReferences":  [
+
+                              ],
+    "autoReferenced":  true,
+    "defineConstraints":  [
+
+                          ],
+    "versionDefines":  [
+
+                       ],
+    "noEngineReferences":  false
+}

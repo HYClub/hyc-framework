@@ -1,0 +1,27 @@
+﻿{
+    "name":  "HYC.Framework.Data.Editor",
+    "rootNamespace":  "HYC.Framework",
+    "references":  [
+                       "HYC.Framework.Data.Runtime",
+                       "HYC.Framework.Config.Editor"
+                   ],
+    "includePlatforms":  [
+
+                         ],
+    "excludePlatforms":  [
+
+                         ],
+    "allowUnsafeCode":  false,
+    "overrideReferences":  false,
+    "precompiledReferences":  [
+
+                              ],
+    "autoReferenced":  true,
+    "defineConstraints":  [
+
+                          ],
+    "versionDefines":  [
+
+                       ],
+    "noEngineReferences":  false
+}

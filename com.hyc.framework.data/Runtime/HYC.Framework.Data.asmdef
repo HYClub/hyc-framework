@@ -1,0 +1,29 @@
+﻿{
+    "name":  "HYC.Framework.Data.Runtime",
+    "rootNamespace":  "HYC.Framework",
+    "references":  [
+                       "Unity.Entities",
+                       "Unity.Collections",
+                       "HYC.Framework.Config.Runtime",
+                       "HYC.Framework.Dots.Runtime"
+                   ],
+    "includePlatforms":  [
+
+                         ],
+    "excludePlatforms":  [
+
+                         ],
+    "allowUnsafeCode":  false,
+    "overrideReferences":  false,
+    "precompiledReferences":  [
+
+                              ],
+    "autoReferenced":  true,
+    "defineConstraints":  [
+
+                          ],
+    "versionDefines":  [
+
+                       ],
+    "noEngineReferences":  false
+}

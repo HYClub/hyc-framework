@@ -1,0 +1,12 @@
+﻿{
+    "name": "com.hyc.framework.config",
+    "displayName": "HYC Framework Config",
+    "version": "1.0.0",
+    "unity": "2022.3",
+    "description": "HYC Framework - config pipeline: Cfg structs, Excel import, BlobAsset baking, runtime per-table reader.",
+    "keywords": ["qk", "framework", "config"],
+    "category": "HYC Framework",
+    "dependencies": {
+        "com.unity.entities": ">=1.0.16"
+    }
+}

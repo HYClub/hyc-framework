@@ -1,0 +1,12 @@
+﻿{
+    "name": "com.hyc.framework.editor",
+    "displayName": "HYC Framework Editor Suite",
+    "version": "1.0.0",
+    "unity": "2022.3",
+    "description": "HYC Framework - editor suite: settings window, asset dependents/cleaner, config validator, world editor.",
+    "keywords": ["qk", "framework", "editor"],
+    "category": "HYC Framework",
+    "dependencies": {
+        "com.hyc.framework.runtime": "1.0.0"
+    }
+}

@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 61ee1dcdd2fbbaa4486ba6dc9f61723c, type: 3}
+  m_Name: ConfigBase
+  m_EditorClassIdentifier: 
+  displayName: "\u6846\u67B6/ConfigBase"
+  className: ConfigBase
+  lastGeneratedClassName: ConfigBase
+  baseTemplate: {fileID: 0}
+  iconBuiltInName: 
+  iconCustom: {fileID: 0}
+  fields:
+  - name: ID
+    description: 
+    type: 2
+    isList: 0
+    refTypeFullName: 
+    exportTarget: 2
+    hasRange: 0
+    minValue: 0
+    maxValue: 0
+    notEmptyCheck: 0
+    notZeroCheck: 0
+    rangeCheck: 0
+  - name: GUID
+    description: 
+    type: 0
+    isList: 0
+    refTypeFullName: 
+    exportTarget: 2
+    hasRange: 0
+    minValue: 0
+    maxValue: 0
+    notEmptyCheck: 0
+    notZeroCheck: 0
+    rangeCheck: 0

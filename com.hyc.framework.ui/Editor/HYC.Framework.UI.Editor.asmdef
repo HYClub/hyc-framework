@@ -1,0 +1,26 @@
+﻿{
+    "name":  "HYC.Framework.UI.Editor",
+    "rootNamespace":  "HYC.Framework",
+    "references":  [
+                       "HYC.Framework.UI.Runtime"
+                   ],
+    "includePlatforms":  [
+
+                         ],
+    "excludePlatforms":  [
+
+                         ],
+    "allowUnsafeCode":  false,
+    "overrideReferences":  false,
+    "precompiledReferences":  [
+
+                              ],
+    "autoReferenced":  true,
+    "defineConstraints":  [
+
+                          ],
+    "versionDefines":  [
+
+                       ],
+    "noEngineReferences":  false
+}

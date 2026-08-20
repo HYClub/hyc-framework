@@ -1,0 +1,25 @@
+﻿{
+    "name": "HYC.Framework.Runtime.Core",
+    "rootNamespace": "HYC.Framework",
+    "references": [
+        "Unity.Entities",
+        "Unity.Collections",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "HYC.Framework.Dots.Runtime",
+        "HYC.Framework.UI.Runtime",
+        "HYC.Framework.Input.Runtime",
+        "HYC.Framework.Config.Runtime",
+        "HYC.Framework.Loc.Runtime",
+        "HYC.Framework.Data.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

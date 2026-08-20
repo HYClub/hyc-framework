@@ -1,0 +1,18 @@
+﻿{
+    "name": "com.hyc.framework.ui",
+    "displayName": "HYC Framework UI",
+    "version": "1.0.0",
+    "unity": "2022.3",
+    "description": "HYC Framework - ECS UI window stack: UIManager/AbsUISystem/BaseWindowSystem/UIGroup/Dialog/Hud/Loading/WindowPart, tooltip, focus navigation, RichImage/TransparentGraphic, runtime binder + generated window support.",
+    "keywords": ["qk", "framework", "ui", "ecs"],
+    "category": "HYC Framework",
+    "dependencies": {
+        "com.unity.entities": ">=1.0.16",
+        "com.unity.addressables": "1.21.21",
+        "com.unity.ugui": "1.0.0",
+        "com.unity.textmeshpro": "3.0.6",
+        "com.hyc.framework.input": "1.0.0",
+        "com.hyc.framework.runtime": "1.0.0",
+        "com.hyc.framework.dots": "1.0.0"
+    }
+}

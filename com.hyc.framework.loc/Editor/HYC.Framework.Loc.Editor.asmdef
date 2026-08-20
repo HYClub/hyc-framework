@@ -1,0 +1,33 @@
+﻿{
+    "name":  "HYC.Framework.Loc.Editor",
+    "rootNamespace":  "HYC.Framework",
+    "references":  [
+                       "HYC.Framework.Loc.Runtime",
+                       "Unity.Entities",
+                       "Unity.Collections"
+                   ],
+    "includePlatforms":  [
+
+                         ],
+    "excludePlatforms":  [
+
+                         ],
+    "allowUnsafeCode":  true,
+    "overrideReferences":  false,
+    "precompiledReferences":  [
+                                  "NPOI.dll",
+                                  "NPOI.OOXML.dll",
+                                  "NPOI.OpenXml4Net.dll",
+                                  "NPOI.OpenXmlFormats.dll",
+                                  "ICSharpCode.SharpZipLib.dll",
+                                  "BouncyCastle.Crypto.dll"
+                              ],
+    "autoReferenced":  true,
+    "defineConstraints":  [
+
+                          ],
+    "versionDefines":  [
+
+                       ],
+    "noEngineReferences":  false
+}
