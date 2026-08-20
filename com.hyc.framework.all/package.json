@@ -1,0 +1,20 @@
+{
+    "name": "com.hyc.framework.all",
+    "displayName": "HYC Framework All",
+    "version": "1.0.0",
+    "unity": "2022.3",
+    "description": "HYC Framework - 总包：依赖全部 HYC 框架包，安装本包即引入整套框架。",
+    "keywords": ["hyc", "framework", "all"],
+    "category": "HYC Framework",
+    "dependencies": {
+        "com.hyc.framework.config": "1.0.0",
+        "com.hyc.framework.data": "1.0.0",
+        "com.hyc.framework.dots": "1.0.0",
+        "com.hyc.framework.editor": "1.0.0",
+        "com.hyc.framework.input": "1.0.0",
+        "com.hyc.framework.loc": "1.0.0",
+        "com.hyc.framework.runtime": "1.0.0",
+        "com.hyc.framework.timeline": "1.0.0",
+        "com.hyc.framework.ui": "1.0.0"
+    }
+}
