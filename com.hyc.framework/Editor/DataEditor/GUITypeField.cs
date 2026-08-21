@@ -24,6 +24,8 @@ namespace HYC.Framework.Config.Editor
         public bool Line;
         public bool FlatDisplay;
         public bool IsLocKey;
+        public bool IsBehaviourTree;
+        public bool IsAddressable;
         public InfoBoxAttribute[] Infos = Array.Empty<InfoBoxAttribute>();
     }
 }

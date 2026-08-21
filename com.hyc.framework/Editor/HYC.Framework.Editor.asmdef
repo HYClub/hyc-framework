@@ -1,29 +1,32 @@
 {
-    "name": "HYC.Framework.Editor",
-    "rootNamespace": "HYC.Framework",
-    "references": [
-        "HYC.Framework.Runtime",
-        "Unity.Entities",
-        "Unity.Collections",
-        "UnityEditor.UI",
-        "UnityEditor.Timeline"
-    ],
-    "includePlatforms": [
-        "Editor"
-    ],
-    "excludePlatforms": [],
-    "allowUnsafeCode": true,
-    "overrideReferences": false,
-    "precompiledReferences": [
-        "NPOI.dll",
-        "NPOI.OOXML.dll",
-        "NPOI.OpenXml4Net.dll",
-        "NPOI.OpenXmlFormats.dll",
-        "ICSharpCode.SharpZipLib.dll",
-        "BouncyCastle.Crypto.dll"
-    ],
-    "autoReferenced": true,
-    "defineConstraints": [],
-    "versionDefines": [],
-    "noEngineReferences": false
+  "name": "HYC.Framework.Editor",
+  "rootNamespace": "HYC.Framework",
+  "references": [
+    "HYC.Framework.Runtime",
+    "Unity.Entities",
+    "Unity.Collections",
+    "UnityEditor.UI",
+    "UnityEditor.Timeline",
+    "Unity.Addressables",
+    "Unity.ResourceManager",
+    "Unity.Addressables.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [
+    "NPOI.dll",
+    "NPOI.OOXML.dll",
+    "NPOI.OpenXml4Net.dll",
+    "NPOI.OpenXmlFormats.dll",
+    "ICSharpCode.SharpZipLib.dll",
+    "BouncyCastle.Crypto.dll"
+  ],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
 }

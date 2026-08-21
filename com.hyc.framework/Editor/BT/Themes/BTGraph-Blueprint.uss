@@ -1,0 +1,75 @@
+/* ===== Blueprint 主题 (Unreal 蓝图高对比) ===== */
+.graphView {
+    background-color: rgb(50, 50, 60);
+}
+
+.node {
+    background-color: rgb(70, 70, 82);
+    border-width: 2px;
+    border-style: solid;
+    border-radius: 4px;
+}
+.node:hover { border-color: rgb(120, 220, 255); }
+.node.selected { border-color: rgb(255, 220, 80); border-width: 3px; }
+.node .title {
+    color: rgb(255, 255, 255);
+    font-size: 13px;
+    -unity-font-style: bold;
+    padding: 5px 10px;
+}
+
+.bt-node-composite { background-color: rgb(45, 75, 120); border-color: rgb(100, 170, 240); }
+.bt-node-composite .title { background-color: rgb(35, 60, 100); }
+
+.bt-node-decorator { background-color: rgb(130, 100, 40); border-color: rgb(240, 200, 90); }
+.bt-node-decorator .title { background-color: rgb(105, 80, 32); }
+
+.bt-node-condition { background-color: rgb(135, 50, 50); border-color: rgb(250, 100, 100); }
+.bt-node-condition .title { background-color: rgb(110, 40, 40); }
+
+.bt-node-action { background-color: rgb(50, 115, 65); border-color: rgb(100, 220, 130); }
+.bt-node-action .title { background-color: rgb(40, 95, 54); }
+
+.bt-node-entry { background-color: rgb(75, 75, 90); border-color: rgb(180, 180, 200); }
+.bt-node-entry .title { background-color: rgb(58, 58, 72); }
+
+.bt-node-custom { background-color: rgb(85, 65, 115); border-color: rgb(180, 130, 240); }
+.bt-node-custom .title { background-color: rgb(70, 54, 95); }
+
+.port {
+    background-color: rgb(200, 200, 215);
+    border-width: 1px;
+    border-style: solid;
+    border-radius: 5px;
+    width: 11px;
+    height: 11px;
+}
+.port:hover { background-color: rgb(120, 220, 255); border-color: rgb(80, 160, 200); }
+
+/* 运行状态高亮(调试) */
+.bt-run-running {
+    border-color: rgb(255, 200, 60) !important;
+    border-width: 3px !important;
+}
+.bt-run-success {
+    border-color: rgb(80, 220, 120) !important;
+    border-width: 2px !important;
+}
+.bt-run-failed {
+    border-color: rgb(255, 80, 80) !important;
+    border-width: 2px !important;
+}
+
+/* 断点标记(右上角红点) */
+.bt-breakpoint {
+    border-color: rgb(255, 60, 60) !important;
+    border-width: 2px !important;
+}
+.bt-breakpoint::before {
+    content: "●";
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    color: rgb(255, 60, 60);
+    font-size: 14px;
+}

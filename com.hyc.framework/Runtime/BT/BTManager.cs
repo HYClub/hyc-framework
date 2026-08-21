@@ -5,6 +5,7 @@
 //       运行时从资源加载后注册, 供解释器查询
 // ============================================================
 
+using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 
@@ -60,6 +61,29 @@ namespace HYC.Framework.BT
                 _trees.Remove(treeId);
             }
         }
+
+        // ---- 断点调试 ----
+        private static readonly HashSet<long> _breakpoints = new HashSet<long>();
+
+        /// <summary>添加/移除断点(按节点在树资产中的索引)。</summary>
+        public static void ToggleBreakpoint(long treeId, int nodeIndex)
+        {
+            long key = treeId * 100000 + nodeIndex;
+            if (!_breakpoints.Add(key))
+                _breakpoints.Remove(key);
+        }
+
+        public static void SetBreakpoint(long treeId, int nodeIndex, bool enabled)
+        {
+            long key = treeId * 100000 + nodeIndex;
+            if (enabled) _breakpoints.Add(key);
+            else _breakpoints.Remove(key);
+        }
+
+        public static bool IsBreakpoint(long treeId, int nodeIndex)
+            => _breakpoints.Contains(treeId * 100000 + nodeIndex);
+
+        public static void ClearBreakpoints() => _breakpoints.Clear();
 
         /// <summary>释放全部树(世界销毁/重载时调用)。</summary>
         public static void DisposeAll()

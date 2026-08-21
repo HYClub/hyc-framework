@@ -51,6 +51,14 @@ namespace HYC.Framework.Config
         LocalizedKey,
         /// <summary>Asset reference to another <c>[CfgAsset]</c> type (see <see cref="ConfigTemplateField.RefTypeFullName"/>).</summary>
         Reference,
+        /// <summary>行为树引用（存 BTTreeAsset.TreeId，long）。运行时经 BTManager 加载执行。</summary>
+        BehaviourTree,
+        /// <summary>动画片段（拖 .anim 文件, 生成 AnimationClip 字段）。</summary>
+        AnimationClip,
+        /// <summary>动画控制器（拖 .controller 文件, 生成 AnimatorController 字段）。</summary>
+        AnimatorController,
+        /// <summary>Addressable 资源地址（拖资源自动填地址, 生成 string 字段, 运行时按地址加载）。</summary>
+        Addressable,
     }
 
     /// <summary>字段导出目标：客户端 / 服务器 / 两者。</summary>

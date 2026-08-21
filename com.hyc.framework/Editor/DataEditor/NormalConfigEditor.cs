@@ -86,6 +86,12 @@ namespace HYC.Framework.Config.Editor
                     menu.ShowAsContext();
                 }
                 var prevW = GUILayoutUtility.GetLastRect().width;
+                // 模型预览窗口按钮(AA 地址或 GameObject 字段)
+                if (GUILayout.Button("模型预览", EditorStyles.toolbarButton, GUILayout.Width(72)))
+                {
+                    var field = mPreviewFields[mPreviewIndex];
+                    OpenModelPreview(field);
+                }
                 GUILayout.FlexibleSpace();
                 EditorGUILayout.EndHorizontal();
 
@@ -141,6 +147,60 @@ namespace HYC.Framework.Config.Editor
             }
 
             mTarget.ApplyModifiedProperties();
+        }
+
+        /// <summary>打开模型预览窗口: 支持 Addressable(string) 和 GameObject 字段。</summary>
+        private void OpenModelPreview(PreviewField field)
+        {
+            var prop = mTarget.FindProperty(field.Name);
+            string address = null;
+
+            // Addressable 字段(string) 或 GameObject 字段
+            if (prop.propertyType == SerializedPropertyType.String)
+            {
+                address = prop.stringValue;
+                if (string.IsNullOrEmpty(address))
+                {
+                    EditorUtility.DisplayDialog("预览", $"字段 {field.Name} 地址为空", "确定");
+                    return;
+                }
+                // 收集动画字段映射(字段名 → 动画名)供预览标注
+                var mapping = CollectAnimFieldMapping();
+                var win = ConfigModelPreviewWindow.OpenWindow(address);
+                win.SetAnimMapping(mapping);
+                return;
+            }
+
+            if (prop.propertyType == SerializedPropertyType.ObjectReference)
+            {
+                var go = prop.objectReferenceValue as GameObject;
+                if (go == null)
+                {
+                    EditorUtility.DisplayDialog("预览", $"字段 {field.Name} 未选择模型", "确定");
+                    return;
+                }
+                // GameObject 直接预览
+                var mapping = CollectAnimFieldMapping();
+                var win = ConfigModelPreviewWindow.OpenWindow(AssetDatabase.GetAssetPath(go));
+                win.SetAnimMapping(mapping);
+                return;
+            }
+        }
+
+        /// <summary>收集配置里的动画字段映射(字段名 → 动画名), 供预览标注"已用于"。</summary>
+        private Dictionary<string, string> CollectAnimFieldMapping()
+        {
+            var mapping = new Dictionary<string, string>();
+            var so = new SerializedObject(mTarget.targetObject);
+            var prop = so.GetIterator();
+            while (prop.NextVisible(true))
+            {
+                if (prop.propertyType == SerializedPropertyType.ObjectReference && prop.objectReferenceValue is AnimationClip clip)
+                {
+                    mapping[prop.displayName] = clip.name;
+                }
+            }
+            return mapping;
         }
 
         private List<PreviewField> CollectPreviewFields()

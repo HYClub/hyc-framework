@@ -24,6 +24,7 @@ MonoBehaviour:
     type: 2
     isList: 0
     refTypeFullName: 
+    enumRefClassName: 
     exportTarget: 2
     hasRange: 0
     minValue: 0
@@ -36,6 +37,7 @@ MonoBehaviour:
     type: 0
     isList: 0
     refTypeFullName: 
+    enumRefClassName: 
     exportTarget: 2
     hasRange: 0
     minValue: 0

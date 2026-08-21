@@ -31,13 +31,48 @@ namespace HYC.Framework.BT.Editor
                 return false;
             }
 
-            // 1. 按 Connections 构造 children(源节点聚合目标节点)
+            // 校验: 有且仅有一个 Root, 且 Root 必须连出(连到实际逻辑)
+            var rootCount = asset.Nodes.Count(n => n.Type == BTNodeType.Root);
+            if (rootCount == 0)
+            {
+                Debug.LogError("[BT] 树缺少 Root 入口节点(右键菜单 入口/开始 添加), 无法导出");
+                return false;
+            }
+            if (rootCount > 1)
+            {
+                Debug.LogError("[BT] 树存在多个 Root 节点, 只允许一个, 无法导出");
+                return false;
+            }
+            var rootNode = asset.Nodes.First(n => n.Type == BTNodeType.Root);
+            var rootOut = asset.Connections.Count(c => c.SourceNodeId == rootNode.NodeId);
+            if (rootOut == 0)
+            {
+                Debug.LogError("[BT] Root 节点未连线(连到实际起始逻辑), 无法导出");
+                return false;
+            }
+
+            // 1. 按 Connections 构造 children(源节点聚合目标节点, 按 PortIndex 排序保证执行顺序)
             var childMap = new Dictionary<long, List<long>>();
             foreach (var n in asset.Nodes) childMap[n.NodeId] = new List<long>();
+            var childOrder = new Dictionary<long, Dictionary<long, int>>(); // 源 → (目标, 端口序)
             foreach (var c in asset.Connections)
             {
-                if (childMap.TryGetValue(c.SourceNodeId, out var list) && !list.Contains(c.TargetNodeId))
-                    list.Add(c.TargetNodeId);
+                if (!childOrder.TryGetValue(c.SourceNodeId, out var m))
+                {
+                    m = new Dictionary<long, int>();
+                    childOrder[c.SourceNodeId] = m;
+                }
+                if (!m.ContainsKey(c.TargetNodeId))
+                    m[c.TargetNodeId] = c.PortIndex;
+            }
+            foreach (var kv in childOrder)
+            {
+                if (!childMap.ContainsKey(kv.Key)) continue;
+                // 按端口序升序
+                var sorted = kv.Value.OrderBy(p => p.Value).Select(p => p.Key);
+                foreach (var t in sorted)
+                    if (!childMap[kv.Key].Contains(t))
+                        childMap[kv.Key].Add(t);
             }
 
             // 2. 节点顺序: 保持资产列表顺序, 建立 NodeId → 索引

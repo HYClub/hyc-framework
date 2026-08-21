@@ -170,7 +170,15 @@ namespace HYC.Framework.Config.Editor
             if (field.ReadOnly)
                 GUI.enabled = false;
 
-            if (field.Multiple && field.Type == typeof(string))
+            if (field.IsAddressable && prop.propertyType == SerializedPropertyType.String)
+            {
+                DrawAddressableField(prop, field);
+            }
+            else if (field.IsBehaviourTree && prop.propertyType == SerializedPropertyType.Integer)
+            {
+                DrawBehaviourTreeField(prop, field);
+            }
+            else if (field.Multiple && field.Type == typeof(string))
             {
                 // 多行字段：label 行也空出 16px 图标位对齐
                 EditorGUILayout.BeginHorizontal();
@@ -301,6 +309,90 @@ namespace HYC.Framework.Config.Editor
         /// 多语言 key 字段专用绘制：输入框 + 联想 + 选择弹窗 + 翻译 tooltip + 即时校验。
         /// loc 包未安装时退化为普通 string 输入。
         /// </summary>
+        /// <summary>Addressable 字段：拖入资源自动填它的 AA 地址。</summary>
+        private static void DrawAddressableField(SerializedProperty prop, GUITypeField field)
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(16);
+            var oldLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = 200;
+
+            string current = prop.stringValue;
+            UnityEngine.Object currentObj = null;
+            if (!string.IsNullOrEmpty(current))
+            {
+                try
+                {
+                    var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetAsync<UnityEngine.Object>(current);
+                    currentObj = handle.WaitForCompletion();
+                }
+                catch { currentObj = null; }
+            }
+
+            var newObj = EditorGUILayout.ObjectField(field.Label, currentObj, typeof(UnityEngine.Object), false);
+            if (newObj != currentObj)
+            {
+                if (newObj != null)
+                {
+                    var address = GetAddressableAddress(newObj);
+                    prop.stringValue = string.IsNullOrEmpty(address) ? newObj.name : address;
+                }
+                else
+                {
+                    prop.stringValue = "";
+                }
+            }
+
+            EditorGUIUtility.labelWidth = oldLabelWidth;
+            EditorGUILayout.EndHorizontal();
+            if (!string.IsNullOrEmpty(current))
+                EditorGUILayout.LabelField("地址: " + current, EditorStyles.miniLabel);
+        }
+
+        /// <summary>取资源的 Addressable 地址(从 AA 设置查)。</summary>
+        private static string GetAddressableAddress(UnityEngine.Object obj)
+        {
+            var guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(obj));
+            var settings = UnityEditor.AddressableAssets.AddressableAssetSettingsDefaultObject.Settings;
+            if (settings != null)
+            {
+                var entry = settings.FindAssetEntry(guid);
+                if (entry != null) return entry.address;
+            }
+            return null;
+        }
+
+        /// <summary>行为树字段：列出项目内所有 BTTreeAsset, 选择后写入 TreeId。</summary>
+        private static void DrawBehaviourTreeField(SerializedProperty prop, GUITypeField field)
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(16);
+            var oldLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = 200;
+
+            long current = prop.longValue;
+            var allTrees = AssetDatabase.FindAssets("t:HYC.Framework.BT.Editor.BTTreeAsset");
+            var names = new System.Collections.Generic.List<string> { "(无)" };
+            var ids = new System.Collections.Generic.List<long> { 0 };
+            foreach (var g in allTrees)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(g);
+                var tree = AssetDatabase.LoadAssetAtPath<HYC.Framework.BT.Editor.BTTreeAsset>(path);
+                if (tree == null) continue;
+                names.Add($"{tree.TreeId}: {tree.name}");
+                ids.Add(tree.TreeId);
+            }
+
+            int idx = names.Count > 0 ? ids.IndexOf(current) : 0;
+            if (idx < 0) idx = 0;
+            int chosen = EditorGUILayout.Popup(field.Label, idx, names.ToArray());
+            if (chosen >= 0 && chosen < ids.Count && ids[chosen] != current)
+                prop.longValue = ids[chosen];
+
+            EditorGUIUtility.labelWidth = oldLabelWidth;
+            EditorGUILayout.EndHorizontal();
+        }
+
         private static void DrawLocKeyField(SerializedProperty prop, GUITypeField field)
         {
             // 输入框失焦 → 关闭联想窗口

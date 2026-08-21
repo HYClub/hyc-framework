@@ -193,6 +193,12 @@ namespace HYC.Framework.Config.Editor
                 // 多语言 key：加 [LocKey] 特性（数据编辑器据此绘制联想/选择/tooltip/校验）
                 if (field.type == ConfigFieldType.LocalizedKey)
                     fieldLines.AppendLine("        [LocKey]");
+                // 行为树：加 [BehaviourTreeField] 特性（数据编辑器据此绘制树选择下拉）
+                if (field.type == ConfigFieldType.BehaviourTree)
+                    fieldLines.AppendLine("        [BehaviourTreeField]");
+                // Addressable：加 [AddressableField] 特性（数据编辑器据此绘制拖资源框）
+                if (field.type == ConfigFieldType.Addressable)
+                    fieldLines.AppendLine("        [AddressableField]");
 
                 fieldLines.AppendLine($"        public {typeName} {field.name};");
             }
@@ -441,6 +447,7 @@ namespace HYC.Framework.Config.Editor
                 case ConfigFieldType.Short: baseName = "short"; break;
                 case ConfigFieldType.Byte: baseName = "byte"; break;
                 case ConfigFieldType.UInt: baseName = "uint"; break;
+                case ConfigFieldType.BehaviourTree: baseName = "long"; break;
                 default:
                     // 其他类型 Blob 暂不支持，退回 int 占位
                     baseName = "int";
@@ -598,6 +605,7 @@ namespace HYC.Framework.Config.Editor
                 case ConfigFieldType.UInt: baseName = "uint"; break;
                 case ConfigFieldType.Char: baseName = "char"; break;
                 case ConfigFieldType.Decimal: baseName = "decimal"; break;
+                case ConfigFieldType.BehaviourTree: baseName = "long"; break;
                 default:
                 {
                     // UnityEngine 类型
@@ -636,6 +644,12 @@ namespace HYC.Framework.Config.Editor
                         break;
                     }
 
+                    if (field.type == ConfigFieldType.Addressable)
+                    {
+                        baseName = "string";
+                        break;
+                    }
+
                     return null;
                 }
             }
@@ -663,6 +677,8 @@ namespace HYC.Framework.Config.Editor
                 case ConfigFieldType.Shader: return "Shader";
                 case ConfigFieldType.TextAsset: return "TextAsset";
                 case ConfigFieldType.Object: return "Object";
+                case ConfigFieldType.AnimationClip: return "AnimationClip";
+                case ConfigFieldType.AnimatorController: return "AnimatorController";
                 case ConfigFieldType.Vector2: return "Vector2";
                 case ConfigFieldType.Vector3: return "Vector3";
                 case ConfigFieldType.Vector4: return "Vector4";

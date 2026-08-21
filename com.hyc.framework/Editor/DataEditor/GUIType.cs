@@ -91,6 +91,8 @@ namespace HYC.Framework.Config.Editor
                 guiField.FlatDisplay = field.GetCustomAttributes(typeof(FlatDisplayAttribute), true).Length > 0;
                 guiField.Line = field.GetCustomAttributes(typeof(LineAttribute), true).Length > 0;
                 guiField.IsLocKey = field.GetCustomAttributes(typeof(LocKeyAttribute), true).Length > 0;
+                guiField.IsBehaviourTree = field.GetCustomAttributes(typeof(BehaviourTreeFieldAttribute), true).Length > 0;
+                guiField.IsAddressable = field.GetCustomAttributes(typeof(AddressableFieldAttribute), true).Length > 0;
                 guiField.Infos = field.GetCustomAttributes<InfoBoxAttribute>(true).ToArray();
 
                 Fields.Add(guiField);

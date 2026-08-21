@@ -817,6 +817,11 @@ namespace HYC.Framework.Config.Editor
             { ConfigFieldType.GameObject, "Unity 对象/游戏对象" },
             { ConfigFieldType.AudioClip, "Unity 对象/音频" },
             { ConfigFieldType.Font, "Unity 对象/文本" },
+            // 框架能力
+            { ConfigFieldType.BehaviourTree, "框架/行为树" },
+            { ConfigFieldType.AnimationClip, "框架/动画片段" },
+            { ConfigFieldType.AnimatorController, "框架/动画控制器" },
+            { ConfigFieldType.Addressable, "框架/资源地址" },
             { ConfigFieldType.TextAsset, "Unity 对象/文本" },
             { ConfigFieldType.Object, "Unity 对象/通用" },
             // 多语言（仅 loc 包已安装时可用）
@@ -936,6 +941,14 @@ namespace HYC.Framework.Config.Editor
             }
             if (f.type == ConfigFieldType.LocalizedKey)
                 return "多语言Key";
+            if (f.type == ConfigFieldType.BehaviourTree)
+                return "行为树";
+            if (f.type == ConfigFieldType.AnimationClip)
+                return "动画片段";
+            if (f.type == ConfigFieldType.AnimatorController)
+                return "动画控制器";
+            if (f.type == ConfigFieldType.Addressable)
+                return "资源地址";
             return f.type.ToString();
         }
 

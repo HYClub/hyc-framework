@@ -21,6 +21,9 @@ namespace HYC.Framework.BT
 
         /// <summary>游戏层自定义节点回调(按子类型 subType 分发), 由游戏层注册。</summary>
         public BTGameActionHandler GameHandler;
+
+        /// <summary>游戏层注入的世界数据(自定义节点读取用), 由驱动系统设置。</summary>
+        public BTCustomNodeContext GameContext;
     }
 
     /// <summary>
