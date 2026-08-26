@@ -28,21 +28,21 @@
 | --- | --- |
 | Unity | `2022.3` 或以上 |
 | `com.unity.addressables` | `1.21.21` |
-| `com.unity.entities`（DOTS / ECS） | 与 Unity 2022.3 配套版本 |
+| `com.unity.entities`（DOTS / ECS） | `>= 1.0.16`（Unity 2022.3 验证；Unity 6.x 以 `#if UNITY_6000_0_OR_NEWER` 分版本适配） |
 | NPOI（仅编辑器，Excel 本地化导入） | — |
 
 ---
 
 ## 🚀 安装
 
-本仓库即一个标准 Unity 包（根目录含 `package.json`），可直接作为 **publish 库** 通过 Package Manager 以 Git URL 安装。
+> ⚠️ 本仓库为**私有库**：HTTPS 方式需要 access token（`https://<token>@github.com/...`）或本机已配置 SSH key；包位于 `com.hyc.framework/` 子目录，安装 URL 必须带 `?path=com.hyc.framework`。
 
 ### 方式一：Package Manager（Git URL）
 
 Unity 菜单 **Window → Package Manager → 左上角 `+` → Add package from git URL**，填入：
 
 ```
-https://github.com/HYClub/hyc-framework.git
+https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 ```
 
 ### 方式二：直接编辑 manifest.json
@@ -52,14 +52,14 @@ https://github.com/HYClub/hyc-framework.git
 ```json
 {
   "dependencies": {
-    "com.hyc.framework": "https://github.com/HYClub/hyc-framework.git"
+    "com.hyc.framework": "https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework"
   }
 }
 ```
 
-> 💡 建议通过 `#<tag>` 或 `#<commit>` 锁定版本，例如
-> `https://github.com/HYClub/hyc-framework.git#v2.0.4`
-> （需仓库打对应 tag，便于可复现地引用某个发布版本）。
+> 💡 可追加 `#<tag>` 或 `#<commit>` 锁定版本，例如
+> `https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework#v2.1.0`
+> （建议基于当前 `main` 打一个 tag，便于可复现地引用某个发布版本）。
 
 ---
 
@@ -342,26 +342,28 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 ## 📁 目录结构
 
 ```
-com.hyc.framework/
-├── package.json            # Unity 包清单（publish 库）
-├── README.md
-├── LICENSE
-├── CHANGELOG.md
-├── Runtime/                # 运行时代码（HYC.Framework.Runtime.asmdef）
-│   ├── Bootstrap.cs / Simulation.cs / UpdateGroups.cs
-│   ├── ConfigManager.cs / BlobTable.cs / ConfigTemplate.cs
-│   ├── Localization*.cs
-│   ├── UIManager.cs / AbsUISystem.cs / Binder.cs
-│   ├── HotkeyManager.cs / InputDevice.cs
-│   ├── CutsceneDirector.cs
-│   ├── BT/                 # 行为树运行时
-│   ├── Components/ / ToolTip/ / Attributes/
-│   └── ...
-└── Editor/                 # 编辑器工具（HYC.Framework.Editor.asmdef）
-    ├── ConfigGenerator.cs / ComponentBinderCodeGenerator.cs / ExcelReader.cs
-    ├── LocaleWindow.cs / LocalizedExcelReader.cs
-    ├── BT/                 # 行为树可视化编辑器
-    └── DataEditor/
+hyc-framework/                 ← 仓库根
+├── README.md                  ← 仓库 README（GitHub 主页）
+├── com.hyc.framework/         ← Unity 包（package.json 在此）
+│   ├── package.json
+│   ├── LICENSE
+│   ├── CHANGELOG.md
+│   ├── README.md              ← 包内 README（Package Manager 展示）
+│   ├── Runtime/               # 运行时代码（HYC.Framework.Runtime.asmdef）
+│   │   ├── Bootstrap.cs / Simulation.cs / UpdateGroups.cs
+│   │   ├── ConfigManager.cs / BlobTable.cs / ConfigTemplate.cs
+│   │   ├── Localization*.cs
+│   │   ├── UIManager.cs / AbsUISystem.cs / Binder.cs
+│   │   ├── HotkeyManager.cs / InputDevice.cs
+│   │   ├── CutsceneDirector.cs
+│   │   ├── BT/                 # 行为树运行时
+│   │   ├── Components/ / ToolTip/ / Attributes/
+│   │   └── ...
+│   └── Editor/                # 编辑器工具（HYC.Framework.Editor.asmdef）
+│       ├── ConfigGenerator.cs / ComponentBinderCodeGenerator.cs / ExcelReader.cs
+│       ├── LocaleWindow.cs / LocalizedExcelReader.cs
+│       ├── BT/                 # 行为树可视化编辑器
+│       └── DataEditor/
 ```
 
 ---

@@ -16,9 +16,9 @@
         "input"
     ],
     "category": "HYC Framework",
-    "documentationUrl": "https://github.com/HYClub/hyc-framework#readme",
-    "changelogUrl": "https://github.com/HYClub/hyc-framework/blob/main/CHANGELOG.md",
-    "licensesUrl": "https://github.com/HYClub/hyc-framework/blob/main/LICENSE",
+    "documentationUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/README.md",
+    "changelogUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md",
+    "licensesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE",
     "dependencies": {
         "com.unity.addressables": "1.21.21"
     }
