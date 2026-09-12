@@ -349,8 +349,8 @@ namespace HYC.Framework.Config.Editor
                 EditorGUILayout.LabelField("地址: " + current, EditorStyles.miniLabel);
         }
 
-        /// <summary>取资源的 Addressable 地址(从 AA 设置查)。</summary>
-        private static string GetAddressableAddress(UnityEngine.Object obj)
+        /// <summary>取资源的 Addressable 地址(从 AA 设置查)。未注册返回 null。</summary>
+        public static string GetAddressableAddress(UnityEngine.Object obj)
         {
             var guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(obj));
             var settings = UnityEditor.AddressableAssets.AddressableAssetSettingsDefaultObject.Settings;

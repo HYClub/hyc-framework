@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -48,7 +49,7 @@ namespace HYC.Framework.Config.Editor
 
             // 页签切换
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            mActiveTab = GUILayout.Toolbar(mActiveTab, new[] { "基础", "字段", "字段检查配置" }, EditorStyles.toolbarButton);
+            mActiveTab = GUILayout.Toolbar(mActiveTab, new[] { "基础", "字段", "字段检查配置", "导出" }, EditorStyles.toolbarButton);
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(4);
@@ -63,9 +64,13 @@ namespace HYC.Framework.Config.Editor
             {
                 DrawFieldsTab(ref classValid);
             }
-            else
+            else if (mActiveTab == 2)
             {
                 DrawChecksTab();
+            }
+            else
+            {
+                DrawExportTab();
             }
 
             EditorGUILayout.EndScrollView();
@@ -331,6 +336,252 @@ namespace HYC.Framework.Config.Editor
                 "每项检查可独立选择级别：不检查 / Info / Warning / Error。\n" +
                 "选择\u201c范围\u201d级别后需在字段页设置 Min/Max 值。",
                 MessageType.Info);
+        }
+
+        // ---------- “导出”页：每字段 客户端/服务端 导出设置 ----------
+
+        private class ExportOption
+        {
+            public string Label;
+            public ConfigFieldExportMode Mode;
+            public string Member;
+            public ConfigFixedStringSize Size;
+
+            public ExportOption(string label, ConfigFieldExportMode mode, string member = "",
+                ConfigFixedStringSize size = ConfigFixedStringSize.Size128)
+            {
+                Label = label;
+                Mode = mode;
+                Member = member ?? "";
+                Size = size;
+            }
+        }
+
+        private void DrawExportTab()
+        {
+            var tpl = mTarget.targetObject as ConfigTemplate;
+            if (tpl == null)
+                return;
+
+            EditorGUILayout.LabelField("导出设置（客户端/服务端分别选择导出取值），只影响生成的数据", EditorStyles.boldLabel);
+            EditorGUILayout.Space(2);
+
+            // 表头：字段名 | 类型 | 客户端导出 | 服务端导出
+            var headerRect = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
+            var w = headerRect.width;
+            var nameW = w * 0.26f;
+            var typeW = w * 0.20f;
+            var rest = w - nameW - typeW;
+            var colW = rest * 0.5f;
+            EditorGUI.LabelField(new Rect(headerRect.x, headerRect.y, nameW, headerRect.height), "字段名", EditorStyles.boldLabel);
+            EditorGUI.LabelField(new Rect(headerRect.x + nameW, headerRect.y, typeW, headerRect.height), "类型", EditorStyles.boldLabel);
+            EditorGUI.LabelField(new Rect(headerRect.x + nameW + typeW, headerRect.y, colW, headerRect.height), "客户端导出", EditorStyles.boldLabel);
+            EditorGUI.LabelField(new Rect(headerRect.x + nameW + typeW + colW, headerRect.y, colW, headerRect.height), "服务端导出", EditorStyles.boldLabel);
+            EditorGUILayout.Space(2);
+
+            var lineH = EditorGUIUtility.singleLineHeight + 2;
+            for (var i = 0; i < mFieldsProp.arraySize; i++)
+            {
+                if (tpl.fields == null || i >= tpl.fields.Count)
+                    continue;
+                var prop = mFieldsProp.GetArrayElementAtIndex(i);
+                var f = tpl.fields[i];
+                if (f == null)
+                    continue;
+
+                var row = EditorGUILayout.GetControlRect(true, lineH);
+                var x = row.x;
+                EditorGUI.LabelField(new Rect(x, row.y, nameW, row.height), f.name);
+                EditorGUI.LabelField(new Rect(x + nameW, row.y, typeW, row.height), FieldTypeLabel(f));
+
+                var clientX = x + nameW + typeW;
+                // 导出目标：客户端 0 / 服务器 1 / 两者 2
+                var clientEnabled = f.exportTarget != ConfigExportTarget.Server;
+                var serverEnabled = f.exportTarget != ConfigExportTarget.Client;
+                DrawSideExportPopup(prop, f, true, new Rect(clientX, row.y, colW - 2, row.height), clientEnabled);
+                DrawSideExportPopup(prop, f, false, new Rect(clientX + colW, row.y, colW - 2, row.height), serverEnabled);
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(
+                "每一侧可选：直接导出（默认） / 转字符串 / string 的 BlobString 或 FixedString 容量 / " +
+                "配置引用取成员(ID/GUID/标量字段) / 资源对象导出 名字、路径、Addressable 地址。\n" +
+                "FixedString 生成代码用官方 new FixedStringN(source) 初始化，超长抛异常不静默截断。",
+                MessageType.Info);
+        }
+
+        private void DrawSideExportPopup(SerializedProperty fieldProp, ConfigTemplateField f, bool client, Rect rect, bool enabled)
+        {
+            var oldEnabled = GUI.enabled;
+            if (!enabled)
+                GUI.enabled = false;
+
+            var setProp = fieldProp.FindPropertyRelative(client ? "clientExport" : "serverExport");
+            var modeProp = setProp.FindPropertyRelative("mode");
+            var memberProp = setProp.FindPropertyRelative("memberName");
+            var sizeProp = setProp.FindPropertyRelative("fixedStringSize");
+
+            var opts = BuildExportOptions(f);
+            var labels = new string[opts.Count];
+            var currentMode = modeProp.intValue;
+            var currentMember = memberProp.stringValue ?? "";
+            var currentSize = sizeProp.intValue;
+            var cur = 0;
+            for (var j = 0; j < opts.Count; j++)
+            {
+                labels[j] = opts[j].Label;
+                if ((int)opts[j].Mode == currentMode
+                    && string.Equals(opts[j].Member, currentMember)
+                    && (opts[j].Mode != ConfigFieldExportMode.FixedString || (int)opts[j].Size == currentSize))
+                    cur = j;
+            }
+
+            EditorGUI.BeginChangeCheck();
+            var idx = EditorGUI.Popup(rect, cur, labels);
+            if (EditorGUI.EndChangeCheck() && idx >= 0 && idx < opts.Count)
+            {
+                var o = opts[idx];
+                modeProp.intValue = (int)o.Mode;
+                memberProp.stringValue = o.Member ?? "";
+                sizeProp.intValue = (int)o.Size;
+                mTarget.ApplyModifiedProperties();
+            }
+
+            GUI.enabled = oldEnabled;
+        }
+
+        private static List<ExportOption> BuildExportOptions(ConfigTemplateField f)
+        {
+            var list = new List<ExportOption>();
+            if (f == null)
+                return list;
+
+            switch (f.type)
+            {
+                case ConfigFieldType.Reference:
+                {
+                    list.Add(new ExportOption("直接导出(整对象)", ConfigFieldExportMode.Direct));
+                    var refType = ResolveRefType(f.refTypeFullName);
+                    if (refType != null)
+                    {
+                        foreach (var fi in refType.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy))
+                        {
+                            var ft = fi.FieldType;
+                            if (!IsScalarMemberType(ft))
+                                continue;
+                            list.Add(new ExportOption($"取成员 {fi.Name} ({TypeShortName(ft)})", ConfigFieldExportMode.Member, fi.Name));
+                        }
+                    }
+                    break;
+                }
+                case ConfigFieldType.String:
+                case ConfigFieldType.LocalizedKey:
+                case ConfigFieldType.Addressable:
+                    list.Add(new ExportOption("直接导出(string)", ConfigFieldExportMode.Direct));
+                    list.Add(new ExportOption("BlobString", ConfigFieldExportMode.BlobString));
+                    list.Add(new ExportOption("FixedString32Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size32));
+                    list.Add(new ExportOption("FixedString64Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size64));
+                    list.Add(new ExportOption("FixedString128Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size128));
+                    list.Add(new ExportOption("FixedString512Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size512));
+                    list.Add(new ExportOption("FixedString4096Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size4096));
+                    break;
+                default:
+                {
+                    if (IsAssetExportType(f.type))
+                    {
+                        list.Add(new ExportOption("直接导出(对象)", ConfigFieldExportMode.Direct));
+                        list.Add(new ExportOption("名字", ConfigFieldExportMode.AssetName));
+                        list.Add(new ExportOption("路径(Assets/...)", ConfigFieldExportMode.AssetPath));
+                        list.Add(new ExportOption("AA地址", ConfigFieldExportMode.AssetAddressable));
+                        break;
+                    }
+
+                    // 数值/布尔/枚举/行为树/Unity结构：默认 + 转字符串
+                    list.Add(new ExportOption("直接导出", ConfigFieldExportMode.Direct));
+                    if (f.type == ConfigFieldType.Enum
+                        || IsNumericType(f.type)
+                        || f.type == ConfigFieldType.Bool
+                        || f.type == ConfigFieldType.Char
+                        || f.type == ConfigFieldType.BehaviourTree
+                        || IsVectorStructType(f.type))
+                    {
+                        list.Add(new ExportOption("转字符串(string)", ConfigFieldExportMode.ToString));
+                    }
+                    break;
+                }
+            }
+
+            if (list.Count == 0)
+                list.Add(new ExportOption("直接导出", ConfigFieldExportMode.Direct));
+            return list;
+        }
+
+        private static bool IsAssetExportType(ConfigFieldType type)
+        {
+            switch (type)
+            {
+                case ConfigFieldType.Sprite:
+                case ConfigFieldType.Texture2D:
+                case ConfigFieldType.GameObject:
+                case ConfigFieldType.AudioClip:
+                case ConfigFieldType.Material:
+                case ConfigFieldType.Mesh:
+                case ConfigFieldType.PhysicMaterial:
+                case ConfigFieldType.Font:
+                case ConfigFieldType.Shader:
+                case ConfigFieldType.TextAsset:
+                case ConfigFieldType.Object:
+                case ConfigFieldType.AnimationClip:
+                case ConfigFieldType.AnimatorController:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsVectorStructType(ConfigFieldType type)
+        {
+            switch (type)
+            {
+                case ConfigFieldType.Vector2:
+                case ConfigFieldType.Vector3:
+                case ConfigFieldType.Vector4:
+                case ConfigFieldType.Vector2Int:
+                case ConfigFieldType.Vector3Int:
+                case ConfigFieldType.Quaternion:
+                case ConfigFieldType.Color:
+                case ConfigFieldType.Color32:
+                case ConfigFieldType.Rect:
+                case ConfigFieldType.RectInt:
+                case ConfigFieldType.RectOffset:
+                case ConfigFieldType.Bounds:
+                case ConfigFieldType.BoundsInt:
+                case ConfigFieldType.Gradient:
+                case ConfigFieldType.AnimationCurve:
+                case ConfigFieldType.LayerMask:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsScalarMemberType(System.Type t)
+            => t.IsPrimitive || t.IsEnum || t == typeof(string);
+
+        private static string TypeShortName(System.Type t)
+        {
+            if (t == typeof(string)) return "string";
+            if (t == typeof(bool)) return "bool";
+            if (t == typeof(int)) return "int";
+            if (t == typeof(long)) return "long";
+            if (t == typeof(float)) return "float";
+            if (t == typeof(double)) return "double";
+            if (t == typeof(short)) return "short";
+            if (t == typeof(byte)) return "byte";
+            if (t == typeof(uint)) return "uint";
+            if (t == typeof(char)) return "char";
+            if (t == typeof(decimal)) return "decimal";
+            return t.Name;
         }
 
         /// <summary>级别下拉（不检查/Info/Warning/Error）。</summary>

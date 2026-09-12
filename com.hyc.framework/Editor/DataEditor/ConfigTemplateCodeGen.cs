@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -330,10 +331,10 @@ namespace HYC.Framework.Config.Editor
             var fieldLines = new StringBuilder();
             foreach (var field in declaredFields)
             {
-                var typeName = ResolveTypeName(field, usings, ref needsUnity, ref needsCollections);
+                var typeName = ExportFieldDeclTypeName(field, forClient, usings, ref needsUnity, ref needsCollections, out var typeError);
                 if (typeName == null)
                 {
-                    error = $"字段 {field.name} 的引用类型无法解析（可能已删除）";
+                    error = typeError ?? $"字段 {field.name} 的导出类型无法解析";
                     return null;
                 }
                 fieldLines.AppendLine($"        public {typeName} {field.name};");
@@ -365,14 +366,14 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("    {");
             sb.Append(fieldLines);
 
-            // From 赋值方法：始终平铺赋值全部导出字段（Editor 类字段公开可访问）
+            // From 赋值方法：始终平铺赋值全部导出字段（Editor 类字段公开可访问；按每侧导出设置投影）
             sb.AppendLine();
-            sb.AppendLine($"        /// <summary>从编辑器配置类赋值（仅导出目标匹配的字段，含继承字段）。</summary>");
+            sb.AppendLine($"        /// <summary>从编辑器配置类赋值（仅导出目标匹配的字段，含继承字段；按导出设置投影）。</summary>");
             sb.AppendLine($"        public static {className}{side} From({ns}.{className} editor)");
             sb.AppendLine("        {");
             sb.AppendLine($"            var r = new {className}{side}();");
             foreach (var f in flatFields)
-                sb.AppendLine($"            r.{f.name} = editor.{f.name};");
+                sb.AppendLine($"            r.{f.name} = {ExportFromValueExpr(f, forClient, $"editor.{f.name}")};");
             sb.AppendLine("            return r;");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
@@ -428,38 +429,21 @@ namespace HYC.Framework.Config.Editor
             return sb.ToString();
         }
 
-        /// <summary>编辑器配置类型 → Blob 类型名（string→BlobString, List→BlobArray）。</summary>
+        /// <summary>编辑器配置类型 → Blob 字段类型名（按客户端导出设置；string→BlobString/FixedString, List→BlobArray）。</summary>
         private static string BlobTypeName(ConfigTemplateField f, out bool isString, out bool isArray)
         {
             isString = false;
             isArray = false;
 
-            string baseName;
-            switch (f.type)
-            {
-                case ConfigFieldType.String: baseName = "BlobString"; isString = true; break;
-                case ConfigFieldType.LocalizedKey: baseName = "BlobString"; isString = true; break;
-                case ConfigFieldType.Int: baseName = "int"; break;
-                case ConfigFieldType.Long: baseName = "long"; break;
-                case ConfigFieldType.Float: baseName = "float"; break;
-                case ConfigFieldType.Double: baseName = "double"; break;
-                case ConfigFieldType.Bool: baseName = "bool"; break;
-                case ConfigFieldType.Short: baseName = "short"; break;
-                case ConfigFieldType.Byte: baseName = "byte"; break;
-                case ConfigFieldType.UInt: baseName = "uint"; break;
-                case ConfigFieldType.BehaviourTree: baseName = "long"; break;
-                default:
-                    // 其他类型 Blob 暂不支持，退回 int 占位
-                    baseName = "int";
-                    break;
-            }
-
+            var info = BlobElemInfoOf(f);
+            if (info.BlobString || info.FixedString)
+                isString = true;
             if (f.isList)
             {
                 isArray = true;
-                return $"BlobArray<{baseName}>";
+                return $"BlobArray<{info.TypeName}>";
             }
-            return baseName;
+            return info.TypeName;
         }
 
         /// <summary>生成 Blob 构建器（编辑器导出用）：BlobBuilder 构建 Cfg{ClassName} 表。</summary>
@@ -492,22 +476,35 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("        {");
             foreach (var f in clientFields)
             {
+                var info = BlobElemInfoOf(f);
                 if (f.isList)
                 {
                     sb.AppendLine($"            var arr{f.name} = builder.Allocate(ref target.{f.name}, data.{f.name}.Count);");
-                    if (f.type == ConfigFieldType.Enum)
-                        sb.AppendLine($"            for (var i = 0; i < data.{f.name}.Count; i++) arr{f.name}[i] = (int)data.{f.name}[i];");
-                    else if (f.type == ConfigFieldType.String || f.type == ConfigFieldType.LocalizedKey)
-                        sb.AppendLine($"            for (var i = 0; i < data.{f.name}.Count; i++) builder.AllocateString(ref arr{f.name}[i], data.{f.name}[i]);");
+                    if (info.BlobString || info.FixedString)
+                    {
+                        sb.AppendLine($"            for (var i = 0; i < data.{f.name}.Count; i++)");
+                        if (info.FixedString)
+                            sb.AppendLine($"                arr{f.name}[i] = new {info.TypeName}({BlobStringExpr(f, $"data.{f.name}[i]")});");
+                        else
+                            sb.AppendLine($"                builder.AllocateString(ref arr{f.name}[i], {BlobStringExpr(f, $"data.{f.name}[i]")});");
+                    }
                     else
-                        sb.AppendLine($"            for (var i = 0; i < data.{f.name}.Count; i++) arr{f.name}[i] = data.{f.name}[i];");
+                    {
+                        sb.AppendLine($"            for (var i = 0; i < data.{f.name}.Count; i++) arr{f.name}[i] = {BlobNumExpr(f, $"data.{f.name}[i]")};");
+                    }
                 }
-                else if (f.type == ConfigFieldType.String || f.type == ConfigFieldType.LocalizedKey)
-                    sb.AppendLine($"            builder.AllocateString(ref target.{f.name}, data.{f.name});");
-                else if (f.type == ConfigFieldType.Enum)
-                    sb.AppendLine($"            target.{f.name} = (int)data.{f.name};");
+                else if (info.FixedString)
+                {
+                    sb.AppendLine($"            target.{f.name} = new {info.TypeName}({BlobStringExpr(f, $"data.{f.name}")});");
+                }
+                else if (info.BlobString)
+                {
+                    sb.AppendLine($"            builder.AllocateString(ref target.{f.name}, {BlobStringExpr(f, $"data.{f.name}")});");
+                }
                 else
-                    sb.AppendLine($"            target.{f.name} = data.{f.name};");
+                {
+                    sb.AppendLine($"            target.{f.name} = {BlobNumExpr(f, $"data.{f.name}")};");
+                }
             }
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -696,6 +693,318 @@ namespace HYC.Framework.Config.Editor
                 case ConfigFieldType.AnimationCurve: return "AnimationCurve";
                 case ConfigFieldType.LayerMask: return "LayerMask";
                 default: return null;
+            }
+        }
+
+        // ---------- 导出设置（字段级投影：客户端/服务端各自解析） ----------
+
+        private static readonly ConfigFieldExportSetting s_DefaultExport = new ConfigFieldExportSetting();
+
+        private static ConfigFieldExportSetting ExportSettingOf(ConfigTemplateField f, bool forClient)
+        {
+            var s = forClient ? f.clientExport : f.serverExport;
+            return s ?? s_DefaultExport;
+        }
+
+        /// <summary>string-like 源类型（编辑器存储为 string）。</summary>
+        private static bool IsStringLike(ConfigFieldType type)
+            => type == ConfigFieldType.String || type == ConfigFieldType.LocalizedKey || type == ConfigFieldType.Addressable;
+
+        /// <summary>源字段是否为 Unity 资源/对象引用（编辑器存储为对象）。</summary>
+        private static bool IsAssetRefType(ConfigFieldType type)
+        {
+            switch (type)
+            {
+                case ConfigFieldType.Sprite:
+                case ConfigFieldType.Texture2D:
+                case ConfigFieldType.GameObject:
+                case ConfigFieldType.AudioClip:
+                case ConfigFieldType.Material:
+                case ConfigFieldType.Mesh:
+                case ConfigFieldType.PhysicMaterial:
+                case ConfigFieldType.Font:
+                case ConfigFieldType.Shader:
+                case ConfigFieldType.TextAsset:
+                case ConfigFieldType.Object:
+                case ConfigFieldType.AnimationClip:
+                case ConfigFieldType.AnimatorController:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>取配置引用目标类型上的某个成员字段类型。</summary>
+        private static Type MemberTypeOf(ConfigTemplateField f, string memberName, out string error)
+        {
+            error = null;
+            var t = Type.GetType(f.refTypeFullName);
+            if (t == null)
+            {
+                error = $"字段 {f.name} 的引用类型无法解析（可能未生成）";
+                return null;
+            }
+            var fi = t.GetField(memberName,
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+            if (fi == null)
+            {
+                error = $"字段 {f.name} 的引用类型 {t.Name} 上没有成员 {memberName}";
+                return null;
+            }
+            return fi.FieldType;
+        }
+
+        private static bool IsScalarType(Type t)
+            => t.IsPrimitive || t.IsEnum || t == typeof(string);
+
+        /// <summary>CLR 类型 → 生成代码里可用的类型名（基础类型关键字 / 类型名 + using）。</summary>
+        private static string CsTypeName(Type t, SortedSet<string> usings, out string error)
+        {
+            error = null;
+            if (t == typeof(string)) return "string";
+            if (t == typeof(bool)) return "bool";
+            if (t == typeof(byte)) return "byte";
+            if (t == typeof(sbyte)) return "sbyte";
+            if (t == typeof(short)) return "short";
+            if (t == typeof(ushort)) return "ushort";
+            if (t == typeof(int)) return "int";
+            if (t == typeof(uint)) return "uint";
+            if (t == typeof(long)) return "long";
+            if (t == typeof(ulong)) return "ulong";
+            if (t == typeof(float)) return "float";
+            if (t == typeof(double)) return "double";
+            if (t == typeof(decimal)) return "decimal";
+            if (t == typeof(char)) return "char";
+            if (!string.IsNullOrEmpty(t.Namespace) && t.Namespace != ConfigDataSettings.Namespace)
+                usings.Add(t.Namespace);
+            return t.Name;
+        }
+
+        /// <summary>计算某侧导出字段在 DTO/JSON 类型里的类型名（Direct 保持原逻辑）。</summary>
+        private static string ExportFieldDeclTypeName(ConfigTemplateField f, bool forClient,
+            SortedSet<string> usings, ref bool needsUnity, ref bool needsCollections, out string error)
+        {
+            error = null;
+            var setting = ExportSettingOf(f, forClient);
+            if (setting.IsDirect)
+                return ResolveTypeName(f, usings, ref needsUnity, ref needsCollections);
+
+            string elem;
+            switch (setting.mode)
+            {
+                case ConfigFieldExportMode.ToString:
+                case ConfigFieldExportMode.AssetName:
+                case ConfigFieldExportMode.AssetPath:
+                case ConfigFieldExportMode.AssetAddressable:
+                    elem = "string";
+                    break;
+                case ConfigFieldExportMode.BlobString:
+                case ConfigFieldExportMode.FixedString:
+                    if (!IsStringLike(f.type))
+                    {
+                        error = $"字段 {f.name} 的\"{setting.mode}\"只能用于字符串字段";
+                        return null;
+                    }
+                    // DTO/JSON 侧仍是 string；Blob 侧由 Blob 生成器按此选择编码
+                    elem = "string";
+                    break;
+                case ConfigFieldExportMode.Member:
+                {
+                    if (f.type != ConfigFieldType.Reference)
+                    {
+                        error = $"字段 {f.name} 选了\"取成员\"但不是配置引用字段";
+                        return null;
+                    }
+                    if (string.IsNullOrEmpty(setting.memberName))
+                    {
+                        error = $"字段 {f.name} 选了\"取成员\"但未选择成员";
+                        return null;
+                    }
+                    var mt = MemberTypeOf(f, setting.memberName, out error);
+                    if (mt == null) return null;
+                    if (!IsScalarType(mt))
+                    {
+                        error = $"字段 {f.name} 的成员 {setting.memberName} 不是标量类型";
+                        return null;
+                    }
+                    elem = CsTypeName(mt, usings, out error);
+                    if (elem == null) return null;
+                    break;
+                }
+                default:
+                    error = $"字段 {f.name} 的导出方式未实现: {setting.mode}";
+                    return null;
+            }
+
+            if (f.isList)
+            {
+                needsCollections = true;
+                return $"List<{elem}>";
+            }
+            return elem;
+        }
+
+        /// <summary>生成 From 赋值右侧表达式（editor 表达式）。Direct/BlobString/FixedString 直接赋值原字段。</summary>
+        private static string ExportFromValueExpr(ConfigTemplateField f, bool forClient, string editorExpr)
+        {
+            var setting = ExportSettingOf(f, forClient);
+            switch (setting.mode)
+            {
+                case ConfigFieldExportMode.ToString:
+                    if (f.isList)
+                        return $"{editorExpr} == null ? null : {editorExpr}.ConvertAll(v => v.ToString())";
+                    return $"{editorExpr}.ToString()";
+                case ConfigFieldExportMode.Member:
+                    if (f.isList)
+                        return $"{editorExpr} == null ? null : {editorExpr}.ConvertAll(v => v == null ? default : v.{setting.memberName})";
+                    return $"{editorExpr} != null ? {editorExpr}.{setting.memberName} : default";
+                case ConfigFieldExportMode.AssetName:
+                    if (f.isList)
+                        return $"{editorExpr} == null ? null : {editorExpr}.ConvertAll(v => v == null ? null : v.name)";
+                    return $"{editorExpr} != null ? {editorExpr}.name : null";
+                case ConfigFieldExportMode.AssetPath:
+                case ConfigFieldExportMode.AssetAddressable:
+                    // 需编辑器 API（AssetDatabase/Addressables）在导出时解析，From 阶段置空由导出器回填
+                    return "null";
+                default:
+                    return editorExpr;
+            }
+        }
+
+        // ---------- Blob（客户端）字段级写入辅助 ----------
+
+        private sealed class BlobElemInfo
+        {
+            public string TypeName;
+            public bool BlobString;
+            public bool FixedString;
+        }
+
+        /// <summary>客户端字段在 Blob 里的元素类型 + 存储方式（按客户端导出设置）。</summary>
+        private static BlobElemInfo BlobElemInfoOf(ConfigTemplateField f)
+        {
+            var info = new BlobElemInfo();
+            var set = ExportSettingOf(f, true);
+            var type = f.type;
+
+            // 显式 FixedString（仅字符串源字段可选）
+            if (set.mode == ConfigFieldExportMode.FixedString && IsStringLike(type))
+            {
+                info.TypeName = $"FixedString{(int)set.fixedStringSize}Bytes";
+                info.FixedString = true;
+                return info;
+            }
+
+            // 配置引用取成员：string 成员 → BlobString；枚举 → int；其他标量数值 → 同类型
+            if (set.mode == ConfigFieldExportMode.Member)
+            {
+                var mt = MemberTypeOf(f, set.memberName, out _);
+                if (mt != null && IsScalarType(mt))
+                {
+                    if (mt == typeof(string))
+                    {
+                        info.TypeName = "BlobString";
+                        info.BlobString = true;
+                        return info;
+                    }
+                    if (mt.IsEnum)
+                    {
+                        info.TypeName = "int";
+                        return info;
+                    }
+                    info.TypeName = CsTypeName(mt, new SortedSet<string>(), out _);
+                    return info;
+                }
+            }
+
+            // string 类源 / 资源名字 / 数值转字符串 → BlobString
+            if (IsStringLike(type)
+                || set.mode == ConfigFieldExportMode.AssetName
+                || (set.mode == ConfigFieldExportMode.ToString && !IsStringLike(type)))
+            {
+                info.TypeName = "BlobString";
+                info.BlobString = true;
+                return info;
+            }
+
+            // Direct / 其他：沿用原有映射；仍不支持的类型沿用 int 回退（历史行为）
+            switch (type)
+            {
+                case ConfigFieldType.Int: info.TypeName = "int"; break;
+                case ConfigFieldType.Long: info.TypeName = "long"; break;
+                case ConfigFieldType.Float: info.TypeName = "float"; break;
+                case ConfigFieldType.Double: info.TypeName = "double"; break;
+                case ConfigFieldType.Bool: info.TypeName = "bool"; break;
+                case ConfigFieldType.Short: info.TypeName = "short"; break;
+                case ConfigFieldType.Byte: info.TypeName = "byte"; break;
+                case ConfigFieldType.UInt: info.TypeName = "uint"; break;
+                case ConfigFieldType.BehaviourTree: info.TypeName = "long"; break;
+                case ConfigFieldType.Enum: info.TypeName = "int"; break;
+                default: info.TypeName = "int"; break;
+            }
+            return info;
+        }
+
+        /// <summary>数值型 Blob 赋值表达式（成员导出/枚举带转换）。</summary>
+        private static string BlobNumExpr(ConfigTemplateField f, string e)
+        {
+            var set = ExportSettingOf(f, true);
+            if (set.mode == ConfigFieldExportMode.Member)
+            {
+                var mt = MemberTypeOf(f, set.memberName, out _);
+                if (mt != null && mt.IsEnum)
+                    return $"(int)({e} == null ? default : {e}.{set.memberName})";
+                return $"{e} == null ? default : {e}.{set.memberName}";
+            }
+            if (f.type == ConfigFieldType.Enum)
+                return $"(int){e}";
+            return e;
+        }
+
+        /// <summary>字符串型 Blob 赋值源表达式（直接串/资源名/成员串/数值 ToString）。</summary>
+        private static string BlobStringExpr(ConfigTemplateField f, string e)
+        {
+            var set = ExportSettingOf(f, true);
+            if (IsStringLike(f.type))
+                return e;
+            if (set.mode == ConfigFieldExportMode.AssetName)
+                return $"{e} == null ? null : {e}.name";
+            if (set.mode == ConfigFieldExportMode.Member)
+            {
+                var mt = MemberTypeOf(f, set.memberName, out _);
+                if (mt == typeof(string))
+                    return $"{e} == null ? null : {e}.{set.memberName}";
+                return $"{e}.ToString()";
+            }
+            if (set.mode == ConfigFieldExportMode.ToString)
+                return $"{e}.ToString()";
+            return e;
+        }
+
+        /// <summary>在导出器生成的 JSON 分支里，为“路径/AA地址”字段回填编辑器解析后的字符串。</summary>
+        private static void AppendJsonAssetOverrides(StringBuilder sb, ConfigTemplate template, bool client, string dtoVar, string dataExpr, string indent)
+        {
+            foreach (var f in GetExportFields(template, client))
+            {
+                var set = ExportSettingOf(f, client);
+                if (set.mode != ConfigFieldExportMode.AssetPath && set.mode != ConfigFieldExportMode.AssetAddressable)
+                    continue;
+
+                var expr = $"{dataExpr}.{f.name}";
+                string value;
+                if (set.mode == ConfigFieldExportMode.AssetPath)
+                {
+                    value = f.isList
+                        ? $"{expr} == null ? null : {expr}.ConvertAll(o => o == null ? null : UnityEditor.AssetDatabase.GetAssetPath(o))"
+                        : $"{expr} == null ? null : UnityEditor.AssetDatabase.GetAssetPath({expr})";
+                }
+                else
+                {
+                    value = f.isList
+                        ? $"{expr} == null ? null : {expr}.ConvertAll(o => o == null ? null : HYC.Framework.Config.Editor.GUIDrawer.GetAddressableAddress(o))"
+                        : $"{expr} == null ? null : HYC.Framework.Config.Editor.GUIDrawer.GetAddressableAddress({expr})";
+                }
+                sb.AppendLine($"{indent}{dtoVar}.{f.name} = {value};");
             }
         }
 
@@ -1315,6 +1624,7 @@ namespace HYC.Framework.Config.Editor
                 sb.AppendLine($"                    var errs = {className}Check.Check(asset);");
                 sb.AppendLine("                    if (errs.Count > 0) { BuildErrorWindow.OpenWindow(errs); return false; }");
                 sb.AppendLine($"                    var client = {ns}.Client.{className}Client.From(asset);");
+                AppendJsonAssetOverrides(sb, template, true, "client", "asset", "                    ");
                 sb.AppendLine("                    var json = JsonConvert.SerializeObject(client, Formatting.Indented);");
                 sb.AppendLine("                    File.WriteAllText(Path.Combine(dir, asset.name + \".json\"), json);");
                 sb.AppendLine("                }");
@@ -1332,7 +1642,9 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("                    if (asset == null) continue;");
             sb.AppendLine($"                    var errs = {className}Check.Check(asset);");
             sb.AppendLine("                    if (errs.Count > 0) { BuildErrorWindow.OpenWindow(errs); return false; }");
-            sb.AppendLine($"                    list.Add({ns}.Server.{className}Server.From(asset));");
+                sb.AppendLine($"                    var server = {ns}.Server.{className}Server.From(asset);");
+                AppendJsonAssetOverrides(sb, template, false, "server", "asset", "                    ");
+                sb.AppendLine("                    list.Add(server);");
             sb.AppendLine("                }");
             sb.AppendLine("                var json = JsonConvert.SerializeObject(list, Formatting.Indented);");
             sb.AppendLine($"                File.WriteAllText(Path.Combine(dir, \"{className}.json\"), json);");
@@ -1361,6 +1673,7 @@ namespace HYC.Framework.Config.Editor
             else
             {
                 sb.AppendLine("            var client = " + ns + ".Client." + className + "Client.From(data);");
+                AppendJsonAssetOverrides(sb, template, true, "client", "data", "            ");
                 sb.AppendLine("            var json = JsonConvert.SerializeObject(client, Formatting.Indented);");
                 sb.AppendLine($"            File.WriteAllText(Path.Combine(dir, \"{className}.json\"), json);");
                 sb.AppendLine("            return true;");
@@ -1373,8 +1686,9 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("            var dir = ConfigDataSettings.ServerExportDir;");
             sb.AppendLine("            if (string.IsNullOrEmpty(dir)) return false;");
             sb.AppendLine("            Directory.CreateDirectory(dir);");
-            sb.AppendLine("            var server = " + ns + ".Server." + className + "Server.From(data);");
-            sb.AppendLine("            var json = JsonConvert.SerializeObject(server, Formatting.Indented);");
+                sb.AppendLine("            var server = " + ns + ".Server." + className + "Server.From(data);");
+                AppendJsonAssetOverrides(sb, template, false, "server", "data", "            ");
+                sb.AppendLine("            var json = JsonConvert.SerializeObject(server, Formatting.Indented);");
             sb.AppendLine($"            File.WriteAllText(Path.Combine(dir, \"{className}.json\"), json);");
             sb.AppendLine("            return true;");
             sb.AppendLine("        }");

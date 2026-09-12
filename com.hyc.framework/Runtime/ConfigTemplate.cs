@@ -78,6 +78,58 @@ namespace HYC.Framework.Config
         Error,
     }
 
+    /// <summary>
+    /// 字段"导出设置"：决定导出的客户端/服务端数据里，这个字段取哪个值、用什么类型表示。
+    /// 编辑器里存原值，导出时按此设置投影。
+    /// </summary>
+    public enum ConfigFieldExportMode
+    {
+        /// <summary>直接导出（保持现有行为，按字段自身类型/对象原样导出）。</summary>
+        Direct,
+        /// <summary>转字符串（数值/布尔/枚举/结构用 ToString，导出 string）。</summary>
+        ToString,
+        /// <summary>字符串字段在 Blob 里用 BlobString（变长，BlobBuilder 分配）。</summary>
+        BlobString,
+        /// <summary>字符串字段在 Blob 里用 FixedString（定长内联，见 <see cref="ConfigFieldExportSetting.fixedStringSize"/>）。</summary>
+        FixedString,
+        /// <summary>配置引用字段导出其某个标量成员（如 ID/GUID，见 <see cref="ConfigFieldExportSetting.memberName"/>）。</summary>
+        Member,
+        /// <summary>资源/对象字段导出资源名字（导出 string）。</summary>
+        AssetName,
+        /// <summary>资源/对象字段导出项目内资源路径（Assets/...，导出 string，需在导出时解析）。</summary>
+        AssetPath,
+        /// <summary>资源/对象字段导出 Addressable 地址（导出 string，需在导出时解析）。</summary>
+        AssetAddressable,
+    }
+
+    /// <summary>FixedString 定长容量档位（映射 Unity.Collections.FixedString{size}Bytes）。</summary>
+    public enum ConfigFixedStringSize
+    {
+        Size32 = 32,
+        Size64 = 64,
+        Size128 = 128,
+        Size512 = 512,
+        Size4096 = 4096,
+    }
+
+    /// <summary>一个字段在一侧的"导出设置"。</summary>
+    [Serializable]
+    public class ConfigFieldExportSetting
+    {
+        /// <summary>导出方式。</summary>
+        public ConfigFieldExportMode mode = ConfigFieldExportMode.Direct;
+
+        /// <summary><see cref="ConfigFieldExportMode.Member"/> 时引用的成员名（如 ID/GUID/…）。</summary>
+        public string memberName = "";
+
+        /// <summary><see cref="ConfigFieldExportMode.FixedString"/> 时选用的容量。</summary>
+        public ConfigFixedStringSize fixedStringSize = ConfigFixedStringSize.Size128;
+
+        public bool IsDirect => mode == ConfigFieldExportMode.Direct;
+        public bool IsStringValue => mode == ConfigFieldExportMode.BlobString
+                                     || mode == ConfigFieldExportMode.FixedString;
+    }
+
     /// <summary>A single field definition inside a <see cref="ConfigTemplate"/>.</summary>
     [Serializable]
     public class ConfigTemplateField
@@ -106,6 +158,12 @@ namespace HYC.Framework.Config
         public ConfigCheckLevel notZeroCheck = ConfigCheckLevel.None;
         /// <summary>检查规则：范围（级别，None=不检查）。</summary>
         public ConfigCheckLevel rangeCheck = ConfigCheckLevel.None;
+
+        /// <summary>客户端导出设置（决定导出的客户端数据里本字段取什么值/什么类型）。</summary>
+        public ConfigFieldExportSetting clientExport = new ConfigFieldExportSetting();
+
+        /// <summary>服务端导出设置（决定导出的服务端数据里本字段取什么值/什么类型）。</summary>
+        public ConfigFieldExportSetting serverExport = new ConfigFieldExportSetting();
     }
 
     /// <summary>
