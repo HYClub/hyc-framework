@@ -106,6 +106,19 @@ namespace HYC.Framework.BT
         public FixedString128Bytes GetString(ulong key, FixedString128Bytes def = default)
             => _stringMap.TryGetValue(key, out int idx) ? _strings[idx] : def;
 
+        /// <summary>键名(string) → 64 位哈希(FNV-1a)。与 FixedString 版本算法完全一致。</summary>
+        public static ulong HashKey(string key)
+        {
+            ulong hash = 14695981039346656037UL;
+            if (key == null) return hash;
+            for (int i = 0; i < key.Length; i++)
+            {
+                hash ^= (byte)key[i];
+                hash *= 1099511628211UL;
+            }
+            return hash;
+        }
+
         /// <summary>键名 → 64 位哈希(FNV-1a)。</summary>
         public static ulong HashKey(FixedString128Bytes key)
         {

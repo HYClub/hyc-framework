@@ -16,5 +16,6 @@ namespace HYC.Framework.BT
         Success,        // 成功
         Failed,         // 失败
         Paused,         // 暂停(保留现场)
+        Optional,       // 中性: 父组合节点忽略其成败, 继续下一个子节点(NodeCanvas Status.Optional)
     }
 }

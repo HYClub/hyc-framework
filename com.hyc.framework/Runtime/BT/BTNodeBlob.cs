@@ -79,5 +79,29 @@ namespace HYC.Framework.BT
         public float GetFloat(int i) => Floats[Node.FloatStart + i];
         public long GetLong(int i) => Longs[Node.LongStart + i];
         public BlobString* GetString(int i) => &Strings[Node.StringStart + i];
+
+        // ---- 参数"字面 / 变量"统一约定 ----
+        // 约定: Float[i] 存字面值; Long[i] 若非 0 则视为黑板键, 运行时优先读黑板(取不到回退字面值)。
+        // 这对应 NodeCanvas 的 BBParameter<T>(要么是字面值, 要么是命名变量的引用)。
+
+        /// <summary>读 float 参数: Long[i] 非 0 时读黑板变量, 否则用 Float[i] 字面值。</summary>
+        public float GetFloatVar(ref BTContext ctx, int i)
+        {
+            if (Node.FloatCount > i)
+            {
+                float literal = Floats[Node.FloatStart + i];
+                long key = Node.LongCount > i ? Longs[Node.LongStart + i] : 0;
+                return key != 0 && ctx.Blackboard.IsCreated ? ctx.Blackboard.GetFloat((ulong)key, literal) : literal;
+            }
+            return 0f;
+        }
+
+        /// <summary>读 int 参数(存于 Long[i] 字面, 或 Long[i] 作为黑板键读 int 变量)。</summary>
+        public int GetIntVar(ref BTContext ctx, int i, int def = 0)
+        {
+            if (Node.LongCount <= i) return def;
+            long raw = Longs[Node.LongStart + i];
+            return ctx.Blackboard.IsCreated && raw != 0 ? ctx.Blackboard.GetInt((ulong)raw, def) : (int)raw;
+        }
     }
 }

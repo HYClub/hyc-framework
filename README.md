@@ -335,7 +335,7 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 | `ComponentBinderCodeGenerator` | 由 `ComponentBinderTable` 生成强类型 `IComponentBinder` |
 | `LocaleWindow` / `LocalizedExcelReader` / `LocalizedKeyPickerWindow` | 多语言 Key 浏览、Excel 导入（NPOI，修复中文截断）、Key 选取 |
 | `SensitiveWordWindow` | 敏感词管理 |
-| `BTGraphWindow` / `BTDataWindow` / `BTNodeCreatorWindow` / `BTValidator` / `BTBlobBuilder` | 行为树可视化编辑、自定义节点生成、校验与 Blob 构建 |
+| `BTGraphWindow` / `BTGraphIMGUI` / `BTNodeCreatorWindow` / `BTValidator` / `BTBlobBuilder` | 行为树可视化编辑、自定义节点生成、校验与 Blob 构建 |
 
 ---
 

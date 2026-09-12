@@ -23,6 +23,14 @@ namespace HYC.Framework.BT
     /// 继承它并实现成员, 编辑器自动识别(子类型下拉/参数面板/分类样式),
     /// 运行时自动分发执行。
     /// </summary>
+    /// 叶子范式(对应 NodeCanvas 的 ActionNode/ConditionNode):
+    /// - Kind=Action(动作, 对应 ActionTask): 每次 Execute 推进一小步, 未完成返回 Running,
+    ///   完成返回 Success/Failed。跨帧进度存黑板或本节点参数; 不需要协程(驱动系统每帧 Tick)。
+    /// - Kind=Condition(条件, 对应 ConditionTask): 立即判定并返回 Success/Failed, 不返回 Running;
+    ///   需要取反时套 Invert 节点(对应 ConditionTask.invert)。
+    /// - 参数读取建议用 view.GetFloatVar / GetIntVar: 支持"字面值 or 黑板变量"两种来源
+    ///   (对应 NodeCanvas 的 BBParameter&lt;T&gt;)。
+    /// </summary>
     public abstract class BTCustomNode
     {
         /// <summary>子类型 ID(同树类型内唯一, 由编辑器分配)。</summary>
@@ -45,6 +53,13 @@ namespace HYC.Framework.BT
 
         /// <summary>运行时执行逻辑。通过 ctx 读写世界数据/黑板。</summary>
         public abstract BTNodeState Execute(ref BTContext ctx, ref BTNodeView view);
+
+        /// <summary>
+        /// 停止回调(对应 NodeCanvas ActionTask.OnStop)。
+        /// 当本节点从 Running 被复位/中断(父节点切换子节点、树完成等)时由解释器调用,
+        /// interrupted=true 表示是被打断而非正常结束。用于释放占用资源、取消动画/定时器等。
+        /// </summary>
+        public virtual void OnStop(bool interrupted) { }
     }
 
     /// <summary>

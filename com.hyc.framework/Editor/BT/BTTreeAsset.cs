@@ -7,6 +7,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using UnityEditor;
 using UnityEngine;
 
 namespace HYC.Framework.BT.Editor
@@ -30,6 +32,30 @@ namespace HYC.Framework.BT.Editor
 
         [Header("黑板定义")]
         public List<BTBlackboardParam> Blackboard = new List<BTBlackboardParam>();
+
+        /// <summary>列出项目内所有行为树资产(名称 + TreeId), 供节点里的"子树"下拉选择。</summary>
+        public static TreeIdList LoadAllTreeIds()
+        {
+            var guids = AssetDatabase.FindAssets("t:BTTreeAsset");
+            var names = new List<string> { "(无)" };
+            var ids = new List<long> { 0 };
+            foreach (var g in guids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(g);
+                var tree = AssetDatabase.LoadAssetAtPath<BTTreeAsset>(path);
+                if (tree == null) continue;
+                names.Add($"{tree.TreeId}: {tree.name}");
+                ids.Add(tree.TreeId);
+            }
+            return new TreeIdList { names = names.ToArray(), ids = ids.ToArray() };
+        }
+    }
+
+    /// <summary>树 id 列表(names[0]="(无)" / ids[0]=0), 与下拉索引一一对应。</summary>
+    public struct TreeIdList
+    {
+        public string[] names;
+        public long[] ids;
     }
 
     /// <summary>编辑器节点数据。</summary>

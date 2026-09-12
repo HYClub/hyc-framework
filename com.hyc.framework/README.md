@@ -11,7 +11,7 @@
 
 ## ✨ 特性
 
-- **DOTS / ECS 数据驱动架构**：以 `World` + 分层 `ComponentSystemGroup` 更新阶梯组织游戏逻辑；配置、本地化、行为树全部以**不可变 Blob** 存储，运行期零托管分配、可 Burst 友好遍历。
+- **DOTS / ECS 数据驱动架构**：以 `World` + 分层 `ComponentSystemGroup` 更新阶梯组织游戏逻辑；配置、本地化、行为树全部以**不可变 Blob** 存储。**内建行为树节点**为指针遍历、无托管分配；但含自定义节点（`GameCustom`，走托管委托 + 反射注册）的整树运行于托管路径，不参与 Burst 编译。
 - **配置管线（Config）**：Excel / 模板驱动，生成期把行烘焙为 blittable 结构体与 `BlobAssetReference`；运行期以**世界无关**的 `ConfigManager` 静态表提供无分配查询。
 - **多语言本地化（Loc）**：基于 Blob 的多语言系统，支持 key 查询、`string.Format` 占位符、运行时切语言、MonoBehaviour 自动刷新与敏感词过滤。
 - **ECS UI 系统**：UI **即 ECS System**（而非 MonoBehaviour 窗口管理器）。`UIManager` 统一管理分层 Canvas 与 Addressables 实例化，`ComponentBinderTable` 生成强类型组件绑定。
@@ -260,7 +260,7 @@ director.Play(1);
 
 ### 7. 行为树（BT）⭐
 
-可视化编辑（`BTTreeAsset`）→ 序列化为纯数据 `BTRootBlob`（Burst 友好）→ 运行期 `BTManager` 注册 → `BTInterpreterSystem` 对挂 `RunningBT` 的实体逐帧 `Tick`，由 `BTInterpreter` 递归解释执行的完整 DOTS 行为树方案。
+可视化编辑（`BTTreeAsset`）→ 序列化为纯数据 `BTRootBlob`（内建节点指针遍历、无托管分配）→ 运行期 `BTManager` 注册 → `BTInterpreterSystem` 对挂 `RunningBT` 的实体逐帧 `Tick`，由 `BTInterpreter` 递归解释执行的完整 DOTS 行为树方案。
 
 ```csharp
 // 1) 编辑器：Create → HYC/BT/Tree 建 BTTreeAsset，可视化连好节点，
@@ -335,7 +335,7 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 | `ComponentBinderCodeGenerator` | 由 `ComponentBinderTable` 生成强类型 `IComponentBinder` |
 | `LocaleWindow` / `LocalizedExcelReader` / `LocalizedKeyPickerWindow` | 多语言 Key 浏览、Excel 导入（NPOI，修复中文截断）、Key 选取 |
 | `SensitiveWordWindow` | 敏感词管理 |
-| `BTGraphWindow` / `BTDataWindow` / `BTNodeCreatorWindow` / `BTValidator` / `BTBlobBuilder` | 行为树可视化编辑、自定义节点生成、校验与 Blob 构建 |
+| `BTGraphWindow` / `BTGraphIMGUI` / `BTNodeCreatorWindow` / `BTValidator` / `BTBlobBuilder` | 行为树可视化编辑、自定义节点生成、校验与 Blob 构建 |
 
 ---
 

@@ -97,6 +97,60 @@ namespace HYC.Framework.BT.Editor
                     issues.Add(new BTValidationIssue { IsError = true, Message = $"子树引用不存在: TreeId={targetId}" });
             }
 
+            // 5. 新增节点(NodeCanvas 移植)的结构/参数校验
+            foreach (var n in tree.Nodes)
+            {
+                int childCount = childrenMap.TryGetValue(n.NodeId, out var kids) ? kids.Count : 0;
+
+                switch (n.Type)
+                {
+                    case BTNodeType.BinarySelector:
+                        if (childCount < 3)
+                            issues.Add(new BTValidationIssue { IsError = true, Message = $"二选一(BinarySelector) 需要 3 个子节点(条件/真/假), 当前 {childCount}" });
+                        break;
+
+                    case BTNodeType.Conditional:
+                    case BTNodeType.WaitUntil:
+                    case BTNodeType.Interruptor:
+                        if (childCount < 2)
+                            issues.Add(new BTValidationIssue { IsError = true, Message = $"{n.Type} 需要 2 个子节点(条件 + 被包子树), 当前 {childCount}" });
+                        break;
+
+                    case BTNodeType.UtilitySelector:
+                    case BTNodeType.ProbabilitySelector:
+                        if (childCount > 0 && n.FloatParams.Count < childCount)
+                            issues.Add(new BTValidationIssue { IsError = false, Message = $"{n.Type} 权重数({n.FloatParams.Count}) 少于子节点数({childCount}), 缺权重的子节点按 0 处理" });
+                        break;
+
+                    case BTNodeType.Parallel:
+                        if (n.LongParams.Count > 0 && (n.LongParams[0] < 0 || n.LongParams[0] > 2))
+                            issues.Add(new BTValidationIssue { IsError = true, Message = $"Parallel 策略值非法: {n.LongParams[0]}(应为 0/1/2)" });
+                        break;
+
+                    case BTNodeType.Timeout:
+                        if (n.FloatParams.Count > 0 && n.FloatParams[0] <= 0f)
+                            issues.Add(new BTValidationIssue { IsError = false, Message = "Timeout 超时时间 <= 0, 将永不超时" });
+                        break;
+
+                    case BTNodeType.Guard:
+                        if (n.StringParams.Count == 0 && (n.LongParams.Count == 0 || n.LongParams[0] == 0))
+                            issues.Add(new BTValidationIssue { IsError = false, Message = "Guard 未设置 token(字面字符串或黑板变量), 将退化为按节点索引互斥" });
+                        break;
+
+                    case BTNodeType.Switch:
+                    case BTNodeType.FlipSelector:
+                    case BTNodeType.StepSequencer:
+                    case BTNodeType.Optional:
+                    case BTNodeType.Remapper:
+                    case BTNodeType.Monitor:
+                    case BTNodeType.Filter:
+                    case BTNodeType.Iterator:
+                        if (childCount == 0)
+                            issues.Add(new BTValidationIssue { IsError = true, Message = $"{n.Type} 没有子节点" });
+                        break;
+                }
+            }
+
             return issues;
         }
 

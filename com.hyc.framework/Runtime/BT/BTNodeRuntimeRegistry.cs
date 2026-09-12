@@ -17,6 +17,7 @@ namespace HYC.Framework.BT
     public static class BTNodeRuntimeRegistry
     {
         private static Dictionary<(BTTreeKind, long), BTCustomNode> _nodes;
+        private static Dictionary<long, BTCustomNode> _bySubType; // 按子类型唯一定位(不依赖树类型)
         private static bool _initialized;
 
         /// <summary>确保已扫描注册(幂等)。</summary>
@@ -25,6 +26,7 @@ namespace HYC.Framework.BT
             if (_initialized) return;
             _initialized = true;
             _nodes = new Dictionary<(BTTreeKind, long), BTCustomNode>();
+            _bySubType = new Dictionary<long, BTCustomNode>();
 
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
@@ -39,6 +41,7 @@ namespace HYC.Framework.BT
                     {
                         var node = (BTCustomNode)Activator.CreateInstance(t);
                         _nodes[(node.TreeKind, node.SubType)] = node;
+                        _bySubType[node.SubType] = node;
                     }
                     catch { /* 跳过无法实例化的 */ }
                 }
@@ -50,6 +53,26 @@ namespace HYC.Framework.BT
         {
             EnsureInit();
             if (_nodes.TryGetValue((kind, subType), out var node))
+            {
+                result = node.Execute(ref ctx, ref view);
+                return true;
+            }
+            result = BTNodeState.Failed;
+            return false;
+        }
+
+        /// <summary>按子类型查找已注册的自定义节点实例(未注册返回 null)。</summary>
+        public static BTCustomNode Find(long subType)
+        {
+            EnsureInit();
+            return _bySubType != null && _bySubType.TryGetValue(subType, out var node) ? node : null;
+        }
+
+        /// <summary>按子类型执行(不依赖树类型)。用作未显式设置 GameHandler 时解释器的默认回退分发。</summary>
+        public static bool Execute(long subType, ref BTContext ctx, ref BTNodeView view, out BTNodeState result)
+        {
+            EnsureInit();
+            if (_bySubType.TryGetValue(subType, out var node))
             {
                 result = node.Execute(ref ctx, ref view);
                 return true;

@@ -17,7 +17,13 @@ namespace HYC.Framework.BT
     {
         public Entity Self;                 // 树所属实体
         public float DeltaTime;             // 本帧 deltaTime
-        public BTBlackboardRuntime Blackboard; // 黑板实例(可 IsCreated=false)
+        public BTBlackboardRuntime Blackboard; // 实体私有黑板实例(可 IsCreated=false)
+
+        /// <summary>
+        /// G2: 全局/共享黑板(可 IsCreated=false)。跨实体共享的数据放这里;
+        /// 实体私有数据仍放 Blackboard。由 BTInterpreterSystem 从 BTBlackboardRegistry 解析后填入。
+        /// </summary>
+        public BTBlackboardRuntime SharedBlackboard;
 
         /// <summary>游戏层自定义节点回调(按子类型 subType 分发), 由游戏层注册。</summary>
         public BTGameActionHandler GameHandler;
