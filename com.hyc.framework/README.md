@@ -35,7 +35,7 @@
 
 ## 🚀 安装
 
-> 📦 本仓库为**公开仓库**，无需 access token 即可安装。注意包位于 `com.hyc.framework/` 子目录，安装 URL **必须带** `?path=com.hyc.framework`（漏了 Unity 会找不到包）。
+> ⚠️ 包位于 `com.hyc.framework/` 子目录，安装 URL **必须带** `?path=com.hyc.framework`（漏了 Unity 会找不到包）。
 
 ### 方式一：Package Manager（Git URL）
 
