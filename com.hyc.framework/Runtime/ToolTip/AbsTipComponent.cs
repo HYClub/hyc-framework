@@ -7,7 +7,7 @@ namespace HYC.Framework.UI
     /// A "hot area" element that shows a tool-tip while the pointer is over it.
     /// Subclasses override <see cref="GetData"/> to return the data object whose
     /// registered renderer (<see cref="ToolTipManager.RegisterService"/>) draws
-    /// the tip. Decoupled QK port strips the game-only <c>[Visible]</c> attribute;
+    /// the tip. Decoupled HYC port strips the game-only <c>[Visible]</c> attribute;
     /// the <see cref="Direction"/> field is only meaningful when
     /// <see cref="TrackingType"/> is <see cref="TrackingType.HotArea"/>.
     /// </summary>

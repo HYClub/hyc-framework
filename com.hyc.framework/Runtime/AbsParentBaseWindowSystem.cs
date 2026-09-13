@@ -8,7 +8,7 @@ namespace HYC.Framework.UI
 {
     /// <summary>
     /// Parent window able to open/close sub-windows via <see cref="UIGroup"/>.
-    /// Decoupled QK port: the source <c>UpdateGroup_B9_UI_2_Window</c> group is
+    /// Decoupled HYC port: the source <c>UpdateGroup_B9_UI_2_Window</c> group is
     /// replaced by <see cref="UIManager.GetSystemGroup"/>.
     /// </summary>
     public abstract partial class AbsParentBaseWindowSystem : BaseWindowSystem

@@ -5,7 +5,7 @@ using UnityEditor;
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// Project-level configuration for the QK data editor: the asset root
+    /// Project-level configuration for the HYC data editor: the asset root
     /// folder scanned by <see cref="ConfigDataTree"/> and a local ID generator
     /// (no server round-trip, unlike the source StarDeep client).
     /// </summary>

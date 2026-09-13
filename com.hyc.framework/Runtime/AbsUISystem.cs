@@ -20,7 +20,7 @@ namespace HYC.Framework.UI
     /// instantiates the prefab under a world-space Canvas, and manages focus,
     /// hotkey registrations and child window parts.
     ///
-    /// Decoupled QK port: the game-generated <c>HotkeyID</c> enum is replaced by
+    /// Decoupled HYC port: the game-generated <c>HotkeyID</c> enum is replaced by
     /// action-name <see cref="string"/>s (see <see cref="HotkeyActionNames"/>), and
     /// the source <c>InputManager</c> static API is served by
     /// <see cref="HotkeyManager"/>.

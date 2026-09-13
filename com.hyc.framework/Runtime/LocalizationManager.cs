@@ -11,7 +11,7 @@ namespace HYC.Framework.Loc
     /// <summary>
     /// Blob-driven localization manager. Reads <c>id</c>/<c>lang</c>/<c>filter</c>
     /// files plus one <c>{lang}.lang</c> blob per language from a folder and
-    /// serves key lookups. Decoupled QK port of the source LocalizationManager
+    /// serves key lookups. Decoupled HYC port of the source LocalizationManager
     /// (blob structs moved in-package, config namespace dependency removed).
     /// </summary>
     public static class LocalizationManager

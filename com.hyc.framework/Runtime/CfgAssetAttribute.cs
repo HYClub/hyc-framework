@@ -4,7 +4,7 @@ namespace HYC.Framework.Config
 {
     /// <summary>
     /// Marks a ScriptableObject subclass as a config asset visible in the
-    /// QK data editor. <see cref="Name"/> supports "Category/Name" so the
+    /// HYC data editor. <see cref="Name"/> supports "Category/Name" so the
     /// create window can group types; <see cref="Order"/> sorts entries and
     /// <see cref="Unique"/> restricts the project to a single instance.
     /// </summary>

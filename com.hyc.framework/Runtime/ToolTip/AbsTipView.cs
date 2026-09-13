@@ -10,7 +10,7 @@ namespace HYC.Framework.UI
     /// Base class for tool-tip views opened via <see cref="ToolTipManager"/>.
     /// Positions itself beside the owning <see cref="AbsTipComponent"/> hot area
     /// (or the cursor) and lays out against one of many dock directions.
-    /// Decoupled QK port: <c>InputManager.CurrentCursorPosition</c> is served by
+    /// Decoupled HYC port: <c>InputManager.CurrentCursorPosition</c> is served by
     /// <see cref="HotkeyManager.CurrentCursorPosition"/>.
     /// </summary>
     public abstract partial class AbsTipView : BaseWindowSystem

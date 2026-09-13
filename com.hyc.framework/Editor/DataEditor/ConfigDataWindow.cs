@@ -6,7 +6,7 @@ using UnityEngine;
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// QK 数据编辑器主窗口：左侧配置树 + 右侧属性编辑/预览。
+    /// HYC 数据编辑器主窗口：左侧配置树 + 右侧属性编辑/预览。
     /// 支持搜索、右键创建配置/目录/重命名/复制/删除、拖拽移动。
     /// </summary>
     public class ConfigDataWindow : EditorWindow

@@ -8,7 +8,7 @@ namespace HYC.Framework.Runtime
     /// Optional log-to-file hook. Startup is called implicitly on load; the
     /// flags (SaveLog / SaveLogWarning / SaveLogError) are supplied by the
     /// owning host (e.g. from StartUp/GameSetting) before the log source is
-    /// swapped. Decoupled QK re-implementation of the source <c>GameLog</c>.
+    /// swapped. Decoupled HYC re-implementation of the source <c>GameLog</c>.
     /// </summary>
     public static class GameLog
     {

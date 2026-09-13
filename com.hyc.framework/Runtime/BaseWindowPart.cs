@@ -12,7 +12,7 @@ namespace HYC.Framework.UI
     /// <summary>
     /// Reusable window "part" that can be opened/closed under a parent window.
     /// A SystemBase whose view loads from <see cref="Key"/> (or a supplied object)
-    /// and updates while registered. Decoupled QK port: uses string action names
+    /// and updates while registered. Decoupled HYC port: uses string action names
     /// for hotkeys instead of the game HotkeyID enum.
     /// </summary>
     public abstract partial class BaseWindowPart : SystemBase

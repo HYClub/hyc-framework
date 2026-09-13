@@ -32,7 +32,7 @@ namespace HYC.Framework.Runtime
     /// filtered by the active <see cref="BootMode"/>, appends the world to the
     /// player loop, and stamps a mode singleton so systems can query it.
     ///
-    /// This is the QK counterpart of the source <c>GameBootstrap : ICustomBootstrap</c>.
+    /// This is the HYC counterpart of the source <c>GameBootstrap : ICustomBootstrap</c>.
     /// Like <see cref="FrameworkBootstrap"/> it is a plain utility — it does NOT
     /// implement <c>ICustomBootstrap</c>, so it is never auto-discovered and can
     /// never conflict with a game's own bootstrap. Games that want this behaviour

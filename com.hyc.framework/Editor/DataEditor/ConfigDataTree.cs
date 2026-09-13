@@ -126,7 +126,7 @@ namespace HYC.Framework.Config.Editor
     }
 
     /// <summary>
-    /// Left-side TreeView of the QK data editor: shows the config root folder's
+    /// Left-side TreeView of the HYC data editor: shows the config root folder's
     /// directory hierarchy plus every config asset inside, with right-click
     /// create/rename/duplicate/ping and drag-to-move.
     /// </summary>

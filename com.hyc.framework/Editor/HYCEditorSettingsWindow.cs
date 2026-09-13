@@ -8,10 +8,10 @@ namespace HYC.Framework.Editor
     /// Project &amp; user settings editor. Demonstrates the settings framework:
     /// values persist via EditorPrefs, grouped in the same "HYC Framework" menu.
     /// </summary>
-    public sealed class QKEditorSettingsWindow : EditorWindow
+    public sealed class HYCEditorSettingsWindow : EditorWindow
     {
         [MenuItem("HYC Framework/Settings/Project Settings")]
-        public static void Open() => GetWindow<QKEditorSettingsWindow>("QK Settings");
+        public static void Open() => GetWindow<HYCEditorSettingsWindow>("HYC Settings");
 
         private const string PrefVerbose = "HYC.Framework.Editor.VerboseLogs";
         private const string PrefAutoGen = "HYC.Framework.Editor.AutoGenerate";

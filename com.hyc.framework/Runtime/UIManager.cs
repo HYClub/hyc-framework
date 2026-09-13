@@ -19,7 +19,7 @@ namespace HYC.Framework.UI
     /// ECS window manager. Owns the root node, per-layer canvas nodes, view
     /// states, focus and the additive UI-scene cache.
     ///
-    /// Decoupled QK port of the source <c>UIManager</c>: the game
+    /// Decoupled HYC port of the source <c>UIManager</c>: the game
     /// <c>CameraManager</c>/<c>InputManager</c> dependencies are replaced by
     /// <list type="bullet">
     /// <item><see cref="UICamera"/> — assign the UI camera here.</item>

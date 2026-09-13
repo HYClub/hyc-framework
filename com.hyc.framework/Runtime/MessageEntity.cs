@@ -33,7 +33,7 @@ namespace HYC.Framework.Dots
     /// <summary>
     /// Payload for UI guide/event messages. Created on an entity tagged
     /// <see cref="MessageEntity"/> and consumed by guide systems within the
-    /// frame, then cleared. Decoupled QK port of the source <c>EventMessage</c>.
+    /// frame, then cleared. Decoupled HYC port of the source <c>EventMessage</c>.
     /// </summary>
     [System.Serializable]
     public struct EventMessage : IComponentData

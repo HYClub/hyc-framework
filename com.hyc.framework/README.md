@@ -342,28 +342,28 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 ## 📁 目录结构
 
 ```
-hyc-framework/                 ← 仓库根
-├── README.md                  ← 仓库 README（GitHub 主页）
-├── com.hyc.framework/         ← Unity 包（package.json 在此）
-│   ├── package.json
-│   ├── LICENSE
-│   ├── CHANGELOG.md
-│   ├── README.md              ← 包内 README（Package Manager 展示）
-│   ├── Runtime/               # 运行时代码（HYC.Framework.Runtime.asmdef）
-│   │   ├── Bootstrap.cs / Simulation.cs / UpdateGroups.cs
-│   │   ├── ConfigManager.cs / BlobTable.cs / ConfigTemplate.cs
-│   │   ├── Localization*.cs
-│   │   ├── UIManager.cs / AbsUISystem.cs / Binder.cs
-│   │   ├── HotkeyManager.cs / InputDevice.cs
-│   │   ├── CutsceneDirector.cs
-│   │   ├── BT/                 # 行为树运行时
-│   │   ├── Components/ / ToolTip/ / Attributes/
-│   │   └── ...
-│   └── Editor/                # 编辑器工具（HYC.Framework.Editor.asmdef）
-│       ├── ConfigGenerator.cs / ComponentBinderCodeGenerator.cs / ExcelReader.cs
-│       ├── LocaleWindow.cs / LocalizedExcelReader.cs
-│       ├── BT/                 # 行为树可视化编辑器
-│       └── DataEditor/
+com.hyc.framework/                 ← Unity 包（package.json 在此）
+├── package.json / LICENSE / CHANGELOG.md / README.md
+├── Runtime/                       # 运行时（HYC.Framework.Runtime.asmdef）
+│   ├── 引导与生命周期：Bootstrap / BootstrapSystems / UpdateGroups / Simulation / Settings / StartupSetting / GameCommandArgs
+│   ├── 配置：ConfigManager / BlobTable / ConfigTemplate / ConfigEnumDefinition / DataModel
+│   ├── 本地化：LocalizationManager / LocalizationBlobSystem / LocalizationExtension / SensitiveWordManager
+│   ├── UI：UIManager / AbsUISystem / UIGroup / Base*System / Binder / ComponentBinderTable
+│   ├── 输入与热键：HotkeyManager / Hotkey* / InputDevice / BaseHotkeyElement
+│   ├── 过场演出：CutsceneDirector
+│   ├── 消息与日志：MessageEntity / Log / GameLog
+│   ├── Attributes/                # 17 个编辑器增强特性（Group/InfoBox/File/ListDrawer...）
+│   ├── BT/                        # 行为树运行时（解释器 / 管理器 / 黑板 / 事件总线 / Blob 定义）
+│   ├── Components/                # LocalizedText / LocalizedTMP / LocalizedTextMesh
+│   └── ToolTip/                   # ToolTipManager / Tip 视图
+└── Editor/                        # 编辑器工具（HYC.Framework.Editor.asmdef）
+    ├── 配置管线：ConfigGenerator / ConfigValidator / ExcelReader
+    ├── 组件绑定：ComponentBinderTableEditor / ComponentBinderCodeGenerator / ComponentBinderSetting*
+    ├── 本地化：LocaleWindow / LocalizedExcelReader / LocalizedKeyPickerWindow / LocalizationSettings / SensitiveWordWindow
+    ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，10 个文件）
+    ├── DataEditor/                # 配置数据编辑器（44 个文件 + FrameworkTemplates/）
+    ├── Loc/Editor/                # Key 使用扫描（LocaleKeyUsageWindow）
+    └── Dlls/                      # NPOI / SharpZipLib / BouncyCastle（Excel 导入依赖，仅编辑器）
 ```
 
 ---
