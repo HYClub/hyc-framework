@@ -1,0 +1,166 @@
+# 99 · Blob 与数据约定
+
+## 职责
+
+HYC 的数据核心是 **Blob**：配置、本地化、行为树全部在生成/编辑期烘焙成不可变的 `BlobAssetReference`，运行期零分配查询。本篇汇总"怎么写才不会烘焙失败、怎么读才对"。
+
+> 配置 Blob 的结构见 [10-配置管线-总览](./10-配置管线-总览.md) 与 [11-字段类型与导出设置](./11-字段类型与导出设置.md)。
+
+---
+
+## 一、blittable 铁律
+
+Blob 结构必须 **blittable**（值在内存里布局不变，能直接 `memcpy`）。
+
+### ✅ 允许
+
+- 基础值类型：`int` / `long` / `float` / `double` / `bool` / `enum` / `byte` / `short` …
+- `Unity.Mathematics`：`float2/3/4`、`int2/3/4`、`quaternion`、`float4x4` …
+- **`BlobArray<T>`**（T 必须 blittable）——Blob 里的数组就它一个
+- **`BlobString`**（UTF-8 定长字节串）
+- **`FixedString32/64/128/512/4096`**（`Unity.Collections`）
+- 指向其它 Blob 的 **`BlobAssetReference<T>`**
+
+### ❌ 禁止（会烘焙失败 / 运行期读不出）
+
+| 类型 | 为什么不行 |
+| --- | --- |
+| `string`（托管） | 不是 blittable，必须换成 `BlobString` / `FixedString` |
+| 任意 `class` / `interface` | 引用类型，布局不确定 |
+| `List<T>` / `Dictionary<K,V>` | 托管堆对象 |
+| `UnityEngine.Vector2/3/4` | **非** blittable（含非平凡布局）；用 `Unity.Mathematics` 替代 |
+| `UnityEngine.Object` 引用 | 托管引用，不能进 Blob |
+| `DateTime` / 含 bool 之外的引用字段 | 同上 |
+
+⚠️ `ConfigValidator.ValidateStruct` 的**白名单**（`string`/`Vector2/3/4`）比真 blittable 检查**宽松**——它放行 `string` 和 `Vector*`，但烘焙时才真正报错。**不要以它为及格线**。
+
+---
+
+## 二、配置 Blob（ConfigBlobTable&lt;TRow&gt;）
+
+```csharp
+public unsafe struct ConfigBlobTable<TRow> : IDisposable where TRow : unmanaged
+{
+    BlobAssetReference<BlobRoot<TRow>> _ref;
+    NativeHashMap<long, int> _index;       // id → 行号
+    NativeHashMap<long, int> _secondary;   // 备用索引（未用）
+}
+public struct BlobRoot<TRow> where TRow : unmanaged { public BlobArray<TRow> Rows; }
+```
+
+两种构造：
+
+| 方法 | 用途 |
+| --- | --- |
+| `Build(rows, explicitIndex)` | 从 `IEnumerable<TRow>` 现烤一个 Blob（`Allocator.Persistent`），重建索引 |
+| `FromBlob(blobRef, idSelector, explicitIndex)` | 运行期从已 `TryRead` 的 `.blob` 构造表，**只重建索引不重建 Blob** |
+
+运行期查：
+
+```csharp
+bool ok = table.TryGet(id, out TRow row);   // ID 0 不算索引（tryAdd 时 key != 0 才加）
+TRow r  = table.Get(id);                     // 找不到返回 default
+int n   = table.Count;
+table.Dispose();                            // 释放 _ref + 两个 NativeHashMap
+```
+
+⚠️ `FromBlob` 里 `key != 0` 才进 `_index`——**ID 为 0 的行查不到**（与数据编辑器"id==0 视为未分配"一致）。
+⚠️ `Build` 开头那段 `new NativeArray<TRow>(0).Dispose()` 是**多余的样板**（分配了立刻丢），看着别扭但无害。
+⚠️ `_secondary` 永远是空 `NativeHashMap(0)`，框架没用它——扩展二级索引时从这里接。
+
+---
+
+## 三、本地化 Blob（CfgLocalization）
+
+```csharp
+public struct CfgLocalization        { public BlobArray<BlobString> values; }
+public struct CfgLocalizationIndex   { public BlobArray<int> values; }
+```
+
+- `id` / 每个 `{lang}.lang` 都是 `CfgLocalization`（`BlobArray<BlobString>`）。
+- `debug_ids` / `debug_names` 是 `CfgLocalizationIndex`（`BlobArray<int>`）。
+
+读取用：
+
+```csharp
+BlobAssetReference<CfgLocalization>.TryRead(reader, 3, out var blob);
+```
+
+⚠️ **版本号写死 `3`**：`BlobAssetReference<CfgLocalization>.TryRead(reader, 3, out _)` 与 `Write(builder, path, 3)` 必须一致。改一边不改另一边会读不出（返回 false）。
+⚠️ **CJK 分配有人为修正**：`LocalizedExcelReader.AllocateString` 按 UTF-8 真实字节数 + 1（null 结尾）分配，绕开 Unity 内置 `BlobStringExtensions.AllocateString` 的 `Length * 2 + 1`（中文 3 字节/字会被截断）。**别换回内置方法**。
+
+---
+
+## 四、行为树 Blob（BTBlobBuilder）
+
+行为树链路：`BTTreeAsset`（.asset）→ `BTBlobBuilder.Build` → `BTRootBlob` → 运行期指针遍历。
+
+| 数据类型 | 说明 |
+| --- | --- |
+| `BTRootBlob` | 树根 Blob（入口节点 + 节点数组） |
+| `BTNodeBlob` | 单个节点 Blob（类型 byte、参数、子节点指针） |
+
+- 节点跨帧状态由 `BTNodeRuntimeState` 持久化（key = `(Entity, TreeId)`）。
+- `BTNodeType` 是 **byte 枚举**——新增节点类型必须**追加到末尾**，不能插中间/改值（运行期指针按枚举序走）。
+- 自定义节点 `GameCustom = 128` 走**托管路径**（不进 Burst）。
+
+详见 [80~83 行为树四篇](./80-行为树-总览.md)。
+
+---
+
+## 五、Blob 生命周期约定
+
+1. **生成/编辑期写，运行期只读**：Blob 一旦 `CreateBlobAssetReference` 就不可变。要改配置就重新烘焙。
+2. **`Allocator.Persistent`**：运行期持有的 Blob 必须用 Persistent，不能 Temp/TempJob（帧末销毁）。
+3. **`Dispose` 责任**：谁 `Create` 谁 `Dispose`。`ConfigManager.Register` 注册后，切场景/重进游戏时 `ConfigManager.Clear()` 会对 `IDisposable` 表 `Dispose`；行为树 Blob 由 `BTManager.Unregister` 释放。
+4. **StreamingAssets 兜底**：配置 Blob 放在 `StreamingAssets/ConfigBlob`，本地化在 `StreamingAssets/Localization`——这些目录**打包后原样随包**，运行期用 `Application.streamingAssetsPath` 读。
+5. **`TryRead` 失败不抛异常**，返回 false——业务代码必须判返回值，别假设 `blob.Value` 一定有效。
+
+---
+
+## 六、Data-Oriented 辅助
+
+### BakerGlue（authoring → entity 样板削减）
+
+```csharp
+BakerGlue.AddItems<MyBuffer>(baker, entity, items);   // 批量 AddBuffer + 逐个 Add
+BakerGlue.AddIfPresent<MyComp>(baker, entity, value, present);  // present 才 AddComponent + SetComponent
+```
+
+### 数据模型（HYC.Framework.Data，客户端非网络）
+
+| 类型 | 说明 |
+| --- | --- |
+| `DataItem` | 玩家物品实例：`Uid` / `CfgId` / `Count` / `Flags`(bitmask) |
+| `DataStatValue` | 运行时属性快照：`Key` / `Base` / `Bonus` |
+| `DataStatistics` | 会话统计：`TotalGain` / `TotalSpend` |
+| `NewItemFlag` | 新获得物品标记（红点用），UI 读完清 |
+| `NewItemFlagSystem` | `[UpdateInGroup(A1)]`，但 `OnUpdate` 是空实现——"Ack" 时机待补（注释说会晚序清） |
+
+⚠️ `NewItemFlagSystem.OnUpdate` **目前是空的**——"B9 之前清标"的设计意图没落地，红点标记**不会被这个系统自动清**，要宿主或 UI 自己处理 `NewItemFlag` 的清理。
+
+---
+
+## 七、属性/标记特性速查
+
+| 特性 | 位置 | 作用 |
+| --- | --- | --- |
+| `[BlobGenerate(string sheetName)]` | `Runtime/Attributes.cs` | 标记结构为配置行（生成 + 烘焙），缺它会让 `ConfigValidator` 报 Error |
+| `[CfgAsset(Name, Order, Unique, ParentAsset)]` | `Runtime/CfgAssetAttribute.cs` | 标记 ScriptableObject 为数据编辑器可见的配置资产；`Name` 支持 `分类/名称`，`Unique` 限单实例，可 `AllowMultiple` |
+| `[LocKey]` | `Runtime/LocKeyAttribute.cs` | 标记配置 `string` 字段为本地化 key（属 `HYC.Framework.Config`，不依赖 loc 包） |
+| `[AddressableField]` / `[BehaviourTreeField]` | `Runtime` | 配置字段里引用 Addressable key / 行为树资产 |
+
+---
+
+## 八、注意事项 / 坑
+
+1. **`Vector2/3/4` 不能进 Blob**（非 blittable）——用 `Unity.Mathematics`。
+2. **`string` 必须换成 `BlobString` / `FixedString`**——`ConfigValidator` 放行是假象，烘焙才报错。
+3. **本地化版本号 `3` 写死两处**，改一边必须改另一边。
+4. **CJK 文本不能走内置 `BlobString` 分配**，必须用 `LocalizedExcelReader` 里的手写 `AllocateString`（UTF-8 长度 + null 结尾）。
+5. **`ConfigBlobTable.FromBlob` 的 `idSelector` 返回 0 会被跳过**——确保 ID 从非 0 起。
+6. **`_secondary` 索引未使用**——目前没法做二级索引查询。
+7. **`NewItemFlagSystem` 未实现清理**，红点标记需宿主自理。
+8. **`BTNodeType` 是 byte 枚举，新增只能追加末尾**，否则运行期遍历错位。
+9. **Blob 用 `Allocator.Persistent` 且谁创建谁 `Dispose`**，漏 Dispose 会在切场景时泄漏。
+10. **`TryRead` 失败返回 false 而非抛异常**——别忘了判返回值。

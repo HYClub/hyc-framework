@@ -339,11 +339,22 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 
 ---
 
+## 📚 完整文档
+
+仓库根目录的 [`docs/`](./docs) 提供 **21 篇** 中文深度文档（架构 / 配置管线 / 多语言 / ECS UI / 输入 / 过场 / 消息 / 行为树 / Blob 约定），每篇 = 架构 + 关键类 + 用法 + 坑。
+
+> 🤖 这套文档专门做了「AI 友好」处理：结构固定、基于源码实测、关键信息内联。
+> 把 `docs/` 提供给 AI 助手（Copilot / WorkBuddy / Cursor 等），它就能在不通读源码的情况下准确理解并修改本框架。
+
+---
+
 ## 📁 目录结构
 
 ```
 hyc-framework/                 ← 仓库根
 ├── README.md                  ← 本文件（GitHub 主页）
+├── docs/                      ← 完整文档（21 篇，AI 友好）
+│   └── README.md              ← 文档导航
 ├── com.hyc.framework/         ← Unity 包（package.json 在此）
 │   ├── package.json
 │   ├── LICENSE
