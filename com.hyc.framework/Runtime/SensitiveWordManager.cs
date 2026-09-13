@@ -1,20 +1,30 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using System.Text;
-using System.Text.RegularExpressions;
+using UnityEngine;
 
 namespace HYC.Framework.Loc
 {
     /// <summary>
-    /// Sensitive-word filter backed by a trie (Hashtable) built from
+    /// Sensitive-word filter backed by a trie (Dictionary) built from
     /// <see cref="LocalizationManager.SensitiveWords"/>. Provides filtering,
     /// validation and word enumeration.
+    ///
+    /// Rewritten from the Hashtable/Regex variant: child links use a
+    /// <see cref="Dictionary{TKey,TValue}"/> (no per-character <c>Regex</c> and
+    /// no boxing), and the trie is built case-normalized so lookups only need a
+    /// single lowercase probe. Behaviour of <see cref="Filter"/>/
+    /// <see cref="Validate"/>/<see cref="GetAllMaskWords"/> is otherwise unchanged.
     /// </summary>
     public static class SensitiveWordManager
     {
-        private const string END_FLAG = "IsEnd";
+        private sealed class Node
+        {
+            public readonly Dictionary<char, Node> Children = new Dictionary<char, Node>();
+            public bool End;
+        }
 
-        private static Hashtable mMaskWordTable;
+        private static Node _root;
 
         /// <summary>Initializes the trie from the loaded sensitive-word list.</summary>
         public static void Init()
@@ -23,14 +33,13 @@ namespace HYC.Framework.Loc
         /// <summary>Clears the trie.</summary>
         public static void Clean()
         {
-            mMaskWordTable?.Clear();
-            mMaskWordTable = null;
+            _root = null;
         }
 
         /// <summary>Returns <paramref name="info"/> with sensitive words masked as '*'.</summary>
         public static string Filter(this string info)
         {
-            if (mMaskWordTable == null)
+            if (_root == null)
                 InitSensitiveWordMap(LocalizationManager.SensitiveWords);
             return ReplaceSensitiveWords(info);
         }
@@ -38,7 +47,7 @@ namespace HYC.Framework.Loc
         /// <summary>Whether <paramref name="value"/> contains any invalid content.</summary>
         public static bool Validate(this string value)
         {
-            if (mMaskWordTable == null)
+            if (_root == null)
                 InitSensitiveWordMap(LocalizationManager.SensitiveWords);
 
             for (int i = 0; i < value.Length; i++)
@@ -64,7 +73,7 @@ namespace HYC.Framework.Loc
         /// <summary>Returns all sensitive words found within <paramref name="value"/>.</summary>
         public static List<string> GetAllMaskWords(this string value)
         {
-            if (mMaskWordTable == null)
+            if (_root == null)
                 InitSensitiveWordMap(LocalizationManager.SensitiveWords);
 
             var result = new List<string>();
@@ -97,37 +106,35 @@ namespace HYC.Framework.Loc
         }
 
         private static bool IsAllLetters(char c)
-            => Regex.IsMatch(c.ToString(), @"^[a-zA-Z]$");
+            => char.IsLetter(c);
 
         private static void InitSensitiveWordMap(string[] words)
         {
-            mMaskWordTable = new Hashtable(words.Length);
+            _root = new Node();
             foreach (var word in words)
             {
-                Hashtable hashtable = mMaskWordTable;
+                var node = _root;
                 for (int i = 0; i < word.Length; i++)
                 {
                     char c = word[i];
                     if (IsSymbol(c)) continue;
-                    if (hashtable.ContainsKey(c))
-                        hashtable = (Hashtable)hashtable[c];
-                    else
+                    c = char.ToLower(c);
+                    if (!node.Children.TryGetValue(c, out var next))
                     {
-                        var newHashtable = new Hashtable { { END_FLAG, 0 } };
-                        hashtable.Add(c, newHashtable);
-                        hashtable = newHashtable;
+                        next = new Node();
+                        node.Children[c] = next;
                     }
-                    if (i == word.Length - 1)
-                        hashtable[END_FLAG] = 1;
+                    node = next;
                 }
+                node.End = true;
             }
         }
 
         private static int SearchSensitiveWord(string text, int startIndex)
         {
-            Hashtable newMap = mMaskWordTable;
-            bool flag = false;
+            var node = _root;
             int len = 0;
+            int endLen = 0;
             for (int i = startIndex; i < text.Length; i++)
             {
                 char word = text[i];
@@ -136,18 +143,13 @@ namespace HYC.Framework.Loc
                     len++;
                     continue;
                 }
-                Hashtable temp = (Hashtable)newMap[word]
-                    ?? (Hashtable)newMap[char.ToLower(word)]
-                    ?? (Hashtable)newMap[char.ToUpper(word)];
-                if (temp != null)
-                {
-                    flag = (int)temp[END_FLAG] == 1;
-                    newMap = temp;
-                    len++;
-                }
-                else break;
+                word = char.ToLower(word);
+                if (!node.Children.TryGetValue(word, out var temp)) break;
+                node = temp;
+                len++;
+                if (node.End) endLen = len;
             }
-            return flag ? len : 0;
+            return endLen;
         }
 
         private static string ReplaceSensitiveWords(string text)

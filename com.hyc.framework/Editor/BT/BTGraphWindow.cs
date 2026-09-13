@@ -4,7 +4,7 @@
 // 说明: 行为树编辑器主窗口(宿主)。
 //       窗口本身不再自绘工具栏 —— 与 NodeCanvas 一致, 顶部工具栏 / 画布 /
 //       minimap / 左栏(Explorer) / 浮动面板 全部由 BTGraphIMGUI(IMGUI)绘制。
-//       菜单: Tools/HYC/BT Editor
+//       菜单: HYC Framework/BT/BT Editor
 // ============================================================
 
 using System.Linq;
@@ -21,7 +21,7 @@ namespace HYC.Framework.BT.Editor
         private BTGraphIMGUI _graphIMGUI;
         private IMGUIContainer _imguiContainer;
 
-        [MenuItem("Tools/HYC/BT Editor")]
+        [MenuItem("HYC Framework/BT/BT Editor")]
         public static void Open()
         {
             var w = GetWindow<BTGraphWindow>();
@@ -32,7 +32,18 @@ namespace HYC.Framework.BT.Editor
 
         private void OnEnable()
         {
+            Undo.undoRedoPerformed += OnUndo;
             BuildUI();
+        }
+
+        private void OnDisable()
+        {
+            Undo.undoRedoPerformed -= OnUndo;
+        }
+
+        private void OnUndo()
+        {
+            _graphIMGUI?.NotifyUndo();
         }
 
         private void BuildUI()

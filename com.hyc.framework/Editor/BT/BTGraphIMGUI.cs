@@ -49,6 +49,7 @@ namespace HYC.Framework.BT.Editor
         // 本帧布局 / 坐标
         private Rect _area;
         private Rect _canvasRect;     // 画布区域(扣除左栏/底栏)
+        private Rect _visibleCanvasRect; // 当前可视区对应的画布坐标系矩形(视口裁剪用)
         private Rect _miniRect;       // minimap 屏幕矩形
         private Vector2 _rawMouse;    // 容器坐标鼠标(用于所有手动命中测试, 避免 GUI 组坐标歧义)
         private Vector2 _mouseCanvas; // 鼠标的画布坐标
@@ -142,6 +143,11 @@ namespace HYC.Framework.BT.Editor
         // 校验结果(供底部状态条)
         private List<BTValidationIssue> _issues = new List<BTValidationIssue>();
 
+        // 校验结果缓存: 仅在图变更(_graphDirty)或间隔超时后重算, 避免每帧全量校验。
+        private bool _graphDirty = true;
+        private double _lastValidateTime = -1.0;
+        private const double VALIDATE_INTERVAL = 0.25; // 秒
+
         public System.Action OnRepaint;
         public System.Action<BTTreeAsset> OnRequestOpenTree;
 
@@ -222,9 +228,16 @@ namespace HYC.Framework.BT.Editor
             _canvasRect = new Rect(canvasX, TOOLBAR_H, Mathf.Max(1f, canvasW), ph);
             if (_libRect.width <= 1f) _libRect = new Rect(canvasX + 20f, TOOLBAR_H + 20f, LEFT_W, 400f);
             _mouseCanvas = ScreenToCanvas(_rawMouse);
+            _visibleCanvasRect = VisibleCanvasRect();   // 供连线/节点视口裁剪使用
 
             EnsureStyles();
-            _issues = BTValidator.Validate(_asset);
+            // 校验结果缓存: 图变更或间隔超时才重算(大行为树每帧全量校验会卡)。
+            if (_graphDirty || (EditorApplication.timeSinceStartup - _lastValidateTime) > VALIDATE_INTERVAL)
+            {
+                _issues = BTValidator.Validate(_asset);
+                _graphDirty = false;
+                _lastValidateTime = EditorApplication.timeSinceStartup;
+            }
 
             // ===== 1) 画布(最底层, 必须先画) =====
             // 工具栏/左右面板/底栏都在它之后绘制 => 永远盖在画布之上。
@@ -280,8 +293,13 @@ namespace HYC.Framework.BT.Editor
             Handles.EndGUI();
 
             // 节点(直接在画布坐标系里逐个绘制: 不再用 GUI.Window, 也不再逐节点嵌套 GUI.BeginGroup)
+            // 视口裁剪: 仅绘制可视区内的节点, 越界节点直接跳过(大行为树每帧全量绘制会卡)
             for (int i = 0; i < _asset.Nodes.Count; i++)
-                DrawNode(_asset.Nodes[i], e);
+            {
+                var n = _asset.Nodes[i];
+                if (!NodeRect(n).Overlaps(_visibleCanvasRect)) continue;
+                DrawNode(n, e);
+            }
 
             // Explorer Ping(对应 GraphEditor.PingElement: 悬停行时画布高亮该节点, 1s 淡出)
             DrawPing();
@@ -517,6 +535,7 @@ namespace HYC.Framework.BT.Editor
                             var s = _asset.Nodes.Find(x => x.NodeId == id);
                             if (s != null) _dragOrigins[id] = s.Position;
                         }
+                        RecordUndo("BT: 移动节点");
                         _draggingNode = true;
                         e.Use(); return;
                     }
@@ -712,6 +731,9 @@ namespace HYC.Framework.BT.Editor
             var src = _asset.Nodes.Find(x => x.NodeId == c.SourceNodeId);
             var dst = _asset.Nodes.Find(x => x.NodeId == c.TargetNodeId);
             if (src == null || dst == null) return;
+            // 视口裁剪: 两端节点都不在可视区内则跳过(连线绘制比节点便宜, 粗裁即可)
+            if (!NodeRect(src).Overlaps(_visibleCanvasRect) && !NodeRect(dst).Overlaps(_visibleCanvasRect))
+                return;
 
             var from = OutputPortPos(src, c.PortIndex);
             var to = InputPortPos(dst);
@@ -746,6 +768,14 @@ namespace HYC.Framework.BT.Editor
         {
             float h = NodeContentHeight(n);
             return new Rect(n.Position.x, n.Position.y, NODE_W, h);
+        }
+
+        /// <summary>当前可视区在画布坐标系下的矩形(用于视口裁剪)。</summary>
+        private Rect VisibleCanvasRect()
+        {
+            var tl = ScreenToCanvas(_canvasRect.min);
+            var br = ScreenToCanvas(_canvasRect.max);
+            return Rect.MinMaxRect(tl.x, tl.y, br.x, br.y);
         }
 
         // 端口位置严格对应 Editor.Node(PlanarDirection.Horizontal):
@@ -902,7 +932,7 @@ namespace HYC.Framework.BT.Editor
             y = nr.y + HEADER_H + 8f + ParamRowCount(n) * rh;
             GUI.Label(new Rect(px + 4, y, labelW, rh), "备注");
             var note = EditorGUI.TextField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), n.Note);
-            if (note != n.Note) { n.Note = note; MarkDirty(false); }
+            if (note != n.Note) { RecordUndo("BT: 编辑备注"); n.Note = note; MarkDirty(false); }
         }
 
         // ================================================================
@@ -2229,8 +2259,22 @@ namespace HYC.Framework.BT.Editor
 
         private void MarkDirty(bool save)
         {
+            _graphDirty = true;   // 图已变更, 下次 DrawGUI 重算校验(见 DrawGUI 缓存逻辑)
             EditorUtility.SetDirty(_asset);
             if (save) AssetDatabase.SaveAssets();
+            OnRepaint?.Invoke();
+        }
+
+        /// <summary>把当前 BTTreeAsset 状态压入 Unity 撤销栈(须在改动之前调用)。</summary>
+        private void RecordUndo(string label)
+        {
+            if (_asset != null) Undo.RecordObject(_asset, label);
+        }
+
+        /// <summary>Undo/Redo 后由宿主窗口调用: 失效校验缓存并请求重绘。</summary>
+        public void NotifyUndo()
+        {
+            _graphDirty = true;
             OnRepaint?.Invoke();
         }
 
@@ -2238,6 +2282,7 @@ namespace HYC.Framework.BT.Editor
         private void DeleteSelected()
         {
             if (_selectedIds.Count == 0) return;
+            RecordUndo("BT: 删除选中节点");
             _asset.Nodes.RemoveAll(n => _selectedIds.Contains(n.NodeId) && n.Type != BTNodeType.Root);
             _asset.Connections.RemoveAll(c => _selectedIds.Contains(c.SourceNodeId) || _selectedIds.Contains(c.TargetNodeId));
             _selectedIds.RemoveWhere(id => !_asset.Nodes.Any(n => n.NodeId == id));
@@ -2246,6 +2291,7 @@ namespace HYC.Framework.BT.Editor
 
         private void AddNode(BTNodeType type, Vector2 pos)
         {
+            RecordUndo("BT: 新增节点");
             var data = new BTNodeData { NodeId = NewNodeId(), Type = type, Position = pos };
             _asset.Nodes.Add(data);
             _selectedIds.Clear(); _selectedIds.Add(data.NodeId);
@@ -2254,6 +2300,7 @@ namespace HYC.Framework.BT.Editor
 
         private void AddCustomNode(System.Type type, long subType, Vector2 pos)
         {
+            RecordUndo("BT: 新增自定义节点");
             var data = new BTNodeData { NodeId = NewNodeId(), Type = BTNodeType.GameCustom, Position = pos };
             data.LongParams.Add(subType);
             _asset.Nodes.Add(data);
@@ -2263,6 +2310,7 @@ namespace HYC.Framework.BT.Editor
 
         private void AddNodeFromPayload(BTDragPayload p, Vector2 pos)
         {
+            RecordUndo("BT: 从节点库添加节点");
             if (p.IsCustom)
             {
                 var data = new BTNodeData { NodeId = NewNodeId(), Type = BTNodeType.GameCustom, Position = pos };
@@ -2277,6 +2325,7 @@ namespace HYC.Framework.BT.Editor
 
         private void ConnectNodes(long srcId, int srcPort, long dstId)
         {
+            RecordUndo("BT: 连接节点");
             if (srcId == dstId) return;
             bool dup = false;
             foreach (var c in _asset.Connections)
@@ -2305,6 +2354,7 @@ namespace HYC.Framework.BT.Editor
 
         private void DeleteNode(long nodeId)
         {
+            RecordUndo("BT: 删除节点");
             var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
             if (n != null && n.Type == BTNodeType.Root) return; // Root 不可删
             _asset.Connections.RemoveAll(c => c.SourceNodeId == nodeId || c.TargetNodeId == nodeId);
@@ -2330,6 +2380,7 @@ namespace HYC.Framework.BT.Editor
 
         private void DeleteBranch(long nodeId)
         {
+            RecordUndo("BT: 删除分支");
             var ids = CollectBranch(nodeId);
             _asset.Connections.RemoveAll(c => ids.Contains(c.SourceNodeId) || ids.Contains(c.TargetNodeId));
             _asset.Nodes.RemoveAll(n => ids.Contains(n.NodeId));
@@ -2354,6 +2405,7 @@ namespace HYC.Framework.BT.Editor
 
         private void DuplicateBranch(long nodeId)
         {
+            RecordUndo("BT: 复制分支");
             var ids = CollectBranch(nodeId);
             var map = new Dictionary<long, long>();
             foreach (var id in ids) map[id] = NewNodeId();
@@ -2375,6 +2427,7 @@ namespace HYC.Framework.BT.Editor
 
         private void ReplaceNodeType(long nodeId, BTNodeType newType)
         {
+            RecordUndo("BT: 替换节点类型");
             var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
             if (n == null) return;
             n.Type = newType;
@@ -2383,6 +2436,7 @@ namespace HYC.Framework.BT.Editor
 
         private void DecorateNode(long nodeId, BTNodeType decoType)
         {
+            RecordUndo("BT: 装饰节点");
             var node = _asset.Nodes.Find(x => x.NodeId == nodeId);
             if (node == null || node.Type == BTNodeType.Root) return;
             var deco = new BTNodeData
@@ -2406,6 +2460,7 @@ namespace HYC.Framework.BT.Editor
 
         private void ConvertToSubTree(long nodeId)
         {
+            RecordUndo("BT: 转换为子树");
             var node = _asset.Nodes.Find(x => x.NodeId == nodeId);
             if (node == null || node.Type == BTNodeType.Root) return;
             var ids = CollectBranch(nodeId);
@@ -2468,6 +2523,7 @@ namespace HYC.Framework.BT.Editor
 
         private void PasteSelected()
         {
+            RecordUndo("BT: 粘贴节点");
             if (_clipboard.Count == 0) return;
             var offset = new Vector2(30, 30);
             foreach (var src in _clipboard)
