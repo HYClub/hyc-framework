@@ -463,6 +463,9 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using Unity.Collections;");
             sb.AppendLine("using Unity.Entities;");
+            // 构建器只在导出时（Editor）被调用，生成到 Editor 程序集，可引用编辑器 API 解析资源地址
+            sb.AppendLine("using UnityEditor;");
+            sb.AppendLine("using HYC.Framework.Config.Editor;");
             sb.AppendLine();
             sb.AppendLine($"namespace {ns}.Blob");
             sb.AppendLine("{");
@@ -917,6 +920,17 @@ namespace HYC.Framework.Config.Editor
                 }
             }
 
+            // 资源引用（Object/Sprite/...）+ 导出 名字/路径/AA地址 → Blob 里是字符串（定长 FixedString，容量取 fixedStringSize，默认128）
+            if (IsAssetRefType(type)
+                && (set.mode == ConfigFieldExportMode.AssetName
+                    || set.mode == ConfigFieldExportMode.AssetPath
+                    || set.mode == ConfigFieldExportMode.AssetAddressable))
+            {
+                info.TypeName = $"FixedString{(int)set.fixedStringSize}Bytes";
+                info.FixedString = true;
+                return info;
+            }
+
             // string 类源 / 资源名字 / 数值转字符串 → BlobString
             if (IsStringLike(type)
                 || set.mode == ConfigFieldExportMode.AssetName
@@ -965,6 +979,17 @@ namespace HYC.Framework.Config.Editor
         private static string BlobStringExpr(ConfigTemplateField f, string e)
         {
             var set = ExportSettingOf(f, true);
+            if (IsAssetRefType(f.type))
+            {
+                // 资源引用：导出时由编辑器 API 解析（构建器在 Editor 程序集，可引用 GUIDrawer/AssetDatabase）
+                // 未拖入资源 / 未标记 Addressable 时返回空串，避免 FixedString 构造收到 null
+                if (set.mode == ConfigFieldExportMode.AssetAddressable)
+                    return $"{e} == null ? \"\" : (HYC.Framework.Config.Editor.GUIDrawer.GetAddressableAddress({e}) ?? \"\")";
+                if (set.mode == ConfigFieldExportMode.AssetPath)
+                    return $"{e} == null ? \"\" : (UnityEditor.AssetDatabase.GetAssetPath({e}) ?? \"\")";
+                if (set.mode == ConfigFieldExportMode.AssetName)
+                    return $"{e} == null ? \"\" : {e}.name";
+            }
             if (IsStringLike(f.type))
                 return e;
             if (set.mode == ConfigFieldExportMode.AssetName)
@@ -1121,8 +1146,13 @@ namespace HYC.Framework.Config.Editor
             AssetDatabase.Refresh();
 
             // 记录本次生成类名
-            template.lastGeneratedClassName = template.className;
-            EditorUtility.SetDirty(template);
+            // Package 内资产只读，不能（也不需要）持久化 lastGeneratedClassName
+            var templatePath = AssetDatabase.GetAssetPath(template);
+            if (string.IsNullOrEmpty(templatePath) || !templatePath.StartsWith("Packages/"))
+            {
+                template.lastGeneratedClassName = template.className;
+                EditorUtility.SetDirty(template);
+            }
             return true;
         }
 
@@ -1150,7 +1180,16 @@ namespace HYC.Framework.Config.Editor
             var code = GenerateBlobBuilder(template, out _);
             if (code == null)
                 return;
-            var dir = $"{ConfigDataSettings.OutputDir}/Blob";
+
+            // 清理旧位置的同名文件：构建器曾生成在 {OutputDir}/Blob（运行时程序集），后移到
+            // {OutputDir}/Editor/Blob（Editor 程序集）。若旧文件残留，同名类会在两个程序集里
+            // 各存在一份 → CS0101 重复定义。已升级的存量工程见此自动迁移。
+            var legacy = $"{ConfigDataSettings.OutputDir}/Blob/{template.className}BlobBuilder.cs";
+            if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), legacy)))
+                AssetDatabase.DeleteAsset(legacy);
+
+            // 构建器只在导出时由 Editor 调用，放到 Editor 程序集下，才能引用 GUIDrawer/AssetDatabase 解析资源地址
+            var dir = $"{ConfigDataSettings.OutputDir}/Editor/Blob";
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), dir));
             var path = $"{dir}/{template.className}BlobBuilder.cs";
             File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), code, Encoding.UTF8);

@@ -408,6 +408,10 @@ namespace HYC.Framework.Config.Editor
                 "配置引用取成员(ID/GUID/标量字段) / 资源对象导出 名字、路径、Addressable 地址。\n" +
                 "FixedString 生成代码用官方 new FixedStringN(source) 初始化，超长抛异常不静默截断。",
                 MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "资源/Prefab 字段（Object 等）：只能导出 名字 / 路径 / AA地址，不能直接把对象序列化进 Blob。" +
+                "选「AA地址」时请确保该资源已在 Addressables 标记，否则导出空串（运行时才报错）。",
+                MessageType.Warning);
         }
 
         private void DrawSideExportPopup(SerializedProperty fieldProp, ConfigTemplateField f, bool client, Rect rect, bool enabled)
@@ -489,7 +493,6 @@ namespace HYC.Framework.Config.Editor
                 {
                     if (IsAssetExportType(f.type))
                     {
-                        list.Add(new ExportOption("直接导出(对象)", ConfigFieldExportMode.Direct));
                         list.Add(new ExportOption("名字", ConfigFieldExportMode.AssetName));
                         list.Add(new ExportOption("路径(Assets/...)", ConfigFieldExportMode.AssetPath));
                         list.Add(new ExportOption("AA地址", ConfigFieldExportMode.AssetAddressable));
@@ -931,6 +934,14 @@ namespace HYC.Framework.Config.Editor
                     EditorGUILayout.LabelField("未启用", EditorStyles.miniLabel);
                 }
                 EditorGUILayout.EndHorizontal();
+            }
+
+            if (IsAssetExportType((ConfigFieldType)typeProp.intValue))
+            {
+                EditorGUILayout.HelpBox(
+                    "资源/Prefab 字段：拖入资源，导出时按所选模式转成 名字 / 路径 / AA地址（不能直接序列化对象本身）。" +
+                    "选「AA地址」请确保资源已标记 Addressable，否则导出空串。",
+                    MessageType.Warning);
             }
             EditorGUILayout.EndVertical();
         }
