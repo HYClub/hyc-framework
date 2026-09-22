@@ -405,6 +405,7 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("using System;");
             sb.AppendLine("using Unity.Collections;");
             sb.AppendLine("using Unity.Entities;");
+            sb.AppendLine("using UnityEngine;");
             sb.AppendLine();
             sb.AppendLine($"namespace {ns}.Blob");
             sb.AppendLine("{");
@@ -954,6 +955,15 @@ namespace HYC.Framework.Config.Editor
                 case ConfigFieldType.UInt: info.TypeName = "uint"; break;
                 case ConfigFieldType.BehaviourTree: info.TypeName = "long"; break;
                 case ConfigFieldType.Enum: info.TypeName = "int"; break;
+                // 非托管 blittable 的 Unity 结构体：Blob 里可直接存原类型
+                case ConfigFieldType.Color: info.TypeName = "Color"; break;
+                case ConfigFieldType.Color32: info.TypeName = "Color32"; break;
+                case ConfigFieldType.Vector2: info.TypeName = "Vector2"; break;
+                case ConfigFieldType.Vector3: info.TypeName = "Vector3"; break;
+                case ConfigFieldType.Vector4: info.TypeName = "Vector4"; break;
+                case ConfigFieldType.Quaternion: info.TypeName = "Quaternion"; break;
+                case ConfigFieldType.Vector2Int: info.TypeName = "Vector2Int"; break;
+                case ConfigFieldType.Vector3Int: info.TypeName = "Vector3Int"; break;
                 default: info.TypeName = "int"; break;
             }
             return info;

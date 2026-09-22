@@ -137,7 +137,64 @@ public static BTNodeState Tick(BTRootBlob* tree, ref BTRunState state, ref BTCon
 
 ---
 
-## 七、非 ECS 路径
+## 七、打包：导出文件 → 运行时读回（真机必读）
+
+### 为什么需要这一步
+
+| 角色 | 所在程序集 | 打包后是否存在 |
+|---|---|---|
+| `BTTreeAsset` / `BTBlobBuilder` | **Editor**（`Editor/BT/...`，本包无 asmdef → `Assembly-CSharp-Editor`） | ❌ 不存在 |
+| `BTAutoRegisterOnPlay`（进 Play 自动注册） | Editor 钩子（`[InitializeOnLoad]`） | ❌ 不执行 |
+| `BTManager` / `BTInterpreter` / `BTRootBlob` / `BTBlobLoader` | Runtime | ✅ 存在 |
+
+也就是说：**「进 Play 自动注册」只覆盖编辑器，真机拿不到树**。
+打包必须把树先导出成文件，运行时读回注册——与配置管线的
+「编辑器导出 → `StreamingAssets/ConfigBlob` → 运行时 `TryRead`」完全同构。
+
+### 导出（Editor）
+
+菜单 **`Tools/HYC/BT/导出 Blob(打包用)`**，或直接调用：
+
+```csharp
+HYC.Framework.BT.Editor.BTBlobExporter.ExportAll();          // → Assets/StreamingAssets/BTBlob
+HYC.Framework.BT.Editor.BTBlobExporter.ExportAll("自定义目录"); // 打包流程里也可调
+```
+
+产物（目录内）：
+
+| 文件 | 说明 |
+|---|---|
+| `<treeId>.blob` | 每棵树一个文件，由 `BTBlobBuilder.BuildToFile` 写出 |
+| `manifest.txt` | 清单，每行 `treeId|资产名`，首行注释记录格式版本 |
+
+导出前会**清空目录内的旧 `.blob` 与 manifest**，改名/删树后不会残留幽灵文件。
+
+### 运行时加载（Runtime）
+
+```csharp
+// 引导期（数据阶段，早于任何实体 Tick）
+BTBlobLoader.LoadAll();                       // 按 manifest 逐棵注册
+BTBlobLoader.Load(21001);                     // 只加载某一棵
+BTBlobLoader.LoadAll(myFolder);               // 指定目录（如已拷贝到 persistentDataPath）
+```
+
+内部即 `BlobAssetReference<BTRootBlob>.TryRead(path, version, out blob)` → `BTManager.Register(treeId, blob)`。
+
+### 版本与排错
+
+- 文件格式版本 = `BTBlobLoader.FileVersion`，**导出端（`BuildToFile` 默认值）与加载端共用同一个常量**；
+  改动 `BTRootBlob` / `BTNodeBlob` 结构时递增，不一致会明确报错而不是读到错位字节。
+- 文件缺失 → `LogWarning`“重新导出”；读取失败 → `LogError`（多半是版本不一致或文件损坏）。
+- ⚠️ **改完树必须重新导出**，否则真机跑的是旧版本（编辑器里看不出来，因为编辑器走自动注册）。
+  建议把 `BTBlobExporter.ExportAll()` 挂进构建前流程。
+- ⚠️ **Android**：`Application.streamingAssetsPath` 在 APK 内（`jar:file://`），`File.Exists` / `TryRead` 读不到
+  （配置管线同样受此限制）。真机要么先把文件拷到 `persistentDataPath` 再把该目录传给 `LoadAll`，
+  要么用 `UnityWebRequest` 读字节后 `BlobAssetReference<BTRootBlob>.Create(byte[])` + `Register`。
+  `BTBlobLoader` 检测到 `jar:` 路径会直接报错说明，不会静默变成「树全没加载但游戏照跑」。
+
+---
+
+## 八、非 ECS 路径
 
 `BTManager` + `BTEventBus` + `BTNodeRuntimeRegistry` 提供手动驱动能力（不需要 ECS World）。
 与 ECS 路径共用同一份 Blob 和同一个 `BTInterpreter`。
@@ -151,3 +208,6 @@ public static BTNodeState Tick(BTRootBlob* tree, ref BTRunState state, ref BTCon
 3. **跨帧状态按 (实体, 树ID) 存**——同一个实体跑多棵树不会串味，但**实体销毁后要 `ClearNodeStates`**，否则泄漏。
 4. **`TreeId` 是运行期唯一键**，重排/改名资产不影响，但改 `TreeId` 会断所有引用（`SubTree`、`BehaviourTree` 配置字段都存的是 ID）。
 5. **`Optional` 状态语义特殊**——父组合会忽略它，用之前确认父节点类型是否支持。
+6. **`BTBlobBuilder.Build` 产出的是内存引用，不是文件**——`BlobAssetReference<T>.Write` 收的是 `BlobBuilder`，
+   所以落盘必须走 `BTBlobBuilder.BuildToFile`（内部共用同一段 `Fill` 逻辑，产物与内存版字节一致）。
+   真机加载见上文第七节。

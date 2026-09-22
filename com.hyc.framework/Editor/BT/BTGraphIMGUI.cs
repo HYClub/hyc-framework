@@ -78,6 +78,7 @@ namespace HYC.Framework.BT.Editor
         private bool _showLibPanel = true;      // 浮动: 节点库
         private Vector2 _drawOffset;            // 命中测试偏移(GUI.BeginGroup 组原点; 无组时为零)
         public System.Action OnRequestNewTree;
+        public System.Action OnRequestSave;
 
         // 左栏 = NC GraphExplorer 完整移植
         private const int INDENT_WIDTH = 25;   // GraphExplorer.INDENT_WIDTH
@@ -160,18 +161,30 @@ namespace HYC.Framework.BT.Editor
         private const float CONN_SIZE = 3f;       // Connection.defaultSize
         private const float NODE_W = 180f;
         private const float PORT_HIT = 12f;       // 端口命中半径(画布单位)
-        private const float PORT_OUT_OFFSET = 6f; // 输出端口相对右缘外凸(Editor.Node: portOffset=6)
+        private const float PORT_OUT_OFFSET = 6f; // 输出端口(底)相对下缘下凸(Editor.Node: portOffset=6)
         private const float LEFT_W = 220f;
         private const float BOTTOM_H = 104f;
         private const float MM_W = 210f;
         private const float MM_H = 150f;
         private const float LIB_ROW = 22f;
         private const float HEAD_ROW = 20f;
+
+        // ---- 自定义深色主题几何常量(对应 BTEditor-UI-Prototype.html) ----
+        private const float CARD_R     = 12f;   // 卡片圆角半径
+        private const float BORDER_W   = 1.5f;  // 卡片描边宽
+        private const float STRIPE_W   = 5f;    // 左侧类别色条宽
+        private const float GLYPH      = 16f;   // 类别圆点直径
+        private const float BADGE      = 14f;   // 右上状态角标直径
+        private const float PORT_GAP   = 22f;   // 多端口横向固定间隔(画布单位, 对应原型 26px)
         // 画布底色(对应 StyleSheet.canvasBG 的亮度): 底色太暗时 NC 的纯黑网格(a0.15)根本看不见
-        private static readonly Color BG = new Color(0.24f, 0.24f, 0.27f);
+        // 对应 NodeCanvas 暗色皮肤层次: 画布底暗、节点面板明显更亮(原 BG=0.24 与节点体 0.21 几乎同色,
+        // 节点整个「隐」进背景只剩边框, 看起来像半透明 —— 用户截图反馈的根因)。
+        private static readonly Color BG = BTEditorStyles.CanvasBg; // #14151a 深色画布(自定义主题)
 
         // 样式(懒初始化)
         private GUIStyle _libLabel, _headLabel, _subLabel, _okLabel, _warnLabel, _errLabel, _dbgLabel;
+        private GUIStyle _headTitle, _headSub, _glyphStyle, _badgeGlyphStyle;
+        private GUIStyle _paramLabel, _paramField;
 
         // Explorer 行文本(对应 size=9 富文本, 左对齐)
         private GUIStyle _explorerRowStyle;
@@ -232,9 +245,13 @@ namespace HYC.Framework.BT.Editor
 
             EnsureStyles();
             // 校验结果缓存: 图变更或间隔超时才重算(大行为树每帧全量校验会卡)。
+            // 空树(一个节点都没有)= 尚未开始编辑的初始态, 不是错误态: 画布中央出引导文案, 底栏不甩红字。
+            // 一旦有任何节点, 恢复完整校验(缺 Root 等真实问题照报)。
             if (_graphDirty || (EditorApplication.timeSinceStartup - _lastValidateTime) > VALIDATE_INTERVAL)
             {
-                _issues = BTValidator.Validate(_asset);
+                _issues = _asset.Nodes.Count == 0
+                    ? new List<BTValidationIssue>()
+                    : BTValidator.Validate(_asset);
                 _graphDirty = false;
                 _lastValidateTime = EditorApplication.timeSinceStartup;
             }
@@ -262,24 +279,19 @@ namespace HYC.Framework.BT.Editor
             Handles.BeginGUI();
             foreach (var c in _asset.Connections)
                 DrawConnection(c);
-            // 进行中的连线预览(对应 Editor.Node: clickedPort 拖拽, Resting a0.8, size=3)
+            // 进行中的连线预览(对应 Editor.Node:997-998: 单条贝塞尔, Resting a0.8, size=3, 无阴影无端帽)
             if (_pendingSrcId.HasValue)
             {
                 var src = _asset.Nodes.Find(x => x.NodeId == _pendingSrcId.Value);
                 if (src != null)
                 {
                     var from = OutputPortPos(src, _pendingSrcPort);
-                    var col = BTEditorStyles.StatusResting;
-                    float tx = Mathf.Max(Mathf.Abs(from.x - _mouseCanvas.x) * _rigidity, 25f);
-                    var fromT = new Vector2(tx, 0);
-                    var toT = new Vector2(-tx, 0);
-                    var shadow = new Vector2(3.5f, 3.5f);
-                    Handles.DrawBezier(from + shadow, _mouseCanvas + shadow,
-                        from + shadow + fromT + shadow, _mouseCanvas + shadow + toT,
-                        new Color(0, 0, 0, 0.1f), BTEditorStyles.BezierTexture, CONN_SIZE + 10f);
+                    var col = BTEditorStyles.EdgeActive;
+                    float ty = Mathf.Max(Mathf.Abs(from.y - _mouseCanvas.y) * _rigidity, 25f);
+                    var fromT = new Vector2(0, ty);
+                    var toT = new Vector2(0, -ty);
                     Handles.DrawBezier(from, _mouseCanvas, from + fromT, _mouseCanvas + toT,
                         col, BTEditorStyles.BezierTexture, CONN_SIZE);
-                    BTEditorStyles.DrawCircle(_mouseCanvas, 16f, col);
                 }
             }
             // 框选矩形
@@ -306,6 +318,10 @@ namespace HYC.Framework.BT.Editor
 
             // 结束画布变换(对应 GraphEditor.EndZoomArea: 还原矩阵)
             EndCanvasTransform(oldMatrix);
+
+            // 空画布引导(屏幕空间, 画布正中): 初始态给"从哪开始", 不给报错(校验已对空树静默)
+            if (_asset.Nodes.Count == 0)
+                DrawEmptyCanvasHint();
 
             // 调试: 画布矩形边框 + 数值标注(屏幕空间)
             DrawClipDebug();
@@ -344,6 +360,32 @@ namespace HYC.Framework.BT.Editor
             EditorGUI.DrawRect(new Rect(_canvasRect.xMin, _canvasRect.yMax - 1f, _canvasRect.width, 1f), c);
             EditorGUI.DrawRect(new Rect(_canvasRect.xMin, _canvasRect.yMin, 1f, _canvasRect.height), c);
             EditorGUI.DrawRect(new Rect(_canvasRect.xMax - 1f, _canvasRect.yMin, 1f, _canvasRect.height), c);
+        }
+
+        // 空画布引导文案(屏幕空间, 画布正中)。样式静态缓存, 避免 OnGUI 每帧分配。
+        private static GUIStyle _hintMain, _hintSub;
+        private void DrawEmptyCanvasHint()
+        {
+            if (_hintMain == null)
+            {
+                _hintMain = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+                { fontSize = 15, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                _hintSub = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+                { fontSize = 11, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+            }
+
+            // 临时树(未落盘)与已落盘的空树, 第二行提示不同
+            bool transientTree = string.IsNullOrEmpty(AssetDatabase.GetAssetPath(_asset));
+            string sub = transientTree
+                ? "当前是未保存的临时树 — File → 保存 落盘到 Assets/BTTrees/"
+                : "入口节点: 画布右键 → 入口/开始; 连线后从它开始执行";
+
+            float w = Mathf.Min(440f, _canvasRect.width - 40f);
+            float y = _canvasRect.y + _canvasRect.height * 0.40f;
+            GUI.Label(new Rect(_canvasRect.x + (_canvasRect.width - w) * 0.5f, y, w, 24f),
+                "空画布 — 从左侧「节点库」拖入节点开始绘制", _hintMain);
+            GUI.Label(new Rect(_canvasRect.x + (_canvasRect.width - w) * 0.5f, y + 26f, w, 32f),
+                sub, _hintSub);
         }
 
         // ================================================================
@@ -423,6 +465,36 @@ namespace HYC.Framework.BT.Editor
             _okLabel = new GUIStyle(EditorStyles.label) { normal = { textColor = new Color(0.5f, 0.85f, 0.45f) }, fontSize = 11 };
             _warnLabel = new GUIStyle(EditorStyles.label) { normal = { textColor = new Color(0.95f, 0.8f, 0.4f) }, fontSize = 11 };
             _errLabel = new GUIStyle(EditorStyles.label) { normal = { textColor = new Color(0.95f, 0.5f, 0.5f) }, fontSize = 11 };
+
+            // ---- 自定义深色主题: 节点头部文字 / 类别字形 / 角标字形 ----
+            _headTitle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                normal = { textColor = new Color(0.92f, 0.94f, 0.98f) },
+                fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft,
+                richText = true, clipping = TextClipping.Clip,
+            };
+            _headSub = new GUIStyle(EditorStyles.miniLabel)
+            {
+                normal = { textColor = new Color(0.62f, 0.68f, 0.78f) },
+                fontSize = 9, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip,
+            };
+            _glyphStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                normal = { textColor = Color.white }, fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+            };
+            _badgeGlyphStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                normal = { textColor = Color.white }, fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+            };
+            // inline 参数: 小号灰标签 + 紧凑输入框(避免默认控件在卡片上显得笨重)
+            _paramLabel = new GUIStyle(EditorStyles.miniLabel)
+            {
+                normal = { textColor = new Color(0.62f, 0.68f, 0.78f) },
+                fontSize = 10, alignment = TextAnchor.MiddleLeft,
+            };
+            _paramField = new GUIStyle(EditorStyles.textField) { fontSize = 10 };
         }
 
         // ---- 坐标 ----
@@ -502,23 +574,39 @@ namespace HYC.Framework.BT.Editor
                 e.Use();
                 return;
             }
+            // 端口连线拖动中: 必须消费事件 + 显式请求重绘。
+            // 节点拖动每帧走 MarkDirty(内部 OnRepaint)所以跟手; 连线拖动原先进这里什么都不做,
+            // 预览线只靠偶发重绘刷新 → 「特别卡、不跟手」。
+            if (e.type == EventType.MouseDrag && _pendingSrcId.HasValue)
+            {
+                e.Use();
+                OnRepaint?.Invoke();
+                return;
+            }
 
-            // 节点: 端口拖线 / 选中并拖动(左键按下, 命中节点)
+            // 节点: 端口拖线 / 选中并拖动(左键按下)
             if (e.type == EventType.MouseDown && e.button == 0 && !wantPan)
             {
+                // 端口命中必须先于节点命中: 输出端口圆心画在节点矩形外(yMax+6, 底部居中),
+                // 点在可见圆点上时 NodeAt == -1 —— 若先要求命中节点, 端口永远点不到(拖不了线)。
+                for (int i = _asset.Nodes.Count - 1; i >= 0; i--)
+                {
+                    var pn = _asset.Nodes[i];
+                    if (!NodeRect(pn).Overlaps(_visibleCanvasRect)) continue;
+                    int oc = OutCount(pn);
+                    for (int pi = 0; pi < oc; pi++)
+                    {
+                        if (Vector2.Distance(_mouseCanvas, OutputPortPos(pn, pi)) < PORT_HIT)
+                        {
+                            _pendingSrcId = pn.NodeId; _pendingSrcPort = pi;
+                            e.Use(); return;
+                        }
+                    }
+                }
                 int idx = NodeAt(_mouseCanvas);
                 if (idx >= 0)
                 {
                     var n = _asset.Nodes[idx];
-                    int oc0 = OutCount(n);
-                    for (int i = 0; i < oc0; i++)
-                    {
-                        if (Vector2.Distance(_mouseCanvas, OutputPortPos(n, i)) < PORT_HIT)
-                        {
-                            _pendingSrcId = n.NodeId; _pendingSrcPort = i;
-                            e.Use(); return;
-                        }
-                    }
                     // 选中(shift 追加)
                     if (!e.shift && !_selectedIds.Contains(n.NodeId)) _selectedIds.Clear();
                     _selectedIds.Add(n.NodeId);
@@ -641,89 +729,105 @@ namespace HYC.Framework.BT.Editor
         {
             if (!_showGrid) return;                        // Prefs.showGrid
             if (Event.current.type != EventType.Repaint) return;
+
             float gridSize = Zoom > 0.5f ? GRID : GRID * 5f;   // GRID_SIZE / (×5)
             float step = gridSize * Zoom;
-            Handles.BeginGUI();
-            // 对应 GraphEditor.DrawGrid: black a0.15
-            Handles.color = new Color(0f, 0f, 0f, 0.15f);
-            float xDiff = Mathf.Repeat(-Pan.x * Zoom, step);
-            for (float i = _canvasRect.xMin + xDiff; i < _canvasRect.xMax; i += step)
-                if (i > _canvasRect.xMin)
-                    Handles.DrawLine(new Vector3(i, _canvasRect.yMin, 0), new Vector3(i, _canvasRect.yMax, 0));
-            float yDiff = Mathf.Repeat(-Pan.y * Zoom, step);
-            for (float i = _canvasRect.yMin + yDiff; i < _canvasRect.yMax; i += step)
-                if (i > _canvasRect.yMin)
-                    Handles.DrawLine(new Vector3(_canvasRect.xMin, i, 0), new Vector3(_canvasRect.xMax, i, 0));
-            Handles.color = Color.white;
-            Handles.EndGUI();
+            int every = 1;                                 // 次网格间隔(太密时只画主网格)
+            if (step < 16f) { every = 5; step *= 5f; }
+            int majorEvery = every * 4;                    // 主网格(每 4 个次网格一个亮点)
+
+            float x0 = Mathf.Repeat(-Pan.x * Zoom, step);
+            float y0 = Mathf.Repeat(-Pan.y * Zoom, step);
+            var minor = new Color(1f, 1f, 1f, 0.055f);
+            var major = new Color(1f, 1f, 1f, 0.11f);
+            int cx = 0;
+            for (float x = _canvasRect.xMin + x0; x < _canvasRect.xMax; x += step, cx++)
+            {
+                bool xMaj = cx % majorEvery == 0;
+                int cy = 0;
+                for (float y = _canvasRect.yMin + y0; y < _canvasRect.yMax; y += step, cy++)
+                {
+                    bool isMajor = xMaj && (cy % majorEvery == 0);
+                    if (every > 1 && !isMajor) continue;  // 仅主网格模式: 跳过点
+                    EditorGUI.DrawRect(new Rect(x - 1f, y - 1f, 2f, 2f), isMajor ? major : minor);
+                }
+            }
         }
 
         // ---- 节点绘制(对应 Editor.Node.DrawNodeWindow) ----
         // 关键1: 不用 GUI.Window —— 在 IMGUIContainer + GUI.matrix 下 GUI.Window 的内容不渲染(只看到阴影)。
         // 关键2: 也不再逐节点嵌套 GUI.BeginGroup —— 画布已有裁剪区, 嵌套裁剪会在缩放矩阵下产生"画布中缝"。
         //        现在直接按画布绝对坐标绘制。
+        // ============ 节点绘制(自定义深色主题, 与 BTEditor-UI-Prototype.html 一致) ============
         private void DrawNode(BTNodeData n, Event e)
         {
             var r = NodeRect(n);
-            float w = r.width, h = r.height;
             bool selected = _selectedIds.Contains(n.NodeId);
             var cat = BTEditorStyles.CategoryColor(n.Type);
 
-            // 阴影(对应 windowShadow, 画布坐标)
-            BTEditorStyles.DrawNodeShadow(r);
+            // 1) 阴影(双层柔和圆角)
+            BTEditorStyles.DrawRounded(new Rect(r.x, r.y + 6f, r.width, r.height), new Color(0f, 0f, 0f, 0.22f));
+            BTEditorStyles.DrawRounded(new Rect(r.x - 1f, r.y + 2f, r.width + 2f, r.height + 2f), new Color(0f, 0f, 0f, 0.18f));
 
-            // 注: 这里不再逐个节点嵌套 GUI.BeginGroup —— 画布本身已有一个裁剪组,
-            // 在缩放矩阵下再套一层嵌套裁剪, 就是"画布中间出现一道裁剪缝"的来源。
-            // 现在直接在画布坐标系里按绝对矩形绘制(与原版在窗口内绘制等价)。
+            // 2) 卡片: 描边环 → 类别色整卡填充 → 主体色自左 STRIPE_W 起覆盖
+            //    (三层同一轮廓, 类别条与卡片完全重合、随圆角走, 不会浮在背景外)
+            var borderCol = selected ? BTEditorStyles.Accent : BTEditorStyles.NodeBorder;
+            BTEditorStyles.DrawRounded(r, borderCol);
+            BTEditorStyles.DrawRounded(new Rect(r.x + BORDER_W, r.y + BORDER_W, r.width - 2f * BORDER_W, r.height - 2f * BORDER_W), cat);
+            BTEditorStyles.DrawRounded(new Rect(r.x + STRIPE_W, r.y + BORDER_W, r.width - STRIPE_W - BORDER_W, r.height - 2f * BORDER_W), BTEditorStyles.NodeBg);
 
-            // 身体(对应 StyleSheet.window): DrawRect 打底 + GUI.Box 9-slice 圆角纹理
-            EditorGUI.DrawRect(new Rect(r.x + 1f, r.y + 1f, w - 2f, h - 2f), BTEditorStyles.NodeBody);
-            GUI.Box(r, GUIContent.none, BTEditorStyles.NodeBodyStyle);
+            // 3) 头部: 类别圆点 + 标题 + 副标题(类别名)
+            float gx = r.x + 10f, gy = r.y + (HEADER_H - GLYPH) / 2f;
+            var glyphRect = new Rect(gx, gy, GLYPH, GLYPH);
+            BTEditorStyles.DrawCircle(glyphRect.center, GLYPH, cat);
+            GUI.Label(glyphRect, BTEditorStyles.CategoryGlyph(n.Type), _glyphStyle);
 
-            // 头部(对应 GUI.color = nodeColor; Styles.Draw(rect, windowHeader))
-            var hr = new Rect(r.x, r.y, w, HEADER_H);
-            EditorGUI.DrawRect(new Rect(r.x + 1f, r.y, w - 2f, HEADER_H), cat);
-            GUI.color = cat;
-            GUI.Box(hr, GUIContent.none, BTEditorStyles.NodeHeaderStyle);
-            GUI.color = Color.white;
+            float tx = gx + GLYPH + 8f;
+            float tw = r.width - (tx - r.x) - (BADGE + 8f);
+            GUI.Label(new Rect(tx, r.y + 3f, tw, 13f), ResolveTitle(n), _headTitle);
+            GUI.Label(new Rect(tx, r.y + 16f, tw, 9f), BTEditorStyles.CategoryName(n.Type), _headSub);
 
-            // 标题(对应 windowTitle: 居中 12px 粗体, 文字色随头部明暗)
-            var ts = BTEditorStyles.NodeTitleStyle;
-            ts.normal.textColor = BTEditorStyles.NodeTextColor(cat);
-            GUI.Label(hr, "<b>" + ResolveTitle(n) + "</b>", ts);
-
-            // 节点上 inline 参数(给定节点矩形, 内部按画布坐标绘制)
+            // 5) 节点上 inline 参数(沿用, 内部按画布坐标绘制)
             DrawNodeParams(n, r);
 
-            // 端口 —— 严格对应 Editor.Node(Horizontal flow):
-            //   输入: (rect.xMin,          rect.center.y)
-            //   输出: (rect.xMax + portOffset, rect.center.y)   portOffset = 6
-            // 每个节点只有 1 个输出端口, 所有子连线共用同一个点(不是"一条连线一个端口")
-            if (IsInput(n.Type))
-                DrawPortVisual(r.xMin, r.center.y, IsConnectedIn(n));
-            if (OutCount(n) > 0)
-                DrawPortVisual(r.xMax + PORT_OUT_OFFSET, r.center.y, IsConnectedOut(n));
+            // 6) 端口(圆点, 居中贴在边线上)
+            if (n.Type != BTNodeType.Root)                       // 输入: 非 Root 都有(顶边居中)
+                DrawPort(InputPortPos(n));
+            int oc = OutCount(n);                               // 输出: 按子节点数横向展开
+            for (int i = 0; i < oc; i++)
+                DrawPort(OutputPortPos(n, i));
 
-            // 选中高亮(对应 windowHighlight, Resting 浅蓝描边)
-            if (selected)
+            // 7) 状态角标(对应原型右上角 ▶ 运行中脉冲 / ✓ 成功 / ✕ 失败)
+            var rt = BTNodeState.None;
+            if (EditorApplication.isPlaying && BTManager.EditorDebugEnabled &&
+                BTManager.TryGetEditorLiveStates(_asset.TreeId, out var liveStates))
             {
-                var hl = BTEditorStyles.StatusResting;
-                EditorGUI.DrawRect(new Rect(r.x, r.y, w, 2), hl);
-                EditorGUI.DrawRect(new Rect(r.x, r.yMax - 2, w, 2), hl);
-                EditorGUI.DrawRect(new Rect(r.x, r.y, 2, h), hl);
-                EditorGUI.DrawRect(new Rect(r.xMax - 2, r.y, 2, h), hl);
+                int idx = _asset.Nodes.IndexOf(n);
+                if (idx >= 0 && idx < liveStates.Length) rt = liveStates[idx];
             }
+            if (EditorApplication.isPlaying && rt != BTNodeState.None)
+                DrawStatusBadge(r, rt);
+        }
+
+        private void DrawPort(Vector2 p)
+        {
+            BTEditorStyles.DrawPortDot(p, PORT_SIZE, new Color(0.45f, 0.50f, 0.60f), BTEditorStyles.NodeBg);
+        }
+
+        private void DrawStatusBadge(Rect r, BTNodeState rt)
+        {
+            bool running = rt == BTNodeState.Running;
+            float pulse = running ? (0.65f + 0.35f * Mathf.Sin((float)EditorApplication.timeSinceStartup * 6f)) : 1f;
+            float sz = BADGE * pulse;
+            var br = new Rect(0, 0, sz, sz) { center = new Vector2(r.xMax - BADGE / 2f - 7f, r.y + BADGE / 2f + 7f) };
+            var col = BTEditorStyles.StatusColor(rt);
+            BTEditorStyles.DrawConnEnd(br.center, sz, col);
+            string g = running ? "▶" : rt == BTNodeState.Success ? "✓" : "✕";
+            GUI.Label(br, g, _badgeGlyphStyle);
         }
 
         private bool IsConnectedIn(BTNodeData n) => _asset.Connections.Any(c => c.TargetNodeId == n.NodeId);
         private bool IsConnectedOut(BTNodeData n) => _asset.Connections.Any(c => c.SourceNodeId == n.NodeId);
-
-        private void DrawPortVisual(float x, float y, bool connected)
-        {
-            // 12x12 圆: 已连接=亮, 未连接=暗(对应 nodePortConnected / nodePortEmpty)
-            var col = connected ? new Color(0.85f, 0.85f, 0.9f) : new Color(0.2f, 0.2f, 0.26f);
-            BTEditorStyles.DrawCircle(new Vector2(x, y), PORT_SIZE, col);
-        }
 
         // ---- 连线(对应 Editor.Connection.DrawConnectionGUI / DrawConnection) ----
         private void DrawConnection(BTConnectionData c)
@@ -731,36 +835,42 @@ namespace HYC.Framework.BT.Editor
             var src = _asset.Nodes.Find(x => x.NodeId == c.SourceNodeId);
             var dst = _asset.Nodes.Find(x => x.NodeId == c.TargetNodeId);
             if (src == null || dst == null) return;
-            // 视口裁剪: 两端节点都不在可视区内则跳过(连线绘制比节点便宜, 粗裁即可)
+            // 视口裁剪: 两端节点都不在可视区内则跳过
             if (!NodeRect(src).Overlaps(_visibleCanvasRect) && !NodeRect(dst).Overlaps(_visibleCanvasRect))
                 return;
 
-            var from = OutputPortPos(src, c.PortIndex);
+            // 起点按源节点的子节点序号定位到对应输出端口槽位(横向展开), 终点落在目标顶边
+            var from = OutputPortPos(src, ChildIndex(c));
             var to = InputPortPos(dst);
 
-            // 切线(对应 CurveUtils.ResolveTangents, horizontal flow, connectionsMLT=0.8)
-            float tx = Mathf.Max(Mathf.Abs(from.x - to.x) * _rigidity, 25f);
-            var fromT = new Vector2(tx, 0);
-            var toT = new Vector2(-tx, 0);
+            // 切线(垂直流: 出在底、进在顶, connectionsMLT=0.8)
+            float ty = Mathf.Max(Mathf.Abs(from.y - to.y) * _rigidity, 25f);
+            var fromT = new Vector2(0, ty);   // 从底部向下出
+            var toT = new Vector2(0, -ty);   // 从顶部向下进
 
-            // 高亮: 端点之一被选中 -> alpha=1, size+2(对应 NC highlight)
-            // 非运行态默认色 = defaultColor = GetStatusColor(Resting) = 浅蓝(0.7,0.7,1,0.8)
-            // 仅被禁用的连线才为 Grey(0.3); BT 无禁用态, 故默认浅蓝。
+            // 默认中性灰; 运行中按源节点最新执行态染色(状态沿树流动)
+            var col = BTEditorStyles.Edge;
+            if (EditorApplication.isPlaying && BTManager.EditorDebugEnabled &&
+                BTManager.TryGetEditorLiveStates(_asset.TreeId, out var ls))
+            {
+                int idx = _asset.Nodes.IndexOf(src);
+                if (idx >= 0 && idx < ls.Length && ls[idx] != BTNodeState.None)
+                    col = BTEditorStyles.StatusColor(ls[idx]);
+            }
+            // 选中高亮(端点之一被选中)
             bool highlight = _selectedIds.Contains(c.SourceNodeId) || _selectedIds.Contains(c.TargetNodeId);
-            var color = BTEditorStyles.StatusResting;
-            if (highlight) color.a = 1f;
-            float size = highlight ? CONN_SIZE + 2f : CONN_SIZE;
+            if (highlight) col = BTEditorStyles.EdgeActive;
+            float size = highlight ? CONN_SIZE + 1.5f : CONN_SIZE;
 
-            // 阴影(对应 NC: black a0.1, 偏移(3.5,3.5), size+10)
-            var shadow = new Vector2(3.5f, 3.5f);
-            Handles.DrawBezier(from + shadow, to + shadow,
-                from + shadow + fromT + shadow, to + shadow + toT,
-                new Color(0, 0, 0, 0.1f), BTEditorStyles.BezierTexture, size + 10f);
-            // 主连线
-            Handles.DrawBezier(from, to, from + fromT, to + toT, color, BTEditorStyles.BezierTexture, size);
-
-            // 末端圆点(对应 TipConnectionStyle.Circle, 16px endRect)
-            BTEditorStyles.DrawCircle(to, 16f, color);
+            // 阴影(用 Bezier 纹理染色, 不依赖 null 纹理以保证跨版本安全)
+            var shadow = new Vector2(2f, 3f);
+            Handles.DrawBezier(from, to + shadow,
+                from + shadow + fromT, to + shadow + toT,
+                new Color(0f, 0f, 0f, 0.25f), BTEditorStyles.BezierTexture, size + 3f);
+            // 主连线(Bezier 纹理染色)
+            Handles.DrawBezier(from, to, from + fromT, to + toT, col, BTEditorStyles.BezierTexture, size);
+            // 末端圆头
+            BTEditorStyles.DrawConnEnd(to, 6f, col);
         }
 
         // ---- 节点几何 ----
@@ -778,24 +888,45 @@ namespace HYC.Framework.BT.Editor
             return Rect.MinMaxRect(tl.x, tl.y, br.x, br.y);
         }
 
-        // 端口位置严格对应 Editor.Node(PlanarDirection.Horizontal):
-        //   输入 = (rect.xMin, rect.center.y)
-        //   输出 = (rect.xMax + portOffset, rect.center.y)   // portOffset = 6
+        // 端口位置严格对应 NodeCanvas 行为树(PlanarDirection.Vertical, Editor.Node:1009-1018):
+        //   输入 = (rect.center.x, rect.y)                       // 顶边居中(原版无外凸)
+        //   输出 = (rect.center.x, rect.yMax + portOffset(6))    // 底边居中, 下凸 6px
         // 每个节点只有 1 个输出端口, 所有子连线共用同一个点。
+        // 端口位置: 输入 = (center.x, r.yMin) 顶边居中; 输出 = (center.x, r.yMax) 底边居中,
+        // 多子节点时按索引横向展开(居中 + 固定 PORT_GAP 间隔), 与 BTEditor-UI-Prototype 一致。
         private Vector2 InputPortPos(BTNodeData n)
         {
             var r = NodeRect(n);
-            return new Vector2(r.xMin, r.center.y);
+            return new Vector2(r.center.x, r.yMin);
         }
 
         private Vector2 OutputPortPos(BTNodeData n, int index)
         {
             var r = NodeRect(n);
-            return new Vector2(r.xMax + PORT_OUT_OFFSET, r.center.y);
+            int cnt = OutCount(n);
+            float x = r.center.x + (index - (cnt - 1) / 2f) * PORT_GAP;
+            return new Vector2(x, r.yMax);
         }
 
-        // 每个节点固定 1 个输出端口(对应 Editor.Node 的单个 outPort; End 无输出)
-        private int OutCount(BTNodeData n) => n.Type == BTNodeType.End ? 0 : 1;
+        private int ChildCount(BTNodeData n) => _asset.Connections.Count(c => c.SourceNodeId == n.NodeId);
+
+        // 端口数: Root 必画 1 个输出(用于拖出新子节点); 其余非 End 节点至少 1 个, 有子节点则按子节点数展开
+        private int OutCount(BTNodeData n) => n.Type == BTNodeType.End ? 0 : Mathf.Max(1, ChildCount(n));
+
+        // 连线在其源节点所有出边中的序号(用于确定它从哪个输出端口槽位出发)
+        private int ChildIndex(BTConnectionData c)
+        {
+            int i = 0;
+            foreach (var x in _asset.Connections)
+            {
+                if (x.SourceNodeId == c.SourceNodeId)
+                {
+                    if (x == c) return i;
+                    i++;
+                }
+            }
+            return 0;
+        }
 
         private static bool IsInput(BTNodeType t) => t != BTNodeType.Root;
         private static bool IsDynamic(BTNodeType t) =>
@@ -845,18 +976,19 @@ namespace HYC.Framework.BT.Editor
         private float NodeContentHeight(BTNodeData n)
         {
             int rows = ParamRowCount(n) + 1; // +1 备注
-            // 端口在节点外(左右缘垂直中心), 不占节点高度; 但要保证最小高度, 让端口居中时看起来协调
-            return Mathf.Max(HEADER_H + 8f + rows * 20f + 8f, 58f);
+            // 端口在节点外(顶/底缘居中), 不占节点高度; 但要保证最小高度, 让端口居中时看起来协调
+            return Mathf.Max(HEADER_H + 8f + rows * 18f + 8f, 56f);
         }
 
         private void DrawNodeParams(BTNodeData n, Rect nr)
         {
             // 直接按画布坐标绘制(不再逐节点嵌套 GUI.BeginGroup, 避免嵌套裁剪产生"画布中缝")
+            // 全部走紧凑 _paramLabel / _paramField, 贴合 HTML 原型里轻量参数行
             float px = nr.x;
             float w = nr.width;
             float y = nr.y + HEADER_H + 8f;
-            float rh = 20f;
-            float labelW = 52f;
+            float rh = 18f;
+            float labelW = 46f;
 
             switch (n.Type)
             {
@@ -864,47 +996,47 @@ namespace HYC.Framework.BT.Editor
                 case BTNodeType.CooldownGate:
                 case BTNodeType.TimeLimit:
                     EnsureFloat(n, 0, 1f);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "秒");
-                    n.FloatParams[0] = EditorGUI.FloatField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), n.FloatParams[0]);
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "秒", _paramLabel);
+                    n.FloatParams[0] = EditorGUI.FloatField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), n.FloatParams[0], _paramField);
                     break;
                 case BTNodeType.Repeat:
                     EnsureLong(n, 0, 3);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "次数");
-                    n.LongParams[0] = EditorGUI.IntField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), (int)n.LongParams[0]);
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "次数", _paramLabel);
+                    n.LongParams[0] = EditorGUI.IntField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), (int)n.LongParams[0], _paramField);
                     break;
                 case BTNodeType.Conditional:
                     EnsureLong(n, 0, 0); EnsureLong(n, 1, 0);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "未满足");
-                    n.LongParams[0] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), Mathf.Clamp((int)n.LongParams[0], 0, 2), new[] { "失败", "成功", "Optional" });
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "未满足", _paramLabel);
+                    n.LongParams[0] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), Mathf.Clamp((int)n.LongParams[0], 0, 2), new[] { "失败", "成功", "Optional" }, _paramField);
                     y += rh;
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "dynamic");
-                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), (int)n.LongParams[1], new[] { "否", "是" });
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "dynamic", _paramLabel);
+                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), (int)n.LongParams[1], new[] { "否", "是" }, _paramField);
                     break;
                 case BTNodeType.CheckDistance:
                     EnsureFloat(n, 0, 1f); EnsureLong(n, 1, 0);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "阈值");
-                    n.FloatParams[0] = EditorGUI.FloatField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), n.FloatParams[0]);
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "阈值", _paramLabel);
+                    n.FloatParams[0] = EditorGUI.FloatField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), n.FloatParams[0], _paramField);
                     y += rh;
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "比较");
-                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), (int)n.LongParams[1], new[] { "小于", "大于" });
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "比较", _paramLabel);
+                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), (int)n.LongParams[1], new[] { "小于", "大于" }, _paramField);
                     break;
                 case BTNodeType.CheckBlackboard:
                     EnsureLong(n, 1, 0);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "期望");
-                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), (int)n.LongParams[1], new[] { "False", "True" });
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "期望", _paramLabel);
+                    n.LongParams[1] = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), (int)n.LongParams[1], new[] { "False", "True" }, _paramField);
                     break;
                 case BTNodeType.SubTree:
                     EnsureLong(n, 0, 0);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "子树");
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "子树", _paramLabel);
                     var trees = BTTreeAsset.LoadAllTreeIds();
                     int cur = Array.IndexOf(trees.ids, n.LongParams[0]);
                     if (cur < 0) cur = 0;
-                    int ns = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), cur, trees.names);
+                    int ns = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), cur, trees.names, _paramField);
                     if (ns >= 0 && ns < trees.ids.Length) n.LongParams[0] = trees.ids[ns];
                     break;
                 case BTNodeType.GameCustom:
                     if (n.LongParams.Count == 0) n.LongParams.Add(0);
-                    GUI.Label(new Rect(px + 4, y, labelW, rh), "子类型");
+                    GUI.Label(new Rect(px + 4, y, labelW, rh), "子类型", _paramLabel);
                     var opts = new List<string>();
                     var vals = new List<long>();
                     foreach (var t in BTCustomNodeScanner.AllNodeTypes)
@@ -915,12 +1047,12 @@ namespace HYC.Framework.BT.Editor
                         vals.Add(inst.SubType);
                     }
                     if (opts.Count == 0)
-                        GUI.Label(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), "(无自定义节点)");
+                        GUI.Label(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), "(无自定义节点)", _paramLabel);
                     else
                     {
                         int c = vals.IndexOf(n.LongParams[0]);
                         if (c < 0) c = 0;
-                        int picked = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), c, opts.ToArray());
+                        int picked = EditorGUI.Popup(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), c, opts.ToArray(), _paramField);
                         if (picked >= 0 && picked < vals.Count) n.LongParams[0] = vals[picked];
                     }
                     break;
@@ -930,8 +1062,8 @@ namespace HYC.Framework.BT.Editor
 
             // 备注(始终可编辑)
             y = nr.y + HEADER_H + 8f + ParamRowCount(n) * rh;
-            GUI.Label(new Rect(px + 4, y, labelW, rh), "备注");
-            var note = EditorGUI.TextField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh - 2), n.Note);
+            GUI.Label(new Rect(px + 4, y, labelW, rh), "备注", _paramLabel);
+            var note = EditorGUI.TextField(new Rect(px + 4 + labelW, y, w - labelW - 8, rh), n.Note, _paramField);
             if (note != n.Note) { RecordUndo("BT: 编辑备注"); n.Note = note; MarkDirty(false); }
         }
 
@@ -993,6 +1125,7 @@ namespace HYC.Framework.BT.Editor
         {
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("新建行为树"), false, () => OnRequestNewTree?.Invoke());
+            menu.AddItem(new GUIContent("保存"), false, () => OnRequestSave?.Invoke());
             menu.AddItem(new GUIContent("导出 Blob 并注册运行时"), false, ExportBlobAndRegister);
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("清空画布(删除全部节点)"), false, () =>
@@ -1816,6 +1949,7 @@ namespace HYC.Framework.BT.Editor
             var tree = ScriptableObject.CreateInstance<BTTreeAsset>();
             tree.TreeId = DateTime.Now.Ticks % 100000;
             tree.name = "NewTree";
+            // 不预置 Root: 新树从空画布引导态开始(见 DrawEmptyCanvasHint)
             var path = AssetDatabase.GenerateUniqueAssetPath(dir + "/NewTree.asset");
             AssetDatabase.CreateAsset(tree, path);
             AssetDatabase.SaveAssets();
@@ -2147,9 +2281,11 @@ namespace HYC.Framework.BT.Editor
             _miniRect = new Rect(_canvasRect.xMax - MM_W - 6, _canvasRect.yMax - MM_H - 6, MM_W, MM_H);
             var r = _miniRect;
 
-            // 阴影 + 面板(windowShadow + box)
-            GUI.color = new Color(1, 1, 1, 0.85f);
-            GUI.Box(new Rect(r.x - 4, r.y - 4, r.width + 8, r.height + 8), string.Empty, BTEditorStyles.NodeShadowStyle);
+            // 阴影 + 面板(对应 GraphEditor.DrawMinimap:1138-1140:
+            // GUI.color = Grey(0.5).WithAlpha(0.85); Styles.Draw(container, windowShadow); GUI.Box(container, box))
+            var miniCol = BTEditorStyles.Grey(0.5f); miniCol.a = 0.85f;
+            GUI.color = miniCol;
+            GUI.Box(r, string.Empty, BTEditorStyles.NodeShadowStyle);
             GUI.color = Color.white;
             GUI.Box(r, _asset.Nodes.Count > 0 ? string.Empty : "Minimap", BTEditorStyles.Box);
 
@@ -2197,7 +2333,7 @@ namespace HYC.Framework.BT.Editor
                 foreach (var n in _asset.Nodes)
                 {
                     var nr = NodeRect(n);
-                    EditorGUI.DrawRect(new Rect(mx(nr.xMin), my(nr.yMin), Mathf.Max(2, nr.width * s), Mathf.Max(2, nr.height * s)), BTNodeCatalog.ColorOf(n.Type));
+                    EditorGUI.DrawRect(new Rect(mx(nr.xMin), my(nr.yMin), Mathf.Max(2, nr.width * s), Mathf.Max(2, nr.height * s)), BTEditorStyles.CategoryColor(n.Type));
                 }
             }
 
@@ -2344,7 +2480,8 @@ namespace HYC.Framework.BT.Editor
             {
                 if (m.NodeId == src) continue;
                 if (!IsInput(m.Type)) continue;
-                if (Vector2.Distance(cm, InputPortPos(m)) < PORT_HIT)
+                // 对应 Editor.Node:917-920: 松手落在目标节点矩形内即连接(原版判定, 无需命中端口点)
+                if (NodeRect(m).Contains(cm) || Vector2.Distance(cm, InputPortPos(m)) < PORT_HIT)
                 {
                     ConnectNodes(src, port, m.NodeId);
                     return;
@@ -2443,8 +2580,9 @@ namespace HYC.Framework.BT.Editor
             {
                 NodeId = NewNodeId(),
                 Type = decoType,
-                Position = node.Position + new Vector2(-160, 0),
             };
+            // 垂直流: 装饰节点作为父节点, 置于被装饰节点正上方(而非左侧)
+            deco.Position = new Vector2(node.Position.x, node.Position.y - (NodeContentHeight(deco) + 40f));
             _asset.Nodes.Add(deco);
             foreach (var c in _asset.Connections)
                 if (c.TargetNodeId == nodeId)

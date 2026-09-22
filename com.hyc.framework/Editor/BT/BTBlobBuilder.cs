@@ -5,10 +5,15 @@
 //       1. 由 Connections 构造每节点 children
 //       2. 平铺节点数组, 参数分池
 //       3. 构造黑板表
-//       4. 生成 BlobAssetReference<BTRootBlob>
+//       4. 生成 BlobAssetReference<BTRootBlob>(内存) 或 写入文件(打包用)
+//
+//       导出产物两条路, 构建逻辑完全共用(<see cref="Fill"/>):
+//         Build(asset, out blobRef)        → 内存引用, 供编辑器/运行时 Register
+//         BuildToFile(asset, path)          → 落盘, 供打包后由 BTBlobLoader 读回
 // ============================================================
 
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Unity.Collections;
 using Unity.Entities;
@@ -25,6 +30,75 @@ namespace HYC.Framework.BT.Editor
         public static bool Build(BTTreeAsset asset, out BlobAssetReference<BTRootBlob> result)
         {
             result = default;
+            if (!Validate(asset))
+                return false;
+
+            var builder = new BlobBuilder(Allocator.Temp);
+            try
+            {
+                Fill(asset, ref builder);
+                result = builder.CreateBlobAssetReference<BTRootBlob>(Allocator.Persistent);
+            }
+            finally
+            {
+                builder.Dispose();
+            }
+            return result.IsCreated;
+        }
+
+        /// <summary>
+        /// 从树资产构建 Blob 并<b>写入文件</b>（打包用）。
+        ///
+        /// 与 <see cref="Build"/> 共用同一套构建流程，只把最后一步从「创建内存引用」换成
+        /// <c>BlobAssetReference&lt;BTRootBlob&gt;.Write(builder, path, version)</c> 落盘。
+        /// 产物由运行时 <c>HYC.Framework.BT.BTBlobLoader</c> 读回并 <c>BTManager.Register</c>。
+        ///
+        /// <b>为什么需要它</b>：<c>BTTreeAsset</c> 与本类都位于 Editor 程序集，打包后不存在，
+        /// 因此「进 Play 自动注册」（见 <c>BTAutoRegisterOnPlay</c>）在真机上不会执行。
+        /// 打包必须走「编辑器导出文件 → 运行时读文件」这条路（与配置表的
+        /// <c>StreamingAssets/ConfigBlob</c> 完全同构）。
+        /// </summary>
+        /// <param name="asset">树资产。</param>
+        /// <param name="path">输出文件完整路径（目录不存在时自动创建）。</param>
+        /// <param name="version">文件格式版本，必须与运行时 <see cref="BTBlobLoader.FileVersion"/> 一致。</param>
+        public static bool BuildToFile(BTTreeAsset asset, string path, int version = BTBlobLoader.FileVersion)
+        {
+            if (!Validate(asset))
+                return false;
+
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogError("[BT] 输出路径为空, 无法导出 Blob 文件");
+                return false;
+            }
+
+            var builder = new BlobBuilder(Allocator.Temp);
+            try
+            {
+                Fill(asset, ref builder);
+
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                // 与配置管线同一套 API: BlobAssetReference<T>.Write(BlobBuilder, path, version)
+                BlobAssetReference<BTRootBlob>.Write(builder, path, version);
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[BT] Blob 写文件失败: {path} -> {e.GetType().Name}: {e.Message}");
+                return false;
+            }
+            finally
+            {
+                builder.Dispose();
+            }
+        }
+
+        /// <summary>结构校验：非空、有且仅有一个 Root、Root 必须连出。失败会打 <c>LogError</c>。</summary>
+        private static bool Validate(BTTreeAsset asset)
+        {
             if (asset == null || asset.Nodes.Count == 0)
             {
                 Debug.LogError("[BT] 树资产为空, 无法导出");
@@ -50,7 +124,15 @@ namespace HYC.Framework.BT.Editor
                 Debug.LogError("[BT] Root 节点未连线(连到实际起始逻辑), 无法导出");
                 return false;
             }
+            return true;
+        }
 
+        /// <summary>
+        /// 把树资产填充进 <paramref name="builder"/>（不含创建引用/落盘那一步）。
+        /// 由 <see cref="Build"/> 与 <see cref="BuildToFile"/> 共用，保证两条路产物字节级一致。
+        /// </summary>
+        private static void Fill(BTTreeAsset asset, ref BlobBuilder builder)
+        {
             // 1. 按 Connections 构造 children(源节点聚合目标节点, 按 PortIndex 排序保证执行顺序)
             var childMap = new Dictionary<long, List<long>>();
             foreach (var n in asset.Nodes) childMap[n.NodeId] = new List<long>();
@@ -85,143 +167,132 @@ namespace HYC.Framework.BT.Editor
             var longs = new List<long>();
             var strings = new List<string>();
 
-            var builder = new BlobBuilder(Allocator.Temp);
-            try
+            ref var root = ref builder.ConstructRoot<BTRootBlob>();
+            root.TreeId = asset.TreeId;
+            root.NodeCount = asset.Nodes.Count;
+
+            var nodeArr = builder.Allocate(ref root.Nodes, asset.Nodes.Count);
+            var childArr = builder.Allocate(ref root.ChildNodes, asset.Nodes.Count * 4); // 预分配, 后续填实际
+
+            // 第一遍: 计算各池大小并填充节点结构
+            // (BlobBuilder 需先分配, 再填充; 这里先收集参数到临时列表)
+            foreach (var n in asset.Nodes)
             {
-                ref var root = ref builder.ConstructRoot<BTRootBlob>();
-                root.TreeId = asset.TreeId;
-                root.NodeCount = asset.Nodes.Count;
+                floats.AddRange(n.FloatParams);
+                longs.AddRange(n.LongParams);
+                strings.AddRange(n.StringParams);
+            }
 
-                var nodeArr = builder.Allocate(ref root.Nodes, asset.Nodes.Count);
-                var childArr = builder.Allocate(ref root.ChildNodes, asset.Nodes.Count * 4); // 预分配, 后续填实际
+            var floatArr = builder.Allocate(ref root.Floats, floats.Count);
+            var longArr = builder.Allocate(ref root.Longs, longs.Count);
+            var stringArr = builder.Allocate(ref root.Strings, strings.Count);
 
-                // 第一遍: 计算各池大小并填充节点结构
-                // (BlobBuilder 需先分配, 再填充; 这里先收集参数到临时列表)
-                foreach (var n in asset.Nodes)
+            for (int i = 0; i < floats.Count; i++) floatArr[i] = floats[i];
+            for (int i = 0; i < longs.Count; i++) longArr[i] = longs[i];
+            for (int i = 0; i < strings.Count; i++)
+                builder.AllocateString(ref stringArr[i], strings[i]);
+
+            // 填充节点
+            int floatCursor = 0, longCursor = 0, stringCursor = 0;
+            for (int i = 0; i < asset.Nodes.Count; i++)
+            {
+                var n = asset.Nodes[i];
+                var children = childMap[n.NodeId];
+
+                nodeArr[i] = new BTNodeBlob
                 {
-                    floats.AddRange(n.FloatParams);
-                    longs.AddRange(n.LongParams);
-                    strings.AddRange(n.StringParams);
+                    Type = n.Type,
+                    DefaultState = BTNodeState.None,
+                    ChildStart = 0,
+                    ChildCount = children.Count,
+                    FloatStart = floatCursor,
+                    FloatCount = n.FloatParams.Count,
+                    LongStart = longCursor,
+                    LongCount = n.LongParams.Count,
+                    StringStart = stringCursor,
+                    StringCount = n.StringParams.Count,
+                };
+
+                floatCursor += n.FloatParams.Count;
+                longCursor += n.LongParams.Count;
+                stringCursor += n.StringParams.Count;
+            }
+
+            // 子节点区间: 构建子节点索引表并回填 ChildStart/ChildCount
+            var childIdx = new List<int>();
+            var childStartByNode = new Dictionary<long, int>();
+            foreach (var n in asset.Nodes)
+            {
+                int start = childIdx.Count;
+                childStartByNode[n.NodeId] = start;
+                foreach (var cid in childMap[n.NodeId])
+                {
+                    if (indexOf.TryGetValue(cid, out int ci))
+                        childIdx.Add(ci);
                 }
-
-                var floatArr = builder.Allocate(ref root.Floats, floats.Count);
-                var longArr = builder.Allocate(ref root.Longs, longs.Count);
-                var stringArr = builder.Allocate(ref root.Strings, strings.Count);
-
-                for (int i = 0; i < floats.Count; i++) floatArr[i] = floats[i];
-                for (int i = 0; i < longs.Count; i++) longArr[i] = longs[i];
-                for (int i = 0; i < strings.Count; i++)
-                    builder.AllocateString(ref stringArr[i], strings[i]);
-
-                // 填充节点
-                int floatCursor = 0, longCursor = 0, stringCursor = 0;
                 for (int i = 0; i < asset.Nodes.Count; i++)
                 {
-                    var n = asset.Nodes[i];
-                    var children = childMap[n.NodeId];
-
-                    nodeArr[i] = new BTNodeBlob
+                    if (asset.Nodes[i].NodeId == n.NodeId)
                     {
-                        Type = n.Type,
-                        DefaultState = BTNodeState.None,
-                        ChildStart = 0,
-                        ChildCount = children.Count,
-                        FloatStart = floatCursor,
-                        FloatCount = n.FloatParams.Count,
-                        LongStart = longCursor,
-                        LongCount = n.LongParams.Count,
-                        StringStart = stringCursor,
-                        StringCount = n.StringParams.Count,
-                    };
-
-                    floatCursor += n.FloatParams.Count;
-                    longCursor += n.LongParams.Count;
-                    stringCursor += n.StringParams.Count;
-                }
-
-                // 子节点区间: 构建子节点索引表并回填 ChildStart/ChildCount
-                var childIdx = new List<int>();
-                var childStartByNode = new Dictionary<long, int>();
-                foreach (var n in asset.Nodes)
-                {
-                    int start = childIdx.Count;
-                    childStartByNode[n.NodeId] = start;
-                    foreach (var cid in childMap[n.NodeId])
-                    {
-                        if (indexOf.TryGetValue(cid, out int ci))
-                            childIdx.Add(ci);
-                    }
-                    for (int i = 0; i < asset.Nodes.Count; i++)
-                    {
-                        if (asset.Nodes[i].NodeId == n.NodeId)
-                        {
-                            nodeArr[i].ChildStart = start;
-                            nodeArr[i].ChildCount = childIdx.Count - start;
-                            break;
-                        }
+                        nodeArr[i].ChildStart = start;
+                        nodeArr[i].ChildCount = childIdx.Count - start;
+                        break;
                     }
                 }
-                // 写入子节点索引表
-                for (int i = 0; i < childIdx.Count; i++)
-                    childArr[i] = childIdx[i];
-
-                // 黑板表
-                int keyCount = asset.Blackboard?.Count ?? 0;
-                var keyArr = builder.Allocate(ref root.BlackboardKeys, keyCount);
-                var bbInts = new List<int>();
-                var bbFloats = new List<float>();
-                var bbLongs = new List<long>();
-                var bbStrings = new List<string>();
-                for (int i = 0; i < keyCount; i++)
-                {
-                    var p = asset.Blackboard[i];
-                    int idx = 0;
-                    switch (p.ValueType)
-                    {
-                        case BTBlackboardValueType.Int:
-                            idx = bbInts.Count;
-                            bbInts.Add(int.TryParse(p.DefaultValue, out var iv) ? iv : 0);
-                            break;
-                        case BTBlackboardValueType.Float:
-                            idx = bbFloats.Count;
-                            bbFloats.Add(float.TryParse(p.DefaultValue, out var fv) ? fv : 0f);
-                            break;
-                        case BTBlackboardValueType.Long:
-                            idx = bbLongs.Count;
-                            bbLongs.Add(long.TryParse(p.DefaultValue, out var lv) ? lv : 0L);
-                            break;
-                        case BTBlackboardValueType.String:
-                            idx = bbStrings.Count;
-                            bbStrings.Add(p.DefaultValue ?? "");
-                            break;
-                        case BTBlackboardValueType.Bool:
-                            idx = bbInts.Count;
-                            bbInts.Add(bool.TryParse(p.DefaultValue, out var bv) && bv ? 1 : 0);
-                            break;
-                    }
-                    keyArr[i] = new BTBlackboardKeyBlob
-                    {
-                        KeyHash = BTBlackboardRuntime.HashKey(p.Key),
-                        ValueType = p.ValueType,
-                        Index = idx,
-                    };
-                }
-                var bbiArr = builder.Allocate(ref root.BlackboardInts, bbInts.Count);
-                var bbfArr = builder.Allocate(ref root.BlackboardFloats, bbFloats.Count);
-                var bblArr = builder.Allocate(ref root.BlackboardLongs, bbLongs.Count);
-                var bbsArr = builder.Allocate(ref root.BlackboardStrings, bbStrings.Count);
-                for (int i = 0; i < bbInts.Count; i++) bbiArr[i] = bbInts[i];
-                for (int i = 0; i < bbFloats.Count; i++) bbfArr[i] = bbFloats[i];
-                for (int i = 0; i < bbLongs.Count; i++) bblArr[i] = bbLongs[i];
-                for (int i = 0; i < bbStrings.Count; i++) builder.AllocateString(ref bbsArr[i], bbStrings[i]);
-
-                result = builder.CreateBlobAssetReference<BTRootBlob>(Allocator.Persistent);
             }
-            finally
+            // 写入子节点索引表
+            for (int i = 0; i < childIdx.Count; i++)
+                childArr[i] = childIdx[i];
+
+            // 黑板表
+            int keyCount = asset.Blackboard?.Count ?? 0;
+            var keyArr = builder.Allocate(ref root.BlackboardKeys, keyCount);
+            var bbInts = new List<int>();
+            var bbFloats = new List<float>();
+            var bbLongs = new List<long>();
+            var bbStrings = new List<string>();
+            for (int i = 0; i < keyCount; i++)
             {
-                builder.Dispose();
+                var p = asset.Blackboard[i];
+                int idx = 0;
+                switch (p.ValueType)
+                {
+                    case BTBlackboardValueType.Int:
+                        idx = bbInts.Count;
+                        bbInts.Add(int.TryParse(p.DefaultValue, out var iv) ? iv : 0);
+                        break;
+                    case BTBlackboardValueType.Float:
+                        idx = bbFloats.Count;
+                        bbFloats.Add(float.TryParse(p.DefaultValue, out var fv) ? fv : 0f);
+                        break;
+                    case BTBlackboardValueType.Long:
+                        idx = bbLongs.Count;
+                        bbLongs.Add(long.TryParse(p.DefaultValue, out var lv) ? lv : 0L);
+                        break;
+                    case BTBlackboardValueType.String:
+                        idx = bbStrings.Count;
+                        bbStrings.Add(p.DefaultValue ?? "");
+                        break;
+                    case BTBlackboardValueType.Bool:
+                        idx = bbInts.Count;
+                        bbInts.Add(bool.TryParse(p.DefaultValue, out var bv) && bv ? 1 : 0);
+                        break;
+                }
+                keyArr[i] = new BTBlackboardKeyBlob
+                {
+                    KeyHash = BTBlackboardRuntime.HashKey(p.Key),
+                    ValueType = p.ValueType,
+                    Index = idx,
+                };
             }
-            return result.IsCreated;
+            var bbiArr = builder.Allocate(ref root.BlackboardInts, bbInts.Count);
+            var bbfArr = builder.Allocate(ref root.BlackboardFloats, bbFloats.Count);
+            var bblArr = builder.Allocate(ref root.BlackboardLongs, bbLongs.Count);
+            var bbsArr = builder.Allocate(ref root.BlackboardStrings, bbStrings.Count);
+            for (int i = 0; i < bbInts.Count; i++) bbiArr[i] = bbInts[i];
+            for (int i = 0; i < bbFloats.Count; i++) bbfArr[i] = bbFloats[i];
+            for (int i = 0; i < bbLongs.Count; i++) bblArr[i] = bbLongs[i];
+            for (int i = 0; i < bbStrings.Count; i++) builder.AllocateString(ref bbsArr[i], bbStrings[i]);
         }
     }
 }

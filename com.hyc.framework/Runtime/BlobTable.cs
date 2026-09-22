@@ -91,6 +91,20 @@ namespace HYC.Framework.Config
             return value;
         }
 
+        /// <summary>
+        /// 按<b>行序</b>取一行（不走 Id 索引）。
+        /// 供需要遍历全表的调用方使用：相比直接暴露 <see cref="BlobArray{T}"/>，它返回的是值拷贝，
+        /// 调用方不会触发「Blob 数组只能按 ref 访问」的分析器约束（EA0001）。
+        /// </summary>
+        public bool TryGetRowAt(int index, out TRow value)
+        {
+            value = default;
+            if (!_ref.IsCreated) return false;
+            if ((uint)index >= (uint)_ref.Value.Rows.Length) return false;
+            value = _ref.Value.Rows[index];
+            return true;
+        }
+
         public BlobArray<TRow> Rows => _ref.IsCreated ? _ref.Value.Rows : default;
 
         public void Dispose()

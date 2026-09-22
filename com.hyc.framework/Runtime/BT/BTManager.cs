@@ -25,6 +25,14 @@ namespace HYC.Framework.BT
         private static readonly Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>> _nodeStates = new Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>>();
         private static bool _initialized;
 
+#if UNITY_EDITOR
+        // 编辑器调试快照: 最近一次 tick 后, 各树(blob 节点索引序)的执行态。
+        // 仅 EditorDebugEnabled 为真时由 GetNodeStates 填充, 供 BT 编辑器画布在 play 模式显示节点状态高亮/图标。
+        public static bool EditorDebugEnabled = false;
+        private static readonly Dictionary<long, BTNodeState[]> _editorLive = new Dictionary<long, BTNodeState[]>();
+        public static bool TryGetEditorLiveStates(long treeId, out BTNodeState[] states) => _editorLive.TryGetValue(treeId, out states);
+#endif
+
         private static void EnsureInit()
         {
             if (_initialized) return;
@@ -80,9 +88,23 @@ namespace HYC.Framework.BT
         public static NativeArray<BTNodeRuntimeState> GetNodeStates(Entity entity, long treeId, int nodeCount)
         {
             var key = (entity, treeId);
-            if (_nodeStates.TryGetValue(key, out var arr)) return arr;
-            arr = new NativeArray<BTNodeRuntimeState>(nodeCount, Allocator.Persistent);
-            _nodeStates[key] = arr;
+            if (!_nodeStates.TryGetValue(key, out var arr))
+            {
+                arr = new NativeArray<BTNodeRuntimeState>(nodeCount, Allocator.Persistent);
+                _nodeStates[key] = arr;
+            }
+#if UNITY_EDITOR
+            // 编辑器调试: 把最近一次 tick 后的节点执行态快照给画布(索引 = blob 节点序 = 资产 Nodes 列表序)
+            if (EditorDebugEnabled)
+            {
+                if (!_editorLive.TryGetValue(treeId, out var snap) || snap.Length != nodeCount)
+                {
+                    snap = new BTNodeState[nodeCount];
+                    _editorLive[treeId] = snap;
+                }
+                for (int i = 0; i < nodeCount; i++) snap[i] = arr[i].Status;
+            }
+#endif
             return arr;
         }
 
@@ -194,6 +216,10 @@ namespace HYC.Framework.BT
             _subStates.Clear();
             foreach (var kv in _nodeStates) kv.Value.Dispose();
             _nodeStates.Clear();
+#if UNITY_EDITOR
+            _editorLive.Clear();
+            EditorDebugEnabled = false;
+#endif
             _initialized = false;
         }
     }
