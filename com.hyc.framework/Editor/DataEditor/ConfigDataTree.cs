@@ -400,7 +400,8 @@ namespace HYC.Framework.Config.Editor
                 menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset(root));
                 menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(root));
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("导出内部所有"), false, () => ExportFolderAll(folder));
+                menu.AddItem(new GUIContent("保存并导出内部所有"), false, () => SaveAndExportFolderAll(folder));
+                menu.AddItem(new GUIContent("全量清理后全量导出"), false, () => CleanAndExportAll());
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("刷新"), false, () => Reload());
                 menu.AddSeparator("");
@@ -409,23 +410,46 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
-        /// <summary>导出文件夹下所有配置（客户端+服务器）。</summary>
-        private void ExportFolderAll(ConfigDataTreeFolderNode folder)
-        {
-            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
-            var count = ConfigExportService.ExportFolder(path, true, true);
-            if (count <= 0)
-                EditorUtility.DisplayDialog("导出", "未找到可导出的配置", "确定");
-            else
-                EditorUtility.DisplayDialog("导出", $"已导出 {count} 种配置到客户端/服务器目录", "确定");
-        }
-
         /// <summary>导出单个配置实例（客户端+服务器）。</summary>
         private void ExportSingleAsset(ConfigDataTreeFileNode file)
         {
             var asset = file.GetAsset();
             if (ConfigExportService.ExportSingle(asset, true, true))
                 EditorUtility.DisplayDialog("导出", $"已导出 {asset.name} 到客户端/服务器目录", "确定");
+        }
+
+        /// <summary>保存并导出文件夹下所有配置（先保存整个文件夹，再按类型批量导出，含子文件夹）。</summary>
+        private void SaveAndExportFolderAll(ConfigDataTreeFolderNode folder)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
+            ConfigExportService.SaveFolder(path);   // 先保存，避免「改了没存就导出」
+            var count = ConfigExportService.ExportFolder(path, true, true);
+            if (count <= 0)
+                EditorUtility.DisplayDialog("保存并导出", "未找到可导出的配置", "确定");
+            else
+                EditorUtility.DisplayDialog("保存并导出", $"已保存并导出 {count} 种配置到客户端/服务器目录", "确定");
+        }
+
+        /// <summary>全量清理后全量导出（先确认，再调用 ConfigExportService 清空并重新导出所有配置类型）。</summary>
+        public void CleanAndExportAll()
+        {
+            if (!EditorUtility.DisplayDialog("全量清理后全量导出",
+                    "将删除客户端/服务器导出目录下所有旧 *.blob，再重新导出全部配置。\n（改名或删除的配置类型不会留下幽灵文件）", "执行", "取消"))
+                return;
+            var n = ConfigExportService.CleanAndExportAll(true, true);
+            EditorUtility.DisplayDialog("全量清理后全量导出", $"已全量清理并重新导出 {n} 类配置", "确定");
+            Reload();
+        }
+
+        /// <summary>保存并导出单个配置实例（先保存资产，再导出）。</summary>
+        private void SaveAndExportSingleAsset(ConfigDataTreeFileNode file)
+        {
+            var asset = file.GetAsset();
+            if (asset == null) return;
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            if (ConfigExportService.ExportSingle(asset, true, true))
+                EditorUtility.DisplayDialog("保存并导出", $"已保存并导出 {asset.name} 到客户端/服务器目录", "确定");
         }
 
         /// <summary>构建文件节点的右键菜单（供测试与后续扩展复用）。</summary>
@@ -481,6 +505,7 @@ namespace HYC.Framework.Config.Editor
                 menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(file));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("导出"), false, () => ExportSingleAsset(file));
+                menu.AddItem(new GUIContent("保存并导出"), false, () => SaveAndExportSingleAsset(file));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("刷新"), false, () => Reload());
                 menu.AddSeparator("");
@@ -545,6 +570,7 @@ namespace HYC.Framework.Config.Editor
                 menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset(item));
                 menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset(item));
                 menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(item));
+                menu.AddItem(new GUIContent("保存并导出内部所有"), false, () => SaveAndExportFolderAll(folder));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("刷新"), false, () => Reload());
                 menu.AddSeparator("");

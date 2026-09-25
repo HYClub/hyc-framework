@@ -28,7 +28,7 @@ namespace HYC.Framework.BT.Editor
         /// <summary>默认输出目录（StreamingAssets 内，随包发布）。与 ConfigDataSettings.ConfigBlob 平级。</summary>
         public const string DefaultOutputFolder = "Assets/StreamingAssets/BTBlob";
 
-        private const string TreeTypeFilter = "t:HYC.Framework.BT.Editor.BTTreeAsset";
+        public const string TreeTypeFilter = "t:HYC.Framework.BT.Editor.BTTreeAsset";
 
         [MenuItem("Tools/HYC/BT/导出 Blob(打包用)", false, 30)]
         public static void ExportAllMenu()
@@ -100,6 +100,109 @@ namespace HYC.Framework.BT.Editor
             var manifest = Path.Combine(dir, BTBlobLoader.ManifestFileName);
             if (File.Exists(manifest))
                 File.Delete(manifest);
+        }
+
+        /// <summary>
+        /// 导出指定文件夹下的全部树资产（含子文件夹，递归）。会<b>先保存</b>其中每个树资产，再导出。
+        /// 用于面板右键「保存并导出文件夹下全部」。返回成功棵数。
+        /// </summary>
+        /// <param name="folder">Unity 工程相对路径（如 Assets/BT/Trees/Level1）。</param>
+        /// <param name="outputDir">输出目录；null 用 <see cref="DefaultOutputFolder"/>。</param>
+        public static int ExportFolder(string folder, string outputDir = null)
+        {
+            if (string.IsNullOrEmpty(folder) || !AssetDatabase.IsValidFolder(folder))
+            {
+                Debug.LogWarning($"[BT] 文件夹不存在或路径无效: {folder}");
+                return 0;
+            }
+
+            var assets = new List<BTTreeAsset>();
+            foreach (var guid in AssetDatabase.FindAssets(TreeTypeFilter, new[] { folder }))
+            {
+                var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<BTTreeAsset>(assetPath);
+                if (asset == null) continue;
+                EditorUtility.SetDirty(asset);   // 先标记脏：确保「改了没保存」也会落盘
+                assets.Add(asset);
+            }
+
+            if (assets.Count == 0)
+            {
+                Debug.Log($"[BT] 文件夹下没有行为树: {folder}");
+                return 0;
+            }
+
+            AssetDatabase.SaveAssets();
+            return ExportTrees(assets, outputDir);
+        }
+
+        /// <summary>
+        /// 导出给定的一批树资产。<b>不会清空</b>目录里其它已存在的 blob，仅覆盖这批对应的文件。
+        /// 导出后同步刷新 manifest（扫描目录内全部 <c>.blob</c>，保证清单与实际文件一致）。
+        /// 返回成功棵数。
+        /// </summary>
+        /// <param name="trees">要导出的树资产集合。</param>
+        /// <param name="outputDir">输出目录；null 用 <see cref="DefaultOutputFolder"/>。</param>
+        public static int ExportTrees(IEnumerable<BTTreeAsset> trees, string outputDir = null)
+        {
+            var dir = string.IsNullOrEmpty(outputDir) ? DefaultOutputFolder : outputDir;
+            Directory.CreateDirectory(dir);
+
+            var ok = 0;
+            foreach (var asset in trees)
+            {
+                if (asset == null) continue;
+                if (asset.TreeId == 0)
+                {
+                    Debug.LogWarning($"[BT] 跳过未设置 TreeId 的树资产: {asset.name}");
+                    continue;
+                }
+
+                var outPath = Path.Combine(dir, asset.TreeId + BTBlobLoader.FileExtension);
+                if (BTBlobBuilder.BuildToFile(asset, outPath))
+                {
+                    ok++;
+                    Debug.Log($"[BT] 已导出: {asset.name} (treeId={asset.TreeId}) → {outPath}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[BT] 导出失败: {asset.name} treeId={asset.TreeId}（树结构无效，见上方错误）");
+                }
+            }
+
+            SyncManifest(dir);
+            AssetDatabase.Refresh();
+            Debug.Log($"[BT] 已导出 {ok} 棵树到 {dir}（运行时由 BTBlobLoader.LoadAll() 读回）");
+            return ok;
+        }
+
+        /// <summary>扫描目录内全部 <c>.blob</c>，按 treeId 重建 manifest（名字从工程内树资产反查）。</summary>
+        private static void SyncManifest(string dir)
+        {
+            // treeId -> 资产名：清单备注用
+            var nameByTreeId = new Dictionary<long, string>();
+            foreach (var guid in AssetDatabase.FindAssets(TreeTypeFilter))
+            {
+                var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<BTTreeAsset>(assetPath);
+                if (asset != null && asset.TreeId != 0) nameByTreeId[asset.TreeId] = asset.name;
+            }
+
+            var lines = new List<string>
+            {
+                "# HYC BT Blob manifest",
+                $"# version={BTBlobLoader.FileVersion}",
+            };
+            if (Directory.Exists(dir))
+            {
+                foreach (var f in Directory.GetFiles(dir, "*" + BTBlobLoader.FileExtension))
+                {
+                    var s = Path.GetFileNameWithoutExtension(f);
+                    if (long.TryParse(s, out var tid))
+                        lines.Add($"{tid}|{(nameByTreeId.TryGetValue(tid, out var n) ? n : s)}");
+                }
+            }
+            File.WriteAllLines(Path.Combine(dir, BTBlobLoader.ManifestFileName), lines);
         }
     }
 }

@@ -217,6 +217,11 @@ namespace HYC.Framework.Config.Editor
                 ShowTemplatesMenu();
             }
 
+            if (GUILayout.Button("全量导出", EditorStyles.toolbarButton, GUILayout.Width(70)))
+            {
+                mTreeView?.CleanAndExportAll();
+            }
+
             if (GUILayout.Button("刷新", EditorStyles.toolbarButton, GUILayout.Width(50)))
             {
                 mTreeView?.Reload();

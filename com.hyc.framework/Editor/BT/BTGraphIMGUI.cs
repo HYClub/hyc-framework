@@ -1127,6 +1127,7 @@ namespace HYC.Framework.BT.Editor
             menu.AddItem(new GUIContent("新建行为树"), false, () => OnRequestNewTree?.Invoke());
             menu.AddItem(new GUIContent("保存"), false, () => OnRequestSave?.Invoke());
             menu.AddItem(new GUIContent("导出 Blob 并注册运行时"), false, ExportBlobAndRegister);
+            menu.AddItem(new GUIContent("全量清理后全量导出"), false, () => BTBlobExporter.ExportAll());
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("清空画布(删除全部节点)"), false, () =>
             {
@@ -1993,6 +1994,8 @@ namespace HYC.Framework.BT.Editor
                     OnRepaint?.Invoke();
                 }
             });
+            m.AddSeparator("");
+            m.AddItem(new GUIContent("保存并导出"), false, () => SaveAndExportTree(tree));
             return m;
         }
 
@@ -2018,7 +2021,24 @@ namespace HYC.Framework.BT.Editor
                     OnRepaint?.Invoke();
                 }
             });
+            m.AddSeparator("");
+            m.AddItem(new GUIContent("保存并导出文件夹下全部"), false, () => SaveAndExportFolder(dir));
             return m;
+        }
+
+        /// <summary>右键「保存并导出」：先存盘再导出单棵树（覆盖其 blob 并同步 manifest）。</summary>
+        private static void SaveAndExportTree(BTTreeAsset tree)
+        {
+            if (tree == null) return;
+            EditorUtility.SetDirty(tree);
+            AssetDatabase.SaveAssetIfDirty(tree);
+            BTBlobExporter.ExportTrees(new[] { tree });
+        }
+
+        /// <summary>右键「保存并导出文件夹下全部」：递归保存并导出目录下所有树。</summary>
+        private static void SaveAndExportFolder(string dir)
+        {
+            BTBlobExporter.ExportFolder(dir);
         }
 
         // ---- ③ 节点库(拖拽建节点 / 点击创建) ----
