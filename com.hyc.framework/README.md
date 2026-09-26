@@ -139,7 +139,24 @@ if (HYC.Framework.Config.ConfigManager.TryGet<ItemCfg>(itemId, out var cfg))
 - 行结构体必须 **blittable**（`ConfigBlobTable<TRow> where TRow : unmanaged`）；`ConfigValidator` 会在编辑器菜单 `HYC Framework/Tools/Validate Config` 校验缺 `[BlobGenerate]` 标记或非 blittable 字段。
 - `ConfigManager` 的读访问是**世界无关**的——UI 与玩法层查表都不需要 World 句柄。
 
-核心类型：`ConfigManager`、`ConfigBlobTable<TRow>`、`BlobRoot<TRow>`、`ConfigTemplate`、`ConfigEnumDefinition`、`CfgAssetAttribute`、`IConfigIdProvider`、`BlobGenerateAttribute`。
+**枚举配置**：分类字段（如「`0=顺序 1=随机 2=离玩家最远`」）不该用裸 `Int`，应改为枚举：
+
+```csharp
+// 1) 在 RootFolder 下建 ConfigEnumDefinition 资产：只填名字，数值由框架分配
+//    className = "WavePointStrategy"，values = [Sequential, Random, FarthestFromPlayer]
+// 2) 框架生成 C# 枚举类到 {ConfigDataSettings.OutputDir}/Enums/（HYC 标准 1 基）
+//    public enum WavePointStrategy { Sequential = 1, Random = 2, FarthestFromPlayer = 3 }
+
+// 3) 模板字段引用它：编辑器里即下拉选择
+F("PointStrategy", ConfigFieldType.Enum, "顺序/随机/离玩家最远", "WavePointStrategy")
+```
+
+> ⚠️ **Blob 里枚举字段是 `int`**（写入时 `(int)` 转换），**只有生成的配置类字段是枚举类型**。
+> 运行期从 `ConfigManager` 取到的是 `int`，需自行转枚举或与枚举常量比较（`row.Kind == (int)ItemKind.Red`）。
+> 数值是 **1 基**（普通 `index+1`、复合 `1<<index`），**没有 `0` 值**——从 0 基手写枚举迁移时所有数据要 `+1`。
+> 完整机制、校验规则与迁移要点见 `docs/13-枚举配置.md`。
+
+核心类型：`ConfigManager`、`ConfigBlobTable<TRow>`、`BlobRoot<TRow>`、`ConfigTemplate`、`ConfigEnumDefinition` / `ConfigEnumValue`、`ConfigFieldType.Enum`（`enumRefClassName`）、`CfgAssetAttribute`、`IConfigIdProvider`、`BlobGenerateAttribute`。
 
 ---
 

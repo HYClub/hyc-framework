@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `Runtime/BT/BTBlobLoader.cs`：`LoadAll()` / `Load(treeId)`，`BlobAssetReference<BTRootBlob>.TryRead` → `BTManager.Register`；清单缺失时回退扫描目录；检测到 `jar:`（Android APK 内）路径时给出明确报错而不是静默失败。
   - `BTBlobBuilder.BuildToFile(asset, path, version)`：把树资产直接写成 Blob 文件，与 `Build` 共用同一段构建逻辑（`Fill`），两条路产物字节一致。
 - 文档：`82-BT-运行时与Blob` 新增「七、打包：导出文件 → 运行时读回」（含格式版本、Android StreamingAssets 限制与绕法）；`80-行为树-总览` 补打包链路图、菜单入口与「编辑器能跑 ≠ 真机能跑」注意事项。
+- **配置 / BT 面板：保存并导出 + 全量清理后全量导出**：
+  - `Editor/DataEditor/ConfigExportService.cs`：新增 `SaveFolder(folder)`（递归 `SetDirty` + `SaveAssets`，跳过 `ConfigTemplate` 与非本命名空间 SO）与 `CleanAndExportAll(client, server)`（先清空 `ClientExportDir` / `ServerExportDir` 下的 `*.blob`，再存盘后逐类型 `ExportAll`，返回成功导出的类型数）。
+  - `Editor/DataEditor/ConfigDataTree.cs` + `ConfigDataWindow.cs`：数据编辑器新增根目录右键「全量清理后全量导出」与工具栏「全量导出」按钮，配置文件 / 文件夹右键新增「保存并导出」。
+  - `Editor/BT/BTBlobExporter.cs`：新增 `ExportFolder(folder)`（递归该目录下全部 `BTTreeAsset`，先存盘再导出）与 `ExportTrees(trees)`（只覆盖这批 blob，不清空目录，导出后 `SyncManifest` 重建清单）；`TreeTypeFilter` 由 private 改 public。
+  - `Editor/BT/BTGraphIMGUI.cs`：BT 编辑器 File 菜单新增「全量清理后全量导出」，单棵树 / 文件夹右键新增「保存并导出」。
+- **文档：补齐枚举配置（此前该能力无文档）**：新增 `docs/13-枚举配置.md`——枚举定义资产 → 生成 C# 枚举类 → 配置字段引用的完整机制、`ValueOf` 的 **1 基**（`index+1`）与 Flags（`1<<index`）数值约定、**配置类字段是枚举类型而 Blob 字段是 `int`** 这一最易误判点、校验规则与 9 条踩坑（含从 0 基手写枚举迁移要 `+1`、脚本化 `EnsureEnumDefs()` 必须排在 OutputDir 清理之后）。`11-字段类型与导出设置` 的 `Enum` 行、`docs/README.md` 索引、`90-编辑器工具链` 同步更新。
 
 ### Changed
 - `BTBlobBuilder` 内部把「结构校验」与「构建填充」抽成 `Validate` / `Fill` 两个私有方法，供 `Build` 与 `BuildToFile` 共用。**对外 API、校验规则与产物行为完全不变**（纯内部重构，非破坏性变更）。
