@@ -20,6 +20,7 @@ MonoBehaviour:
   iconCustom: {fileID: 0}
   fields:
   - name: ID
+    readOnly: 1
     description: 
     type: 2
     isList: 0
@@ -33,6 +34,7 @@ MonoBehaviour:
     notZeroCheck: 0
     rangeCheck: 0
   - name: GUID
+    readOnly: 1
     description: 
     type: 0
     isList: 0

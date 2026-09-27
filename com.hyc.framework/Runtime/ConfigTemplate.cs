@@ -145,6 +145,12 @@ namespace HYC.Framework.Config
         /// <summary>导出目标：客户端 / 服务器 / 两者。</summary>
         public ConfigExportTarget exportTarget = ConfigExportTarget.Both;
 
+        /// <summary>
+        /// 数据编辑器中该字段只读（生成代码打 [ReadOnly]，绘制时禁用输入）。
+        /// 仅影响编辑器展示，不影响反射赋值（如 ID/GUID 自动发号）与导出。
+        /// </summary>
+        public bool readOnly;
+
         /// <summary>是否启用数值范围限制。</summary>
         public bool hasRange;
         /// <summary>范围下限（未启用忽略）。</summary>

@@ -910,12 +910,20 @@ namespace HYC.Framework.Config.Editor
             var hasRangeProp = prop.FindPropertyRelative("hasRange");
             var minProp = prop.FindPropertyRelative("minValue");
             var maxProp = prop.FindPropertyRelative("maxValue");
+            var readOnlyProp = prop.FindPropertyRelative("readOnly");
             var isNumeric = IsNumericType((ConfigFieldType)typeProp.intValue);
 
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("描述", GUILayout.Width(50));
             descProp.stringValue = EditorGUILayout.TextField(descProp.stringValue);
+            EditorGUILayout.EndHorizontal();
+
+            // 只读：数据编辑器里禁用该字段输入（典型：基类 ID/GUID）
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("只读", GUILayout.Width(50));
+            readOnlyProp.boolValue = EditorGUILayout.Toggle(readOnlyProp.boolValue, GUILayout.Width(20));
+            EditorGUILayout.LabelField("勾选后数据编辑器中该字段不可编辑（仅影响展示，不影响发号/导出）", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
 
             if (isNumeric)

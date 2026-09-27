@@ -191,6 +191,10 @@ namespace HYC.Framework.Config.Editor
                     needsUnity = true;
                 }
 
+                // 只读字段：加 [ReadOnly] 特性（数据编辑器据此禁用该字段的输入；HYC.Framework.Config 已在 usings）
+                if (field.readOnly)
+                    fieldLines.AppendLine("        [ReadOnly]");
+
                 // 多语言 key：加 [LocKey] 特性（数据编辑器据此绘制联想/选择/tooltip/校验）
                 if (field.type == ConfigFieldType.LocalizedKey)
                     fieldLines.AppendLine("        [LocKey]");
