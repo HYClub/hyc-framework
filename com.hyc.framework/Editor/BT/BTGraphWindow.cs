@@ -17,10 +17,16 @@ namespace HYC.Framework.BT.Editor
 {
     public class BTGraphWindow : EditorWindow
     {
+        /// <summary>自动恢复的最大尝试次数（超过则停手并报错，见 Update）。</summary>
+        private const int MaxRecoverAttempts = 3;
+
         private BTTreeAsset _current;
         private VisualElement _graphHost;
         private BTGraphIMGUI _graphIMGUI;
         private IMGUIContainer _imguiContainer;
+
+        /// <summary>「_current 已失效 → 重建」连续尝试次数，_current 有效时归零。</summary>
+        private int _recoverAttempts;
 
         [MenuItem("HYC Framework/BT/BT Editor")]
         public static void Open()
@@ -54,6 +60,10 @@ namespace HYC.Framework.BT.Editor
         /// <c>BTGraphIMGUI.DrawGUI()</c> 第一行 <c>if (_asset == null) return;</c> 会拦掉整窗绘制 → 全空白；
         /// 而 <see cref="BuildUI"/> 只在 OnEnable 跑一次，不会自己救回来。这里每帧检测并重开：
         /// 还有其它树就开第一棵，一棵都没有就回内存临时树（与零资产启动行为一致）。
+        ///
+        /// <b>重试上限</b>：若自动恢复连续失败（例如 CreateInstance 抛异常），每帧 LoadAllTrees
+        /// 就是一次全工程 FindAssets + 一次失败的 CreateInstance，越积越糟。故最多尝试 3 次，
+        /// 之后停手并报一次错误，让用户自己重开窗口。
         /// </summary>
         private void Update()
         {
@@ -63,7 +73,21 @@ namespace HYC.Framework.BT.Editor
             if (EditorApplication.isPlaying)
                 Repaint();
 
-            if (_current != null) return;
+            if (_current != null)
+            {
+                _recoverAttempts = 0;
+                return;
+            }
+
+            if (_recoverAttempts >= MaxRecoverAttempts)
+            {
+                if (_recoverAttempts == MaxRecoverAttempts)
+                    Debug.LogError($"[BT] 当前行为树已丢失且自动恢复连续失败 {MaxRecoverAttempts} 次，" +
+                                   "已停止每帧重试。请重新打开 BT 窗口，或用 File → 新建 手动创建。");
+                return;
+            }
+            _recoverAttempts++;
+
             var all = LoadAllTrees();
             if (all.Length > 0)
                 OpenTree(all[0]);

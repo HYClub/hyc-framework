@@ -47,6 +47,42 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>
+        /// 写盘前先比对内容：一致则跳过写入与 <c>AssetDatabase.ImportAsset</c>。
+        /// 代码生成会连着产出六七个文件，重复生成时内容通常没变；
+        /// 无条件重写会白白触发一串重新导入（Unity 侧表现为 .meta 时间戳刷新、编译抖动、
+        /// 版本库里产生无意义 diff）。内容不同才写，返回是否真的写了。
+        /// 路径相对工程根（内部按 <c>Directory.GetCurrentDirectory()</c> 拼接；传绝对路径则原样使用），
+        /// 也供 <see cref="ConfigEnumCodeGen"/> 复用，避免两个生成器各写一份比对逻辑。
+        /// </summary>
+        public static bool WriteIfChanged(string relativePath, string content)
+        {
+            var fullPath = Path.IsPathRooted(relativePath)
+                ? relativePath
+                : Path.Combine(Directory.GetCurrentDirectory(), relativePath);
+            if (File.Exists(fullPath))
+            {
+                try
+                {
+                    if (string.Equals(File.ReadAllText(fullPath, Encoding.UTF8), content, StringComparison.Ordinal))
+                        return false;
+                }
+                catch (IOException)
+                {
+                    // 读不出来（被占用/编码异常）→ 照常写
+                }
+            }
+            File.WriteAllText(fullPath, content, Encoding.UTF8);
+            return true;
+        }
+
+        /// <summary>写文件并按需导入（内容未变则跳过导入，避免无谓的重新编译）。</summary>
+        private static void WriteAndImport(string relativePath, string content)
+        {
+            if (WriteIfChanged(relativePath, content))
+                AssetDatabase.ImportAsset(relativePath, ImportAssetOptions.ForceUpdate);
+        }
+
+        /// <summary>
         /// Sanitizes a display name for storage: strips whitespace and converts
         /// backslashes to forward slashes so category/name splitting stays consistent.
         /// </summary>
@@ -82,15 +118,11 @@ namespace HYC.Framework.Config.Editor
             }
 
             // 类名全局唯一：其他模板不得使用相同 className
-            foreach (var other in LoadAllTemplates())
+            var nameConflict = FindClassNameConflict(template);
+            if (nameConflict != null)
             {
-                if (other == template)
-                    continue;
-                if (other.className == template.className)
-                {
-                    error = $"类名 {template.className} 已被其他模板使用（{AssetDatabase.GetAssetPath(other)}）";
-                    return false;
-                }
+                error = $"类名 {template.className} 已被其他模板使用（{AssetDatabase.GetAssetPath(nameConflict)}）";
+                return false;
             }
 
             // 基类链：循环检测 + 基类类名合法性
@@ -1136,9 +1168,7 @@ namespace HYC.Framework.Config.Editor
             Directory.CreateDirectory(absoluteDir);
 
             var relativePath = $"{ConfigDataSettings.OutputDir}/{template.className}.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), relativePath), code, Encoding.UTF8);
-
-            AssetDatabase.ImportAsset(relativePath, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(relativePath, code);
 
             // 同时生成 XxxConfigEditor.cs（走默认分组渲染，用户可自行扩展）
             WriteEditorFile(template);
@@ -1182,8 +1212,7 @@ namespace HYC.Framework.Config.Editor
             var dir = $"{ConfigDataSettings.OutputDir}/Blob";
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), dir));
             var path = $"{dir}/Cfg{template.className}.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), code, Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, code);
         }
 
         /// <summary>生成 Blob 构建器文件（ns.Blob / {className}BlobBuilder.cs）。</summary>
@@ -1206,8 +1235,7 @@ namespace HYC.Framework.Config.Editor
             var dir = $"{ConfigDataSettings.OutputDir}/Editor/Blob";
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), dir));
             var path = $"{dir}/{template.className}BlobBuilder.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), code, Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, code);
         }
 
         /// <summary>生成 Blob 运行时加载 System + 查询扩展（运行时把 .blob 挂进 ConfigManager）。</summary>
@@ -1289,8 +1317,7 @@ namespace HYC.Framework.Config.Editor
             var dir = $"{ConfigDataSettings.OutputDir}/Blob";
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), dir));
             var path = $"{dir}/{className}BlobSystem.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), sb.ToString(), Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, sb.ToString());
         }
 
         /// <summary>生成 XxxConfigEditor.cs：继承 BaseConfigEditor&lt;T&gt; 走默认分组渲染。</summary>
@@ -1410,14 +1437,30 @@ namespace HYC.Framework.Config.Editor
             return tpl;
         }
 
-        /// <summary>All saveable template assets under the config data root, sorted by class name.</summary>
+        /// <summary>All saveable template assets under the config data root, sorted by class name。</summary>
         public static ConfigTemplate[] LoadAllTemplates()
         {
-            ConfigDataSettings.EnsureRootFolder();
-            var guids = AssetDatabase.FindAssets("t:ConfigTemplate", new[] { ConfigDataSettings.RootFolder });
-            var result = new List<ConfigTemplate>(guids
-                .Select(g => AssetDatabase.LoadAssetAtPath<ConfigTemplate>(AssetDatabase.GUIDToAssetPath(g)))
-                .Where(t => t != null));
+            return LoadAllTemplates(true);
+        }
+
+        /// <summary>
+        /// 同 <see cref="LoadAllTemplates()"/>，但可选择不创建根目录。
+        /// 纯校验路径必须传 <c>ensureFolder: false</c>——校验本身不该在磁盘上留下目录。
+        /// 根目录不存在时直接返回框架级模板（此时也不存在用户模板，查重结果本就正确）。
+        /// </summary>
+        public static ConfigTemplate[] LoadAllTemplates(bool ensureFolder)
+        {
+            if (ensureFolder)
+                ConfigDataSettings.EnsureRootFolder();
+            var result = new List<ConfigTemplate>();
+            var root = ConfigDataSettings.RootFolder;
+            if (AssetDatabase.IsValidFolder(root))
+            {
+                var guids = AssetDatabase.FindAssets("t:ConfigTemplate", new[] { root });
+                result.AddRange(guids
+                    .Select(g => AssetDatabase.LoadAssetAtPath<ConfigTemplate>(AssetDatabase.GUIDToAssetPath(g)))
+                    .Where(t => t != null));
+            }
 
             // 框架级模板（如 ConfigBase）
             var frameworkGuids = AssetDatabase.FindAssets("t:ConfigTemplate", new[] { FrameworkTemplatesFolder });
@@ -1429,6 +1472,22 @@ namespace HYC.Framework.Config.Editor
             }
 
             return result.OrderBy(t => t.className).ToArray();
+        }
+
+        /// <summary>
+        /// 类名全局唯一性检查（模板自身与其编辑器面板共用这一份逻辑）。
+        /// 返回占用同名 className 的其它模板；无冲突返回 null。不创建根目录。
+        /// </summary>
+        public static ConfigTemplate FindClassNameConflict(ConfigTemplate template)
+        {
+            if (template == null || string.IsNullOrEmpty(template.className))
+                return null;
+            foreach (var other in LoadAllTemplates(false))
+            {
+                if (other != template && other.className == template.className)
+                    return other;
+            }
+            return null;
         }
 
         /// <summary>框架级模板目录（ConfigBase 等，用户不可改）。</summary>
@@ -1461,8 +1520,7 @@ namespace HYC.Framework.Config.Editor
             Directory.CreateDirectory(absoluteDir);
 
             var path = $"{dir}/{template.className}{side}.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), code, Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, code);
         }
 
         /// <summary>生成 XxxConfigCheck.cs：按字段检查规则收集错误。</summary>
@@ -1577,8 +1635,7 @@ namespace HYC.Framework.Config.Editor
             var absoluteEditorDir = Path.Combine(Directory.GetCurrentDirectory(), editorDir);
             Directory.CreateDirectory(absoluteEditorDir);
             var path = $"{editorDir}/{className}Check.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), sb.ToString(), Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, sb.ToString());
         }
 
         /// <summary>生成 XxxConfigExport.cs：检查 → 无错 → 按设置格式导出客户端/服务器。</summary>
@@ -1616,6 +1673,10 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("    /// </summary>");
             sb.AppendLine($"    public static class {className}Export");
             sb.AppendLine("    {");
+            sb.AppendLine($"        /// <summary>向 ConfigExportService 注册本导出类，使查找走注册表而无需扫描程序集。</summary>");
+            sb.AppendLine("        [UnityEditor.InitializeOnLoad]");
+            sb.AppendLine($"        static {className}Export() => ConfigExportService.Register(typeof({ns}.{className}), typeof({className}Export));");
+            sb.AppendLine();
             sb.AppendLine($"        /// <summary>导出单个配置实例。返回 true 表示成功。</summary>");
             sb.AppendLine($"        public static bool Export({ns}.{className} data, bool exportClient, bool exportServer)");
             sb.AppendLine("        {");
@@ -1751,8 +1812,7 @@ namespace HYC.Framework.Config.Editor
             var absoluteEditorDir = Path.Combine(Directory.GetCurrentDirectory(), editorDir);
             Directory.CreateDirectory(absoluteEditorDir);
             var path = $"{editorDir}/{className}Export.cs";
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), path), sb.ToString(), Encoding.UTF8);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            WriteAndImport(path, sb.ToString());
         }
 
     }

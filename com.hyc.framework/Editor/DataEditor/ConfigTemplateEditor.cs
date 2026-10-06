@@ -96,16 +96,9 @@ namespace HYC.Framework.Config.Editor
 
             if (tplNow != null)
             {
-                foreach (var other in ConfigTemplateCodeGen.LoadAllTemplates())
-                {
-                    if (other == tplNow)
-                        continue;
-                    if (other.className == tplNow.className)
-                    {
-                        tplErrors.Add($"类名 {tplNow.className} 已被其他模板使用");
-                        break;
-                    }
-                }
+                var nameConflict = ConfigTemplateCodeGen.FindClassNameConflict(tplNow);
+                if (nameConflict != null)
+                    tplErrors.Add($"类名 {tplNow.className} 已被其他模板使用");
 
                 if (tplNow.baseTemplate != null)
                 {

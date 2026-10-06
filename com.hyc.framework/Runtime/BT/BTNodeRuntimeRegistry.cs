@@ -7,12 +7,21 @@
 
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine;
 
 namespace HYC.Framework.BT
 {
     /// <summary>
     /// 运行时注册表: (树类型, 子类型) → BTCustomNode 实例。
     /// 扫描所有程序集一次, 树 Tick 时统一分发执行。
+    ///
+    /// 两张表的分工（别把它们混用）：
+    /// - <c>_nodes</c> 复合键 (TreeKind, SubType)，是<b>正常执行路径</b>，不同树类型的同号子类型互不干扰。
+    /// - <c>_bySubType</c> 裸键 SubType，只服务于「解释器没显式设 GameHandler 时的回退分发」。
+    ///   裸键空间本质上是全局的，所以同一 SubType 被不同 TreeKind 占用属于**冲突**，
+    ///   会让回退分发执行到错误的实现（典型症状：AI 树的动作被子类型相同的技能树节点执行）。
+    ///   注册时检测并报错，而不是静默「最后一个赢」。
     /// </summary>
     public static class BTNodeRuntimeRegistry
     {
@@ -31,8 +40,16 @@ namespace HYC.Framework.BT
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 Type[] types;
+                // 程序集里存在依赖缺失的类型时会抛 ReflectionTypeLoadException 而非返回全集，
+                // 跳过是合理降级（Unity 播放时常见于未加载的可选依赖程序集）。
                 try { types = asm.GetTypes(); }
-                catch { continue; }
+                catch (ReflectionTypeLoadException) { continue; }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[BT] 扫描程序集 {asm.GetName().Name} 的类型失败，已跳过：{ex.GetType().Name}: {ex.Message}");
+                    continue;
+                }
+
                 foreach (var t in types)
                 {
                     if (t.IsAbstract || t.IsInterface) continue;
@@ -41,9 +58,28 @@ namespace HYC.Framework.BT
                     {
                         var node = (BTCustomNode)Activator.CreateInstance(t);
                         _nodes[(node.TreeKind, node.SubType)] = node;
+
+                        // 裸键冲突检测：不同树类型抢同一个 SubType，后注册者不得静默顶掉前一个。
+                        if (_bySubType.TryGetValue(node.SubType, out var prev))
+                        {
+                            if (prev.TreeKind != node.TreeKind || prev.GetType() != node.GetType())
+                            {
+                                Debug.LogError(
+                                    $"[BT] 自定义节点子类型 {node.SubType} 被重复占用：" +
+                                    $"{prev.GetType().Name}（{prev.TreeKind}）与 {node.GetType().Name}（{node.TreeKind}）。" +
+                                    "复合键注册表不受影响，但「按子类型回退分发」将固定使用先注册的那个。" +
+                                    "请为不同树类型分配不同 SubType。");
+                                continue;
+                            }
+                        }
                         _bySubType[node.SubType] = node;
                     }
-                    catch { /* 跳过无法实例化的 */ }
+                    catch (Exception ex)
+                    {
+                        // 这里绝不能静默吞：实例化失败（缺构造函数/依赖）会让该节点在所有树里
+                        // 静默变成永远 Failed，排查时毫无线索。
+                        Debug.LogError($"[BT] 自定义节点 {t.FullName} 实例化失败，已跳过注册（该节点将在执行时返回 Failed）：{ex.GetType().Name}: {ex.Message}");
+                    }
                 }
             }
         }

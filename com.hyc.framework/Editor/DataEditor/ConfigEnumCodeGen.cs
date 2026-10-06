@@ -70,8 +70,8 @@ namespace HYC.Framework.Config.Editor
                 error = $"枚举名 {def.className} 已被其他枚举定义使用";
                 return false;
             }
-            // 与模板类名冲突检查
-            if (ConfigTemplateCodeGen.LoadAllTemplates().Any(t => t.className == def.className))
+            // 与模板类名冲突检查（不创建根目录：校验不该在磁盘上留目录）
+            if (ConfigTemplateCodeGen.LoadAllTemplates(false).Any(t => t.className == def.className))
             {
                 error = $"枚举名 {def.className} 与配置模板类名冲突";
                 return false;
@@ -160,8 +160,9 @@ namespace HYC.Framework.Config.Editor
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            File.WriteAllText(fullPath, code, Encoding.UTF8);
-            AssetDatabase.Refresh();
+            // 内容没变就不重写、也不 Refresh（重复生成枚举时省掉无谓的导入与编译抖动）
+            if (ConfigTemplateCodeGen.WriteIfChanged(relativePath, code))
+                AssetDatabase.Refresh();
             return true;
         }
 
@@ -199,8 +200,8 @@ namespace HYC.Framework.Config.Editor
                 return false;
             var dir = Path.GetFullPath(exportDir);
             Directory.CreateDirectory(Path.Combine(dir, "Enums"));
-            var fullPath = Path.Combine(dir, "Enums", $"{def.className}.cs");
-            File.WriteAllText(fullPath, code, Encoding.UTF8);
+            // 导出目录在工程外（默认 Exports/Client），不走 ImportAsset；内容一致则不重写
+            ConfigTemplateCodeGen.WriteIfChanged(Path.Combine(dir, "Enums", $"{def.className}.cs"), code);
             return true;
         }
 

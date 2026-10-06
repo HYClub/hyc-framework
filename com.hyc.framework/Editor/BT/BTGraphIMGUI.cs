@@ -118,6 +118,66 @@ namespace HYC.Framework.BT.Editor
         private Vector2 _dragStartCanvas;
         private readonly Dictionary<long, Vector2> _dragOrigins = new Dictionary<long, Vector2>();
 
+        // ---- 绘制期索引（修每帧 O(连线² + 节点×连线) 的热点）----
+        //
+        // 改造前，连线绘制里每条连线做 2 次 List.Find(O(节点))、ChildIndex 再线性扫一遍连线(O(连线))，
+        // ChildCount 对每个节点做一次 Connections.Count(...)(O(连线))。
+        // 250 条连线 + 200 个节点时，一帧要走十万次量级的比较，外加几百个 lambda 闭包分配。
+        //
+        // 现在改为「节点数 / 连线数」作指纹的惰性索引：数量变了才重建，节点移动/改属性不影响索引
+        // 有效性（索引里存的是节点引用）。唯一理论漏网是「同一帧内先删一个再补一个」导致数量不变，
+        // 但那需要两次独立 UI 操作，实际不可达。
+        private Dictionary<long, BTNodeData> _idxNodes;
+        private Dictionary<long, int> _idxChildCount;      // SourceNodeId → 出边数
+        private int[] _idxChildSeq;                        // 连线索引 → 该连线在其源节点出边中的序号
+        private int _idxNodesCount = -1;
+        private int _idxConnsCount = -1;
+
+        /// <summary>确保索引与当前资产一致。绘制/事件处理入口都会调用，代价可忽略。</summary>
+        private void EnsureIndexes()
+        {
+            if (_asset == null) return;
+
+            int nc = _asset.Nodes.Count;
+            if (_idxNodes == null || _idxNodesCount != nc)
+            {
+                _idxNodes = new Dictionary<long, BTNodeData>(nc);
+                for (int i = 0; i < nc; i++)
+                {
+                    var n = _asset.Nodes[i];
+                    // NodeId 理论上唯一；万一资产里出现重复，保留第一个，与原先 List.Find 取首个一致。
+                    if (!_idxNodes.ContainsKey(n.NodeId)) _idxNodes[n.NodeId] = n;
+                }
+                _idxNodesCount = nc;
+                _idxConnsCount = -1;   // 节点数变了，先强制重建连线索引
+            }
+
+            int cc = _asset.Connections.Count;
+            if (_idxChildCount == null || _idxConnsCount != cc)
+            {
+                _idxChildCount = new Dictionary<long, int>(cc);
+                _idxChildSeq = new int[cc];
+                var seq = new Dictionary<long, int>(cc);
+                for (int i = 0; i < cc; i++)
+                {
+                    var c = _asset.Connections[i];
+                    seq.TryGetValue(c.SourceNodeId, out int k);
+                    _idxChildSeq[i] = k;
+                    seq[c.SourceNodeId] = k + 1;
+                    _idxChildCount[c.SourceNodeId] = k + 1;
+                }
+                _idxConnsCount = cc;
+            }
+        }
+
+        /// <summary>按 NodeId 查节点（替代 List.Find）。</summary>
+        private BTNodeData FindNode(long nodeId)
+        {
+            EnsureIndexes();
+            if (_idxNodes != null && _idxNodes.TryGetValue(nodeId, out var n)) return n;
+            return null;
+        }
+
         // NC HierarchyTree.Element 的 HYC 等价
         private class ExplorerEl
         {
@@ -277,12 +337,13 @@ namespace HYC.Framework.BT.Editor
 
             // 连线(在节点之下)
             Handles.BeginGUI();
-            foreach (var c in _asset.Connections)
-                DrawConnection(c);
+            EnsureIndexes();
+            for (int _ci = 0; _ci < _asset.Connections.Count; _ci++)
+                DrawConnection(_asset.Connections[_ci], _ci);
             // 进行中的连线预览(对应 Editor.Node:997-998: 单条贝塞尔, Resting a0.8, size=3, 无阴影无端帽)
             if (_pendingSrcId.HasValue)
             {
-                var src = _asset.Nodes.Find(x => x.NodeId == _pendingSrcId.Value);
+                var src = FindNode(_pendingSrcId.Value);
                 if (src != null)
                 {
                     var from = OutputPortPos(src, _pendingSrcPort);
@@ -620,7 +681,7 @@ namespace HYC.Framework.BT.Editor
                         _dragOrigins.Clear();
                         foreach (var id in _selectedIds)
                         {
-                            var s = _asset.Nodes.Find(x => x.NodeId == id);
+                            var s = FindNode(id);
                             if (s != null) _dragOrigins[id] = s.Position;
                         }
                         RecordUndo("BT: 移动节点");
@@ -635,7 +696,7 @@ namespace HYC.Framework.BT.Editor
                 var delta = _mouseCanvas - _dragStartCanvas;
                 foreach (var kv in _dragOrigins)
                 {
-                    var nd = _asset.Nodes.Find(x => x.NodeId == kv.Key);
+                    var nd = FindNode(kv.Key);
                     if (nd == null) continue;
                     var np = kv.Value + delta;
                     if (_snapGrid) { np.x = Mathf.Round(np.x / GRID) * GRID; np.y = Mathf.Round(np.y / GRID) * GRID; }
@@ -695,7 +756,7 @@ namespace HYC.Framework.BT.Editor
                     _clipboard.Clear();
                     foreach (var id in _selectedIds)
                     {
-                        var nd = _asset.Nodes.Find(x => x.NodeId == id);
+                        var nd = FindNode(id);
                         if (nd != null) _clipboard.Add(nd);
                     }
                     e.Use();
@@ -826,21 +887,21 @@ namespace HYC.Framework.BT.Editor
             GUI.Label(br, g, _badgeGlyphStyle);
         }
 
-        private bool IsConnectedIn(BTNodeData n) => _asset.Connections.Any(c => c.TargetNodeId == n.NodeId);
-        private bool IsConnectedOut(BTNodeData n) => _asset.Connections.Any(c => c.SourceNodeId == n.NodeId);
+        // 原 IsConnectedIn / IsConnectedOut 已删除：全文件零调用点，且实现是 O(连线) 的 LINQ 扫描。
+        // 需要「某节点出/入边数」时走 ChildCount(n)（查字典，O(1)）。
 
         // ---- 连线(对应 Editor.Connection.DrawConnectionGUI / DrawConnection) ----
-        private void DrawConnection(BTConnectionData c)
+        private void DrawConnection(BTConnectionData c, int connectionIndex)
         {
-            var src = _asset.Nodes.Find(x => x.NodeId == c.SourceNodeId);
-            var dst = _asset.Nodes.Find(x => x.NodeId == c.TargetNodeId);
+            var src = FindNode(c.SourceNodeId);
+            var dst = FindNode(c.TargetNodeId);
             if (src == null || dst == null) return;
             // 视口裁剪: 两端节点都不在可视区内则跳过
             if (!NodeRect(src).Overlaps(_visibleCanvasRect) && !NodeRect(dst).Overlaps(_visibleCanvasRect))
                 return;
 
             // 起点按源节点的子节点序号定位到对应输出端口槽位(横向展开), 终点落在目标顶边
-            var from = OutputPortPos(src, ChildIndex(c));
+            var from = OutputPortPos(src, ChildIndex(connectionIndex));
             var to = InputPortPos(dst);
 
             // 切线(垂直流: 出在底、进在顶, connectionsMLT=0.8)
@@ -908,23 +969,24 @@ namespace HYC.Framework.BT.Editor
             return new Vector2(x, r.yMax);
         }
 
-        private int ChildCount(BTNodeData n) => _asset.Connections.Count(c => c.SourceNodeId == n.NodeId);
+        private int ChildCount(BTNodeData n)
+        {
+            EnsureIndexes();
+            if (_idxChildCount != null && _idxChildCount.TryGetValue(n.NodeId, out var c)) return c;
+            return 0;
+        }
 
         // 端口数: Root 必画 1 个输出(用于拖出新子节点); 其余非 End 节点至少 1 个, 有子节点则按子节点数展开
         private int OutCount(BTNodeData n) => n.Type == BTNodeType.End ? 0 : Mathf.Max(1, ChildCount(n));
 
-        // 连线在其源节点所有出边中的序号(用于确定它从哪个输出端口槽位出发)
-        private int ChildIndex(BTConnectionData c)
+        // 连线在其源节点所有出边中的序号(用于确定它从哪个输出端口槽位出发)。
+        // 改造前是 O(连线) 的线性扫描，而它在「每条连线」的循环里被调用 —— 整帧 O(连线²)。
+        // 现在查 _idxChildSeq[连线索引]，O(1)。
+        private int ChildIndex(int connectionIndex)
         {
-            int i = 0;
-            foreach (var x in _asset.Connections)
-            {
-                if (x.SourceNodeId == c.SourceNodeId)
-                {
-                    if (x == c) return i;
-                    i++;
-                }
-            }
+            EnsureIndexes();
+            if (_idxChildSeq != null && connectionIndex >= 0 && connectionIndex < _idxChildSeq.Length)
+                return _idxChildSeq[connectionIndex];
             return 0;
         }
 
@@ -2340,8 +2402,8 @@ namespace HYC.Framework.BT.Editor
                 Handles.color = new Color(0.35f, 0.35f, 0.35f);
                 foreach (var c in _asset.Connections)
                 {
-                    var src = _asset.Nodes.Find(x => x.NodeId == c.SourceNodeId);
-                    var dst = _asset.Nodes.Find(x => x.NodeId == c.TargetNodeId);
+                    var src = FindNode(c.SourceNodeId);
+                    var dst = FindNode(c.TargetNodeId);
                     if (src == null || dst == null) continue;
                     var sc = NodeRect(src).center; var dc = NodeRect(dst).center;
                     Handles.DrawLine(new Vector3(mx(sc.x), my(sc.y), 0), new Vector3(mx(dc.x), my(dc.y), 0));
@@ -2512,7 +2574,7 @@ namespace HYC.Framework.BT.Editor
         private void DeleteNode(long nodeId)
         {
             RecordUndo("BT: 删除节点");
-            var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var n = FindNode(nodeId);
             if (n != null && n.Type == BTNodeType.Root) return; // Root 不可删
             _asset.Connections.RemoveAll(c => c.SourceNodeId == nodeId || c.TargetNodeId == nodeId);
             _asset.Nodes.RemoveAll(x => x.NodeId == nodeId);
@@ -2568,7 +2630,7 @@ namespace HYC.Framework.BT.Editor
             foreach (var id in ids) map[id] = NewNodeId();
             foreach (var id in ids)
             {
-                var src = _asset.Nodes.Find(n => n.NodeId == id);
+                var src = FindNode(id);
                 if (src == null) continue;
                 _asset.Nodes.Add(CloneNodeData(src, map[id], new Vector2(60, 60)));
             }
@@ -2585,7 +2647,7 @@ namespace HYC.Framework.BT.Editor
         private void ReplaceNodeType(long nodeId, BTNodeType newType)
         {
             RecordUndo("BT: 替换节点类型");
-            var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var n = FindNode(nodeId);
             if (n == null) return;
             n.Type = newType;
             MarkDirty(true);
@@ -2594,7 +2656,7 @@ namespace HYC.Framework.BT.Editor
         private void DecorateNode(long nodeId, BTNodeType decoType)
         {
             RecordUndo("BT: 装饰节点");
-            var node = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var node = FindNode(nodeId);
             if (node == null || node.Type == BTNodeType.Root) return;
             var deco = new BTNodeData
             {
@@ -2619,7 +2681,7 @@ namespace HYC.Framework.BT.Editor
         private void ConvertToSubTree(long nodeId)
         {
             RecordUndo("BT: 转换为子树");
-            var node = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var node = FindNode(nodeId);
             if (node == null || node.Type == BTNodeType.Root) return;
             var ids = CollectBranch(nodeId);
 
@@ -2635,7 +2697,7 @@ namespace HYC.Framework.BT.Editor
             foreach (var id in ids) map[id] = NewNodeId();
             foreach (var id in ids)
             {
-                var src = _asset.Nodes.Find(n => n.NodeId == id);
+                var src = FindNode(id);
                 if (src == null) continue;
                 sub.Nodes.Add(CloneNodeData(src, map[id], Vector2.zero));
             }
@@ -2673,7 +2735,7 @@ namespace HYC.Framework.BT.Editor
 
         private void CopyNode(long nodeId)
         {
-            var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var n = FindNode(nodeId);
             if (n == null) return;
             _clipboard.Clear();
             _clipboard.Add(n);
@@ -2719,7 +2781,7 @@ namespace HYC.Framework.BT.Editor
 
         private void BuildNodeMenu(GenericMenu menu, long nodeId, Vector2 pos)
         {
-            var n = _asset.Nodes.Find(x => x.NodeId == nodeId);
+            var n = FindNode(nodeId);
             if (n == null) return;
             var type = n.Type;
 

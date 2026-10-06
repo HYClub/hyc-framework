@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -10,8 +11,9 @@ namespace HYC.Framework.Loc.Editor
     /// <summary>
     /// Scans the project for localization key usage and reports:
     /// - <b>Unused</b>: keys defined in the loaded tables but never referenced
-    ///   as a string literal anywhere in <c>Assets/</c> or <c>Packages/</c>
-    ///   (candidate for removal).
+    ///   as a string literal anywhere in the scanned scope (default <c>Assets/</c>;
+    ///   tick <c>Also scan Packages/</c> to include packages — much slower).
+    ///   Candidate for removal.
     /// - <b>Missing</b>: keys referenced by <c>.ToLocal()</c>/<c>GetText()</c>
     ///   calls in scripts or <c>LocalizedText.Key</c> fields in prefabs/scenes,
     ///   but absent from the loaded tables (will show "未找到Key").
@@ -30,7 +32,14 @@ namespace HYC.Framework.Loc.Editor
         private Vector2 _scroll;
         private bool _scanned;
 
-        private static readonly string[] ScannedExtensions =
+        /// <summary>是否连 Packages/ 一起扫。包体量大（含库源码），默认关闭；只想确认包内是否引用某 key 时再打开。</summary>
+        private bool _includePackages;
+
+        /// <summary>待查 key 命中数（供 GUI 显示，不参与判定）。</summary>
+        private int _scannedFileCount;
+
+        private static readonly HashSet<string> ScannedExtensions =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".cs", ".prefab", ".unity", ".asset", ".json", ".txt", ".csv" };
 
         private static readonly Regex Quoted = new Regex("\"([^\"]*)\"");
@@ -40,6 +49,7 @@ namespace HYC.Framework.Loc.Editor
         private void OnGUI()
         {
             EditorGUILayout.LabelField("Localization Key Usage", EditorStyles.boldLabel);
+            _includePackages = EditorGUILayout.ToggleLeft("Also scan Packages/ (slower)", _includePackages);
             if (GUILayout.Button("Scan"))
             {
                 Scan();
@@ -55,7 +65,8 @@ namespace HYC.Framework.Loc.Editor
 
             EditorGUILayout.HelpBox(
                 $"Unused (defined, never referenced): {_unused.Count}    " +
-                $"Missing (referenced, not in table): {_missing.Count}", MessageType.Info);
+                $"Missing (referenced, not in table): {_missing.Count}\n" +
+                $"Scanned files: {_scannedFileCount}（范围：{( _includePackages ? "Assets/ + Packages/" : "仅 Assets/")}）", MessageType.Info);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             if (_unused.Count > 0)
@@ -75,33 +86,58 @@ namespace HYC.Framework.Loc.Editor
         {
             _unused.Clear();
             _missing.Clear();
+            _scannedFileCount = 0;
             if (LocalizationManager.IDs == null) return;
 
-            var defined = new HashSet<string>(LocalizationManager.IDs);
-            var allStrings = new HashSet<string>();
-            var referenced = new HashSet<string>();
+            var defined = new HashSet<string>(LocalizationManager.IDs, StringComparer.Ordinal);
+            // 只关心「已定义的 key 有没有被引用」，不必把项目里所有引号字符串都收进来——
+            // 那等于把整个工程的字符串字面量装进 HashSet，几十万条白占内存。
+            // 这里改为扫到字符串时立刻查 defined，命中才记。
+            var referencedInTable = new HashSet<string>(StringComparer.Ordinal);
+            var referenced = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var path in AssetDatabase.GetAllAssetPaths())
+            var paths = AssetDatabase.GetAllAssetPaths();
+            try
             {
-                if (!path.StartsWith("Assets/") && !path.StartsWith("Packages/")) continue;
-                var ext = Path.GetExtension(path).ToLowerInvariant();
-                if (!ScannedExtensions.Contains(ext)) continue;
+                for (var i = 0; i < paths.Length; i++)
+                {
+                    var path = paths[i];
+                    if (!path.StartsWith("Assets/", StringComparison.Ordinal)
+                        && !(_includePackages && path.StartsWith("Packages/", StringComparison.Ordinal)))
+                        continue;
+                    var ext = Path.GetExtension(path);
+                    if (string.IsNullOrEmpty(ext) || !ScannedExtensions.Contains(ext))
+                        continue;
 
-                string text;
-                try { text = File.ReadAllText(path); }
-                catch { continue; }
+                    string text;
+                    try { text = File.ReadAllText(path); }
+                    catch { continue; }
 
-                foreach (Match m in Quoted.Matches(text))
-                    if (m.Groups[1].Success) allStrings.Add(m.Groups[1].Value);
+                    _scannedFileCount++;
+                    foreach (Match m in Quoted.Matches(text))
+                    {
+                        if (!m.Groups[1].Success) continue;
+                        var s = m.Groups[1].Value;
+                        if (defined.Contains(s)) referencedInTable.Add(s);
+                    }
 
-                if (ext == ".cs")
-                    Collect(RefCs, text, referenced);
-                else
-                    Collect(RefYaml, text, referenced);
+                    if (ext.Equals(".cs", StringComparison.OrdinalIgnoreCase))
+                        Collect(RefCs, text, referenced);
+                    else
+                        Collect(RefYaml, text, referenced);
+
+                    // 每 200 个文件报一次进度：大工程全量扫要几秒，不给反馈像卡死
+                    if ((i & 0x7F) == 0 && paths.Length > 256)
+                        EditorUtility.DisplayProgressBar("Scan Key Usage", path, (float)i / paths.Length);
+                }
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
             }
 
-            _unused.AddRange(defined.Where(k => !allStrings.Contains(k)).OrderBy(k => k));
-            _missing.AddRange(referenced.Where(r => !defined.Contains(r)).OrderBy(r => r));
+            _unused.AddRange(defined.Where(k => !referencedInTable.Contains(k)).OrderBy(k => k, StringComparer.Ordinal));
+            _missing.AddRange(referenced.Where(r => !defined.Contains(r)).OrderBy(r => r, StringComparer.Ordinal));
         }
 
         private static void Collect(Regex rx, string text, HashSet<string> into)
