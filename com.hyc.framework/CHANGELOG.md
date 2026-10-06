@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > 版本说明：`2.0.5`（存档存储等）与本节合并为一次发布，`package.json` 由 `2.0.4` 直接 bump 到 `2.0.6`。
 > 此前两个 `- Unreleased` 段落从未发布过，故合并不会影响任何已发布版本。
 
+### Changed
+- **编辑器菜单三档分级**（用户反馈：「Setting 和 Samples 明显和其他功能不是一回事」、
+  「不能只是去掉横线」）。菜单不按字母序，改为按**使用频率与语义归属**分三档：
+
+  | 档 | 成员 | 使用频率 |
+  | --- | --- | --- |
+  | ① 内容制作 | Config / BT / UI / Localization / Attributes / Talent | 每天都在用 |
+  | ② 通用工具 | Tools / Assets | 偶尔用，出问题时才找 |
+  | ③ 项目级 | Settings / Samples | 装一次 / 改配置 |
+
+  核心变化：**Settings 与 Samples 从字母序中段沉到最底部**，并用分隔线与上面的能力区隔开。
+  原先它们夹在 Attributes/BT/Config/Localization/Samples/Settings/Talent/Tools/UI 中间，
+  看上去与 `Config` 这类能力是同级的。
+
+  技术要点：分隔线**不是画出来的**，是 Unity 按 priority 差 ≥ 11 自动生成的
+  （官方文档实证）。因此 **20 个菜单项逐个**都显式标了 priority
+  ——**不能只给父菜单首项写**，排序作用于每个叶子项，未写的默认 0 会全部挤到最前打乱分组；
+  且**父菜单排序由其首个子菜单的 priority 决定**。
+  档内相邻差 ≤ 10（不画线）、档间差 ≥ 11（画线）：`Talent(50)→Tools(100)`、
+  `Tools(101)→Settings(200)` 各生成一条分隔线，恰好两条。
+
+- **菜单分组与命名整理**。根因是 `BTBlobExporter` 写了 `priority = 30`，
+  与前一项差值 30 ≥ 11 ⇒ BT 上方凭空多出一条分隔线。改动：
+  - `BT/导出 Blob(打包用)` → **`BT/Export Blob (For Build)`**。
+  - `Localization/` 原有 6 个平铺子项，按职责分二级组：
+    `Import/Excel (Import & Build Blob)`、
+    `Editors/{Key Browser, Scan Key Usage, Sensitive Words}`、`Settings/Localization Settings`。
+  - `Tools/Validate Config` → **`Config/Validate Config`**（分组按**能力归属**，不按实现类型）；
+    `Tools/{Show Dependents…, Clean Missing Asset…}` → `Tools/Assets/{Show Dependents, Clean Missing References}`
+    （`Tools/` 只放与具体子系统无关的通用工具）。
+  - 中文菜单名统一改英文：`BT/导出 Blob(打包用)`、`Tools/Tests/更新 Public API 快照`、
+    `Tools/Tests/查看 Public API 差异` → 全部英文。
+  - `Samples/` 下三个中文项**有意保留**——它们导入示例后才出现在用户工程，属"使用者的操作指引"，
+    此时中文界面更合适，与主菜单取舍不同。
+  - 新增 **`Editor/MenuLayout.md`** 作为菜单结构唯一真源，内含 priority 两次踩坑记录、三档设计意图、
+    改动检查清单；`docs/90-编辑器工具链.md` 补全带 pri 列的全量菜单表。
+  - 同步订正 12 篇文档共 35 处菜单路径引用。**CHANGELOG 历史段落中的旧菜单名按历史事实保留**，
+    不追溯改写。
+
+> **Unity 菜单的硬限制**：菜单**不支持自定义分组标题**，只能画分隔线。
+> 所以"分级"只能靠**位置语义**表达——这也是**排序比命名更重要**的原因。
+
 ### Added
 - **World 生命周期钩子（`Runtime/FrameworkLifecycle.cs`，新增文件）**：进程级静态单例此前**没有任何释放时机**——
   `BTManager` / `ConfigManager` 等持有 `Allocator.Persistent` 原生容器，World 销毁时无人调用 `DisposeAll()`。
@@ -217,7 +259,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **菜单路径统一：BT「导出 Blob(打包用)」由顶层 `Tools/HYC/BT/…` 迁到 `HYC Framework/BT/…`**。
   全框架 23 个菜单项里 22 个都在 `HYC Framework/<分类>/…` 下，唯独这一项残留在早期的 `Tools/HYC/…`
   命名空间，造成「同一个 BT 模块，编辑器在 `HYC Framework/BT/`、导出却在 `Tools/HYC/BT/`」的割裂。
-  已统一为 **`HYC Framework/BT/导出 Blob(打包用)`**（`Editor/BT/BTBlobExporter.cs` 的 `[MenuItem]`）；
+  2.0.6 进一步统一为**全英文命名** **`HYC Framework/BT/Export Blob (For Build)`**
+  （`Editor/BT/BTBlobExporter.cs` 的 `[MenuItem]`）；
   同步订正 `Runtime/BT/BTBlobLoader.cs` 两处提示文案、`manifest.txt` 注释、包 `README.md`、
   `Samples~/HYCSimple/BT/AI-NOTES.md`，以及 `docs/01`、`docs/02`、`docs/80`~`84`、`docs/90` 的菜单表；
   顺带订正 `docs/80` / `docs/81` / `docs/84` 里把 BT 编辑器误写成 `Tools/HYC/BT Editor` 的旧错
@@ -305,7 +348,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `Editor/BT/BTGraphIMGUI.cs`：BT 编辑器 File 菜单新增「全量清理后全量导出」，单棵树 / 文件夹右键新增「保存并导出」。
 - **文档：补齐枚举配置（此前该能力无文档）**：新增 `docs/13-枚举配置.md`——枚举定义资产 → 生成 C# 枚举类 → 配置字段引用的完整机制、`ValueOf` 的 **1 基**（`index+1`）与 Flags（`1<<index`）数值约定、**配置类字段是枚举类型而 Blob 字段是 `int`** 这一最易误判点、校验规则与 9 条踩坑（含从 0 基手写枚举迁移要 `+1`、脚本化 `EnsureEnumDefs()` 必须排在 OutputDir 清理之后）。`11-字段类型与导出设置` 的 `Enum` 行、`docs/README.md` 索引、`90-编辑器工具链` 同步更新。
 - **文档：新增 `docs/02-操作手册-按任务.md`（处方型，补齐「读完知道怎么做」的缺口）**：现有各篇都是「机制说明」（有什么、是什么），缺「要完成 X 按顺序做这些」。02 篇按任务组织——新增配置表（**脚本驱动 / 编辑器驱动两条路**，此前只讲了编辑器一条，而 SnowBros / TD 都是脚本驱动）、字段类型与导出模式决策表、枚举字段步骤、运行期读配置、行为树从零到跑通（含 `BTInterpreterSystem` 是 struct、须用 `GetOrCreateSystem<T>()`）、新增 UI 窗口、**基类 / 接口一览表**、「改完必须重跑什么」清单、菜单路径速查。另含两条易漏铁律：UI 类必须写 `partial`、引用 `UpdateGroup_*` 必须 `using HYC.Framework.Dots;`。
-- **文档订正（菜单路径此前写错，会直接误导 AI）**：行为树编辑器实际是 `HYC Framework/BT/BT Editor`，`01` / `90` 两篇误写为 `Tools/HYC/BT Editor`（已订正）；`01` 篇列出的 `HYC Framework/Config/Generate Config` **并不存在**（已移除）；`90` 篇补上遗漏的 `HYC Framework/Localization/Scan Key Usage` 与两个 UI Binder 生成变体。全部菜单路径已逐条比对源码 `[MenuItem]`。
+- **文档订正（菜单路径此前写错，会直接误导 AI）**：行为树编辑器实际是 `HYC Framework/BT/BT Editor`，`01` / `90` 两篇误写为 `Tools/HYC/BT Editor`（已订正）；`01` 篇列出的 `HYC Framework/Config/Generate Config` **并不存在**（已移除）；`90` 篇补上遗漏的 `HYC Framework/Localization/Editors/Scan Key Usage` 与两个 UI Binder 生成变体。全部菜单路径已逐条比对源码 `[MenuItem]`。
 
 ### Changed
 - `BTBlobBuilder` 内部把「结构校验」与「构建填充」抽成 `Validate` / `Fill` 两个私有方法，供 `Build` 与 `BuildToFile` 共用。**对外 API、校验规则与产物行为完全不变**（纯内部重构，非破坏性变更）。

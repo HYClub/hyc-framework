@@ -18,7 +18,7 @@
 ## 一、一句话心智模型
 
 - **编辑器**：在 `BTTreeAsset`（`CreateAssetMenu "HYC/BT/Tree"`）里画节点/连线，或用代码 `EnsureRootNode()` 程序化建树。
-- **导出**：`BTBlobExporter.ExportAll()`（菜单 `HYC Framework/BT/导出 Blob(打包用)`）→ `Assets/StreamingAssets/BTBlob/*.blob` + `manifest.txt`。
+- **导出**：`BTBlobExporter.ExportAll()`（菜单 `HYC Framework/BT/Export Blob (For Build)`）→ `Assets/StreamingAssets/BTBlob/*.blob` + `manifest.txt`。
 - **运行期**：`BTBlobLoader.LoadAll()` 把 blob 读回并 `BTManager.Register(treeId, blob)`。
 - **驱动**：给实体挂 `RunningBT { TreeId }`，框架自带 `BTInterpreterSystem : ISystem` 每帧 `Tick`，结果写回 `BTLastResult`。
 - **游戏层自定义行为**：`GameCustom` 节点用 `LongParams[0]` 当子类型 subType，`BTNodeRuntimeRegistry` 运行期反射扫描程序集、
@@ -43,7 +43,7 @@
    ⚡ 或跑统一入口 `HYC Framework/Samples/创建全部示例资产`（同时生成 BT 树 + Attr 资产，见文首）。
 2. **画树**：必须有且仅有一个 `Root`，其余节点靠 `Connections`（Source→Target + PortIndex 决定子节点顺序）连成树。
    节点类型见 `BTNodeType`（Root / Sequence / Selector / Wait / NoOp / Condition / GameCustom=128 …）。
-3. **导出 Blob（打包必做）**：菜单 `HYC Framework/BT/导出 Blob(打包用)`。
+3. **导出 Blob（打包必做）**：菜单 `HYC Framework/BT/Export Blob (For Build)`。
 4. **运行期加载 + 挂组件**：
    ```csharp
    BTBlobLoader.LoadAll();                       // 读 StreamingAssets/BTBlob/*.blob 注册

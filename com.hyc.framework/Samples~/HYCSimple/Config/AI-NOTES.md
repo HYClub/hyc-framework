@@ -44,7 +44,7 @@
 3. **枚举字段在 Blob 里是 `int`**：只有「生成的配置类字段」才是枚举类型；`ConfigManager` 取回的是 `int`，
    需 `(int)XxxKind.Red` 比较，且数值是 **1 基**（没有 0 值）。
 4. **`ConfigManager` 读是世界无关的**：不要在系统里缓存 World 来查表；直接静态调用即可。
-5. **`ConfigValidator`**：菜单 `HYC Framework/Tools/Validate Config` 会校验缺 `[BlobGenerate]` / 非 blittable 字段，
+5. **`ConfigValidator`**：菜单 `HYC Framework/Config/Validate Config` 会校验缺 `[BlobGenerate]` / 非 blittable 字段，
    生成器产物默认合规；手写行注意第 1 点。
 6. **命名须框架中立**：示例用 `Item`/`Price`/`StackMax` 这类通用概念；真实工程按自己领域命名，
    但**框架样例里不要写使用方具体玩法**（如某游戏的 `ItemKind`/`WavePointStrategy`）。
