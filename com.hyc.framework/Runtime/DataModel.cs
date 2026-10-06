@@ -58,6 +58,11 @@ namespace HYC.Framework.Data
         public void OnCreate(ref SystemState state)
         {
             _query = state.GetEntityQuery(ComponentType.ReadOnly<NewItemFlag>());
+            // 没有任何 NewItemFlag 组件时本系统无事可做。RequireForUpdate 让 Unity 直接跳过本帧
+            // OnUpdate，省掉每帧一次的 Temp 数组分配与 store 存在性检查。
+            // store 单例在 OnCreate 里已建好；OnUpdate 开头那句 EnsureStore 只是自愈兜底
+            // （宿主若自行销毁了 store 实体，下一次真标记进来时会被重建）。
+            state.RequireForUpdate(_query);
             EnsureStore(ref state);
         }
 
@@ -69,22 +74,32 @@ namespace HYC.Framework.Data
                 EnsureStore(ref state);
             }
 
+            // Temp 数组必须**无条件**释放。曾经这里写成
+            //     var entities = _query.ToEntityArray(Allocator.Temp);
+            //     if (entities.Length == 0) return;      // ← 漏 Dispose
+            // 而这是每帧都走的早退分支，等于每帧泄漏一块 native 内存。
             var entities = _query.ToEntityArray(Unity.Collections.Allocator.Temp);
-            if (entities.Length == 0) return;
-
-            var buffer = state.EntityManager.GetBuffer<NewItemFlagBuffer>(_store);
-            foreach (var e in entities)
+            try
             {
-                var uid = state.EntityManager.GetComponentData<NewItemFlag>(e).Uid;
-                bool exists = false;
-                for (int i = 0; i < buffer.Length; i++)
+                if (entities.Length == 0) return;
+
+                var buffer = state.EntityManager.GetBuffer<NewItemFlagBuffer>(_store);
+                foreach (var e in entities)
                 {
-                    if (buffer[i].Uid == uid) { exists = true; break; }
+                    var uid = state.EntityManager.GetComponentData<NewItemFlag>(e).Uid;
+                    bool exists = false;
+                    for (int i = 0; i < buffer.Length; i++)
+                    {
+                        if (buffer[i].Uid == uid) { exists = true; break; }
+                    }
+                    if (!exists) buffer.Add(new NewItemFlagBuffer { Uid = uid });
+                    state.EntityManager.RemoveComponent<NewItemFlag>(e);
                 }
-                if (!exists) buffer.Add(new NewItemFlagBuffer { Uid = uid });
-                state.EntityManager.RemoveComponent<NewItemFlag>(e);
             }
-            entities.Dispose();
+            finally
+            {
+                entities.Dispose();
+            }
         }
 
         private void EnsureStore(ref SystemState state)

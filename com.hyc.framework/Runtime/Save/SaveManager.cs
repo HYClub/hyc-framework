@@ -50,7 +50,8 @@ namespace HYC.Framework.Save
     /// 或自己组合类型，框架不知道"槽"是什么。
     ///
     /// 三条属于存储层本分的保证：
-    /// ① 原子写（先写 .tmp 再换名），写一半崩不会留下半截文件；
+    /// ① 原子写（先写 .tmp，再用 <see cref="File.Replace(string,string,string)"/> 顶替正式文件，
+    ///    旧版自动备份成 <c>.bak</c>），任何时刻崩溃都不会丢失上一版完整数据；
     /// ② 坏档改名 .corrupt 备份，绝不静默覆盖 —— 静默覆盖等于进度凭空消失且无从追查；
     /// ③ 格式版本写在文件里，以后改格式有退路。
     ///
@@ -108,14 +109,31 @@ namespace HYC.Framework.Save
                     Directory.CreateDirectory(dir);
                 }
 
-                // 原子写：先落 .tmp，再把旧文件换掉。中途崩只会留下 .tmp，正式文件仍是上一版完整的。
+                // 原子写：先落 .tmp，再整体顶替正式文件，旧版顺手备份成 .bak。
+                // 崩溃窗口只存在于 File.WriteAllText(tmp) 内部——此时正式文件完好无损；
+                // File.Replace 要么全成功要么全不动，不存在"新旧都丢"的中间态。
                 var tmp = path + ".tmp";
+                var bak = path + ".bak";
                 File.WriteAllText(tmp, fileText);
                 if (File.Exists(path))
                 {
-                    File.Delete(path);
+                    try
+                    {
+                        File.Replace(tmp, path, bak);
+                    }
+                    catch (PlatformNotSupportedException)
+                    {
+                        // WebGL 等不支持 File.Replace 的平台：退回「先备份再移动」，
+                        // 仍能保证崩溃时 .bak 或正式文件至少留有一份完整数据。
+                        if (!File.Exists(bak)) File.Copy(path, bak, true);
+                        File.Delete(path);
+                        File.Move(tmp, path);
+                    }
                 }
-                File.Move(tmp, path);
+                else
+                {
+                    File.Move(tmp, path);
+                }
             }
             catch (Exception ex)
             {

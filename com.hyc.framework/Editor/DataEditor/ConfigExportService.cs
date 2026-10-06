@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -9,7 +8,7 @@ using UnityEngine;
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// 配置导出入口：通过反射调用生成的 XxxConfigExport 类。
+    /// 配置导出入口：调用生成的 XxxConfigExport 类（先查注册表，未注册才做一次性程序集扫描定位类型）。
     /// 支持单个实例导出、文件夹内全部导出。
     /// </summary>
     public static class ConfigExportService
@@ -17,20 +16,32 @@ namespace HYC.Framework.Config.Editor
         /// <summary>导出单个配置实例（按运行时类型匹配 XxxConfigExport）。</summary>
         public static bool ExportSingle(UnityEngine.Object asset, bool client, bool server)
         {
+            // Unity 的 == null 对「已销毁对象」也返回 true，所以先判空再取属性。
             if (asset == null)
                 return false;
 
+            // 下面整条链（CollectConfigAssets / EnsureUniqueBeforeExport）都是 List<ScriptableObject>，
+            // 而形参声明是 UnityEngine.Object（历史遗留：允许传任意子类型再在这里判型）。
+            // 必须先显式转一次再进集合——Object → ScriptableObject 是向下转型，C# 不允许隐式，
+            // 直接 all.Contains(asset) 会 CS1503。
+            var so = asset as ScriptableObject;
+            if (so == null)
+            {
+                Debug.LogWarning($"导出失败：{asset.name} 不是 ScriptableObject（类型 {asset.GetType().Name}）");
+                return false;
+            }
+
             // 导出前查重：单资产对全根目录扫描（含系统外复制的资产）
             var all = ConfigIdService.CollectConfigAssets(ConfigDataSettings.RootFolder);
-            if (!all.Contains(asset))
-                all.Add(asset as ScriptableObject);
+            if (!all.Contains(so))
+                all.Add(so);
             if (!ConfigIdService.EnsureUniqueBeforeExport(all, "导出单个配置"))
                 return false;
 
-            var exportType = FindExportType(asset.GetType());
+            var exportType = FindExportType(so.GetType());
             if (exportType == null)
             {
-                Debug.LogWarning($"未找到 {asset.GetType().Name} 的导出类（请先生成代码）");
+                Debug.LogWarning($"未找到 {so.GetType().Name} 的导出类（请先生成代码）");
                 return false;
             }
 
@@ -38,7 +49,7 @@ namespace HYC.Framework.Config.Editor
             if (m == null)
                 return false;
 
-            return (bool)m.Invoke(null, new object[] { asset, client, server });
+            return (bool)m.Invoke(null, new object[] { so, client, server });
         }
 
         /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。</summary>
@@ -190,22 +201,64 @@ namespace HYC.Framework.Config.Editor
             return types;
         }
 
-        /// <summary>按类型查找生成的 XxxConfigExport（命名空间 {ns}.Editor）。</summary>
+        /// <summary>
+        /// 导出类注册表：配置类型名 → 生成的 <c>XxxExport</c> 类型。
+        /// 由生成的 <c>XxxExport.cs</c> 在静态构造里 <see cref="Register"/> 填入（零反射命中）。
+        /// </summary>
+        private static readonly Dictionary<string, Type> s_exportTypes = new Dictionary<string, Type>();
+
+        /// <summary>是否已做过一次全程序集扫描（一个域会话内只做一次，之后全部走字典）。</summary>
+        private static bool s_scannedAllAssemblies;
+
+        /// <summary>
+        /// 注册导出类。生成的 <c>XxxExport.cs</c> 静态构造中调用，使 <see cref="FindExportType"/>
+        /// 无需任何程序集扫描即可命中。键取配置类型的短名——注册表只在
+        /// <see cref="ConfigDataSettings.Namespace"/> 这一个命名空间内使用，不会与其它工程冲突。
+        /// </summary>
+        public static void Register(Type configType, Type exportType)
+        {
+            if (configType == null || exportType == null)
+                return;
+            s_exportTypes[configType.Name] = exportType;
+        }
+
+        /// <summary>
+        /// 按类型查找生成的 XxxConfigExport（命名空间 {ns}.Editor）。
+        /// 优先命中注册表（零反射）；未注册时**整个域会话只做一次**全程序集扫描并缓存结果，
+        /// 之后重复查询直接读字典——避免逐类型反复扫全部程序集类型（<c>CleanAndExportAll</c> 会逐类型调用）。
+        /// 扫描必须按 <see cref="Type.FullName"/> 全名匹配：只比短名会命中其它工程/命名空间下的同名类并静默导出错表。
+        /// </summary>
         public static Type FindExportType(Type configType)
         {
             if (configType == null)
                 return null;
+            if (s_exportTypes.TryGetValue(configType.Name, out var registered))
+                return registered;
+            if (s_scannedAllAssemblies)
+                return null;
+
+            s_scannedAllAssemblies = true;
             var ns = ConfigDataSettings.Namespace;
-            var fullName = $"{ns}.Editor.{configType.Name}Export";
-            var type = Type.GetType(fullName + ", Assembly-CSharp-Editor");
-            if (type == null)
+            var prefix = $"{ns}.Editor.";
+            var suffix = "Export";
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
             {
-                // 全程序集扫描兜底
-                type = AppDomain.CurrentDomain.GetAssemblies()
-                    .SelectMany(a => { try { return a.GetTypes(); } catch { return Type.EmptyTypes; } })
-                    .FirstOrDefault(t => t != null && t.Name == configType.Name + "Export");
+                Type[] types;
+                try { types = a.GetTypes(); }
+                catch (ReflectionTypeLoadException) { continue; }
+                catch (Exception) { continue; }
+                foreach (var t in types)
+                {
+                    var full = t?.FullName;
+                    if (string.IsNullOrEmpty(full) || !full.StartsWith(prefix) || !full.EndsWith(suffix))
+                        continue;
+                    var key = full.Substring(prefix.Length, full.Length - prefix.Length - suffix.Length);
+                    if (key.Length > 0 && !s_exportTypes.ContainsKey(key))
+                        s_exportTypes[key] = t;
+                }
             }
-            return type;
+            s_exportTypes.TryGetValue(configType.Name, out var found);
+            return found;
         }
     }
 }

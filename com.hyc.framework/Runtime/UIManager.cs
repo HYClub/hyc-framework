@@ -146,6 +146,10 @@ namespace HYC.Framework.UI
             LayerViews?.Clear();
             LayerViews = null;
 
+            // ViewStates 的 key 是窗口实例（引用类型），不清的话整张表连同所有
+            // WindowState 会跨 UIManager 重建存活；域重载关闭时更是直接泄漏到下一次 Play。
+            ViewStates.Clear();
+
             FocusedWindow = null;
         }
 
@@ -772,9 +776,34 @@ namespace HYC.Framework.UI
             window.Canvas = null;
             window.Camera = null;
 
+            // 必须从 ViewStates 移除。key 是窗口实例本身（引用类型），不移除的话
+            // 每开关一次窗口就永久残留一条：WindowState 连带整棵 View 资源一起被字典钉住，
+            // 既是无界内存增长，也会让「已销毁的窗口」继续出现在状态表里。
+            ForgetWindowState(window);
+
             ResetWindowFocus();
             ResetGUIInput();
             ResetHudVisible();
+        }
+
+        /// <summary>
+        /// 把窗口从静态状态表里摘掉。正常关闭走 <see cref="Close{T}(T,bool)"/> 即可，它内部已调用。
+        ///
+        /// 只有在使用方绕过 <c>Close</c>、直接 <c>World.DestroySystemManaged(window)</c>
+        /// 销毁窗口 System 时才需要手动调一次，否则该窗口的状态条目会永久留在表里。
+        /// </summary>
+        public static void ForgetWindowState(AbsUISystem window)
+        {
+            if (window == null)
+                return;
+
+            ViewStates.Remove(window);
+
+            // FocusedWindow / SingleUISystem 仍可能指着这个已销毁的实例，一并摘掉。
+            if (ReferenceEquals(FocusedWindow, window))
+                FocusedWindow = null;
+            if (ReferenceEquals(SingleUISystem, window))
+                SingleUISystem = null;
         }
 
         /// <summary>Reorder windows.</summary>

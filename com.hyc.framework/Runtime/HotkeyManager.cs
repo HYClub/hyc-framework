@@ -65,6 +65,10 @@ namespace HYC.Framework.Input
         {
             InputAsset = asset;
             UnregisterAll();
+            // 必须先退订再订阅。不加这行时，每次重绑（切手柄 / 换 InputActionAsset）都会多挂一个
+            // OnActionChange 回调：设备变化一次会触发 N 次 UpdateAllHotkeyIcons，而 Icon 是
+            // TextMeshPro，重建代价不低，且 N 会随重绑次数无限增长。
+            InputSystem.onActionChange -= OnActionChange;
             InputSystem.onActionChange += OnActionChange;
         }
 

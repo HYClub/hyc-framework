@@ -125,61 +125,101 @@ namespace HYC.Framework.Loc
 
         #region 文件读取
 
-        /// <summary>Clears and re-reads all localization data from <paramref name="folder"/>.</summary>
+        /// <summary>
+        /// 从 <paramref name="folder"/> 重新读取全部本地化数据。
+        ///
+        /// ⚠️ 失败语义是「**保持原数据不变**」。目录不存在 / 路径写错 / blob 解析抛错 /
+        /// <c>id</c> 条目为空…… 一律只报错并返回。
+        ///
+        /// 旧实现是「<b>先清空所有静态字段、再读盘</b>」，一旦读盘失败（最常见的就是
+        /// 路径写错）宿主的本地化表就整张丢失，现象是 UI 全线「未找到Key : xxx」，
+        /// 而过程毫无日志线索，排查成本极高。现在改为：先读进局部变量，
+        /// 全部成功才<b>一次性原子替换</b>静态状态。
+        /// </summary>
         public static void Reload(string folder)
         {
-            mIDs = null;
-            mLangs = null;
-            mTexts = null;
-            mLang2Index = null;
-            mKey2Index = null;
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            {
+                Debug.LogError($"[Localization] Reload 失败：目录不存在或路径为空（{folder ?? "<null>"}）。" +
+                               "已保留现有本地化数据。");
+                return;
+            }
 
+            string[] newIds = null, newLangs = null, newSensitive = null;
+            string[][] newTexts = null;
+            string newConfigLanguage = mConfigLanguage;
 #if UNITY_EDITOR
-            mExcelNames = null;
-            mIDExcelNameIndexs = null;
+            string[] newExcelNames = null;
+            int[] newIdExcelNameIndexs = null;
 #endif
-
             var langFiles = new List<string>();
 
-            foreach (var file in Directory.GetFiles(folder))
+            try
             {
-                var name = Path.GetFileName(file);
-                switch (name)
+                foreach (var file in Directory.GetFiles(folder))
                 {
-                    case ID_FILE_NAME:
-                        mIDs = ReadStrings(file);
-                        break;
-                    case DEF_LANG_FILE_NAME:
-                        mConfigLanguage = ReadLang(file, "en");
-                        break;
-                    case SENSITIVE_WORD_FILE_NAME:
-                        mSensitiveWords = ReadStrings(file);
-                        break;
+                    var name = Path.GetFileName(file);
+                    switch (name)
+                    {
+                        case ID_FILE_NAME:
+                            newIds = ReadStrings(file);
+                            break;
+                        case DEF_LANG_FILE_NAME:
+                            newConfigLanguage = ReadLang(file, "en");
+                            break;
+                        case SENSITIVE_WORD_FILE_NAME:
+                            newSensitive = ReadStrings(file);
+                            break;
 #if UNITY_EDITOR
-                    case DEBUG_ID_FILE_NAME:
-                        mIDExcelNameIndexs = ReadInts(file);
-                        break;
-                    case DEBUG_NAME_FILE_NAME:
-                        mExcelNames = ReadStrings(file);
-                        break;
+                        case DEBUG_ID_FILE_NAME:
+                            newIdExcelNameIndexs = ReadInts(file);
+                            break;
+                        case DEBUG_NAME_FILE_NAME:
+                            newExcelNames = ReadStrings(file);
+                            break;
 #endif
-                    default:
-                        if (Path.GetExtension(file) == LANG_FILE_EXT)
-                            langFiles.Add(file);
-                        break;
+                        default:
+                            if (Path.GetExtension(file) == LANG_FILE_EXT)
+                                langFiles.Add(file);
+                            break;
+                    }
                 }
-            }
 
-            if (mIDs != null && mIDs.Length > 0)
-            {
+                if (newIds == null || newIds.Length == 0)
+                {
+                    Debug.LogError($"[Localization] {folder} 中没有可用的 {ID_FILE_NAME} 条目（key 表为空），" +
+                                   "判定为无效数据目录。已保留现有本地化数据。");
+                    return;
+                }
+
                 langFiles.Sort();
 
-                mLangs = langFiles.Select(r => LocaleUtil.NormalizeLangHeader(Path.GetFileNameWithoutExtension(r))).ToArray();
-                mTexts = new string[mLangs.Length][];
+                newLangs = langFiles.Select(r => LocaleUtil.NormalizeLangHeader(Path.GetFileNameWithoutExtension(r))).ToArray();
+                newTexts = new string[newLangs.Length][];
 
                 for (var i = 0; i < langFiles.Count; i++)
-                    mTexts[i] = ReadStrings(langFiles[i]);
+                    newTexts[i] = ReadStrings(langFiles[i]);
             }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Localization] Reload({folder}) 失败：{ex.GetType().Name}: {ex.Message}。" +
+                               "已保留现有本地化数据。");
+                return;
+            }
+
+            // —— 原子提交：以上全部成功，才替换静态状态 ——
+            mIDs = newIds;
+            mLangs = newLangs;
+            mTexts = newTexts;
+            mConfigLanguage = newConfigLanguage;
+            if (newSensitive != null) mSensitiveWords = newSensitive;
+#if UNITY_EDITOR
+            mExcelNames = newExcelNames;
+            mIDExcelNameIndexs = newIdExcelNameIndexs;
+#endif
+            // 索引按新数据惰性重建（GetTextByLang 内部判空后自己填）
+            mLang2Index = null;
+            mKey2Index = null;
 
             RefreshAll();
         }

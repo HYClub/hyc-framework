@@ -25,6 +25,14 @@ namespace HYC.Framework.BT
         private static readonly Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>> _nodeStates = new Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>>();
         private static bool _initialized;
 
+        // ---- 清理路径的复用缓冲 ----
+        // Dictionary 不能边遍历边删，必须先收集键再删。这些 Clear 方法在「树跑完」与
+        // 「实体销毁」两条路径上都是高频调用，每次 new List 会持续给 GC 制造压力，故复用。
+        // 安全性：BTManager 是进程级 static，但所有清理方法都在单线程的主 Tick 里被调用，
+        // 且每个方法进入时先 Clear、退出时也 Clear，不会出现嵌套使用同一缓冲的情况。
+        private static readonly List<(Entity, long)> s_removeKeys = new List<(Entity, long)>();
+        private static readonly List<(Entity, ulong)> s_removeGuards = new List<(Entity, ulong)>();
+
 #if UNITY_EDITOR
         // 编辑器调试快照: 最近一次 tick 后, 各树(blob 节点索引序)的执行态。
         // 仅 EditorDebugEnabled 为真时由 GetNodeStates 填充, 供 BT 编辑器画布在 play 模式显示节点状态高亮/图标。
@@ -76,10 +84,15 @@ namespace HYC.Framework.BT
         /// <summary>清除某实体的全部子树运行态(树完成或实体销毁时调用, 防止状态泄漏)。</summary>
         public static void ClearSubTreeStates(Entity entity)
         {
-            var toRemove = new List<(Entity, long)>();
+            // 收集要删的键，遍历后再删——Dictionary 不允许边遍历边改。
+            // 这里必须用静态复用缓冲：树完成 / 实体销毁都是高频路径，
+            // 每次 new List 会给 GC 制造持续压力。
+            s_removeKeys.Clear();
             foreach (var key in _subStates.Keys)
-                if (key.Item1 == entity) toRemove.Add(key);
-            foreach (var key in toRemove) _subStates.Remove(key);
+                if (key.Item1 == entity) s_removeKeys.Add(key);
+            for (var i = 0; i < s_removeKeys.Count; i++)
+                _subStates.Remove(s_removeKeys[i]);
+            s_removeKeys.Clear();
         }
 
         // ---- 节点级跨帧执行态(对应 NodeCanvas 节点实例 Status + 装饰器字段) ----
@@ -140,16 +153,59 @@ namespace HYC.Framework.BT
         /// <summary>清除某实体的全部 per-node 执行态(树完成或实体销毁时调用, 防状态泄漏)。</summary>
         public static void ClearNodeStates(Entity entity)
         {
-            var toRemove = new List<(Entity, long)>();
+            // 复用静态缓冲，理由同 ClearSubTreeStates（树完成/实体销毁是高频路径）。
+            s_removeKeys.Clear();
             foreach (var key in _nodeStates.Keys)
-                if (key.Item1.Equals(entity)) toRemove.Add(key);
-            foreach (var key in toRemove) { _nodeStates[key].Dispose(); _nodeStates.Remove(key); }
+                if (key.Item1.Equals(entity)) s_removeKeys.Add(key);
+            for (var i = 0; i < s_removeKeys.Count; i++)
+            {
+                var arr = _nodeStates[s_removeKeys[i]];
+                if (arr.IsCreated) arr.Dispose();
+                _nodeStates.Remove(s_removeKeys[i]);
+            }
+            s_removeKeys.Clear();
 
             // 同时释放该实体的全部守卫锁, 防残留
-            var guardKeys = new List<(Entity, ulong)>();
+            s_removeGuards.Clear();
             foreach (var key in _guards.Keys)
-                if (key.Item1.Equals(entity)) guardKeys.Add(key);
-            foreach (var key in guardKeys) _guards.Remove(key);
+                if (key.Item1.Equals(entity)) s_removeGuards.Add(key);
+            for (var i = 0; i < s_removeGuards.Count; i++)
+                _guards.Remove(s_removeGuards[i]);
+            s_removeGuards.Clear();
+        }
+
+        /// <summary>
+        /// 一次性释放某实体的<b>全部</b> BT 运行态：子树态 + per-node 执行态 + 守卫锁，
+        /// 并连带释放该实体的私有黑板与事件。
+        ///
+        /// 供驱动系统在检测到「实体已从 RunningBT 查询中消失」时兜底调用。
+        /// 必须走这个合并入口而不是分别调 Clear* —— 只清 BTManager 的一半、
+        /// 黑板/事件留在 <see cref="BTBlackboardRegistry"/> / <see cref="BTEventBus"/> 里，
+        /// 那两处同样是原生容器，照样泄漏。
+        ///
+        /// 重复调用安全（各 Clear 都是先查后删）。
+        /// </summary>
+        public static void ReleaseEntityRuntimeState(Entity entity)
+        {
+            ClearSubTreeStates(entity);
+            ClearNodeStates(entity);
+            BTBlackboardRegistry.Clear(entity);
+            BTEventBus.Clear(entity);
+        }
+
+        /// <summary>
+        /// 释放所有实体残留的 per-node 执行态与子树态（World 销毁时调用）。
+        /// 与 <see cref="DisposeAll"/> 的区别：保留树注册表与断点，只清「按实体」的运行态。
+        /// </summary>
+        public static void ClearAllRuntimeStates()
+        {
+            foreach (var kv in _nodeStates)
+            {
+                if (kv.Value.IsCreated) kv.Value.Dispose();
+            }
+            _nodeStates.Clear();
+            _subStates.Clear();
+            _guards.Clear();
         }
 
         // ---- 跨分支守卫(Guard 节点: 同一实体同一 token 互斥) ----
@@ -204,23 +260,42 @@ namespace HYC.Framework.BT
 
         public static void ClearBreakpoints() => _breakpoints.Clear();
 
-        /// <summary>释放全部树(世界销毁/重载时调用)。</summary>
+        /// <summary>
+        /// 释放全部进程级资源（World 销毁 / 进入 Play 前 / 手动重载时调用）。
+        ///
+        /// 幂等：重复调用安全，且托管容器无条件清空、原生容器只在仍有效时释放。
+        /// 这点很重要——它同时服务于两个场景：
+        /// ① World 正常销毁（原生容器有效，需要真正 Dispose）；
+        /// ② 关闭 Domain Reload 时进入 Play（Unity 已回收全部原生分配，
+        ///    但托管字典还在、_initialized 仍是 true，留着会让下次访问拿到失效句柄）。
+        /// </summary>
         public static void DisposeAll()
         {
-            if (!_initialized) return;
-            foreach (var kv in _trees)
+            if (_initialized && _trees.IsCreated)
+            {
+                foreach (var kv in _trees)
+                {
+                    if (kv.Value.IsCreated) kv.Value.Dispose();
+                }
+                _trees.Dispose();
+            }
+            _initialized = false;
+
+            _subStates.Clear();
+            foreach (var kv in _nodeStates)
             {
                 if (kv.Value.IsCreated) kv.Value.Dispose();
             }
-            _trees.Dispose();
-            _subStates.Clear();
-            foreach (var kv in _nodeStates) kv.Value.Dispose();
             _nodeStates.Clear();
+
+            // 下面两个以前没被清：守卫锁是进程级字典，实体销毁（ClearNodeStates）
+            // 之外的情况会残留；断点集合是编辑器调试态，跨 Play 会串。
+            _guards.Clear();
+            _breakpoints.Clear();
 #if UNITY_EDITOR
             _editorLive.Clear();
             EditorDebugEnabled = false;
 #endif
-            _initialized = false;
         }
     }
 }
