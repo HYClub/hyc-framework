@@ -34,9 +34,15 @@
 
 1. **顺序错 = 读到空**：玩法在 `Reload` 前调 `GetText` 会拿到 `未找到Key`；在 `LoadAll` 前给实体挂 `RunningBT`
    会让 `BTInterpreterSystem` 把 `RunState.Result` 置 `Failed`（树未注册）。**数据阶段先跑完**。
-2. **世界归属**：`HYCSimple*DemoSystem` 都是 `SystemBase`/`ISystem`（无 `[DisableAutoCreation]`），
-   会自动创建进**默认 ECS 世界**。若你的游戏用 HYC 自定义 World（`FrameworkWorld`/`FrameworkModeBootstrap`），
-   这些系统可能不在你驱动的世界里 —— 通过 `IFrameworkInstaller` 或显式 `GetOrCreateSystemManaged` 加入。
+2. **示例系统默认不自动运行**：`HYCSimple*DemoSystem` 全部标了 `[DisableAutoCreation]`，
+   Unity **不会**自动把它们拉进任何 World（包括默认世界）——这是刻意设计，不是缺陷。
+   原因：它们会写**进程级静态单例**（`LocalizationManager` / `ConfigManager` / `BTManager`），
+   一旦自启就会污染宿主工程已加载的数据（真实事故：示例把宿主的 18 条本地化 key 洗成示例的 3 条，
+   宿主主菜单全线 `未找到Key : xxx`，且因每帧兜底而**反复导入都无法恢复**）。
+   所以唯一入口是本目录的 `HYCSimpleSceneBootstrap`：
+   把它挂到**空场景**的 GameObject 上，由它 `GetOrCreateSystemManaged<T>().Update()` 手动驱动。
+   宿主工程不挂它 ⇒ 示例零副作用。
+   （`HYCSimpleLocSampleData.CanTakeOver()` 是第二道保险：宿主已有非示例数据时直接放弃接管并打警告。）
 3. **`Reload(folder)` 需目录存在**：真实工程 `StreamingAssets/Localization` 一定在；本例留空时走
    `HYCSimpleLocSampleData.EnsureLoaded()`（运行时自生成），并对传入目录做了 `Directory.Exists` 守护。
 4. **配置注册来源**：本 Sample 的 Config 演示是运行时手动 `Register`；真实项目应由生成器产出的 `XxxBlobSystem`

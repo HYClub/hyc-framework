@@ -1,7 +1,7 @@
 {
     "name": "com.hyc.framework",
     "displayName": "HYC Framework",
-    "version": "2.0.4",
+    "version": "2.0.6",
     "unity": "2022.3",
     "description": "HYC Framework - 基于 Unity 2022.3 的 DOTS/ECS 数据驱动游戏框架：配置管线(模板/枚举/多语言Key/Blob)、多语言本地化、ECS UI、输入/热键、Timeline 过场与可视化行为树(BT)，配套完整编辑器工具链。",
     "keywords": [
@@ -19,6 +19,7 @@
     "documentationUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/README.md",
     "changelogUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md",
     "licensesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE",
+    "thirdPartyNoticesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/Editor/Dlls/THIRD-PARTY-NOTICES.md",
     "samples": [
         {
             "displayName": "HYC Simple",
