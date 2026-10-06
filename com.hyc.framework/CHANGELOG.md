@@ -4,9 +4,92 @@ All notable changes to the HYC Framework package are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.0.6] - Unreleased
+## [2.0.6] - 2026-10-07
+
+> 版本说明：`2.0.5`（存档存储等）与本节合并为一次发布，`package.json` 由 `2.0.4` 直接 bump 到 `2.0.6`。
+> 此前两个 `- Unreleased` 段落从未发布过，故合并不会影响任何已发布版本。
 
 ### Added
+- **World 生命周期钩子（`Runtime/FrameworkLifecycle.cs`，新增文件）**：进程级静态单例此前**没有任何释放时机**——
+  `BTManager` / `ConfigManager` 等持有 `Allocator.Persistent` 原生容器，World 销毁时无人调用 `DisposeAll()`。
+  新增 `FrameworkLifecycle.DisposeAll(reason)` 统一释放 BT / 黑板 / 事件总线 / 节点注册表 / 配置表，
+  并挂两处钩子：`[RuntimeInitializeOnLoadMethod(SubsystemRegistration)]`（进 Play 前，
+  兼容关闭 Domain Reload 的场景——此时 Unity 已回收原生分配但托管字典还在）与
+  `FrameworkCleanupSystem`（`UpdateGroup_Root` 且 `OrderLast`，World 销毁时兜底）。
+- **EditMode 测试程序集（`Tests/Editor/`，新增）**：`HYC.Framework.Tests.Editor.asmdef` 带
+  `UNITY_INCLUDE_TESTS` 约束 + `autoReferenced: false`，不进播放器、不被使用方工程编译。
+  首批用例覆盖两处最容易静默退化的契约：`AttributeKey` 的 FNV-1a 哈希（哈希会烘进生成的 `AttrKeyMap`，
+  算法一改历史数据资产就静默变默认值）与 `ConfigBlobTable` / `ConfigManager` 的查询语义。
+  运行入口：Unity **Window → General → Test Runner → EditMode**。
+- **公开 API 签名守护（`Tests/Editor/PublicApiSnapshot*.cs`，新增）**：把 `HYC.Framework.Runtime` 与
+  `HYC.Framework.Editor` 两个程序集的 public 类型与 public 成员签名序列化成
+  `Tests/Editor/PublicApiSnapshot.txt`，由 `公开API签名_与快照一致` 测试比对。
+  - **为什么需要**：框架被使用方以 `file:` 方式引用、**没有内嵌副本**，改框架即时生效且使用方无版本锁。
+    任何"顺手改个签名"都会立刻打断使用方编译，而使用方只能自己撞到编译错误才知道。
+    典型隐性破坏：把 `Foo(int)` 改成 `Foo(int, bool = false)` 源码级看似兼容，二进制签名已变。
+  - **纳入快照的细节**：参数默认值也进快照（改默认值会静默改变已编译调用方的行为）；
+    `ref`/`out` 前缀显式还原；`IsSpecialName` 的编译器生成成员（属性访问器）排除以免噪音；
+    只收 public（含 protected 成员可见性标注），私有怎么改都不该制造噪音。
+  - 配套菜单 `Tools/Tests/更新 Public API 快照` 与 `Tools/Tests/查看 Public API 差异`
+    （差异明细输出到 Console，**刻意不引入外部 diff 工具 / `RevealInFinder`**——那两条路径框架内零使用、未经验证）。
+  - 首次运行会自动生成快照并提示提交；之后有意改 API 就更新快照，无意改动则测试直接失败并列出差异行。
+- **`Editor/Dlls/THIRD-PARTY-NOTICES.md`（新增）**：补齐第三方许可披露——
+  NPOI 2.5.6.0（Apache-2.0）、SharpZipLib 1.3.3（MIT 变体）、BouncyCastle.Crypto 2.5.29.19（MIT + Legacy 双许可），
+  版本号由 dll 元数据实读而非记忆。`package.json` 加 `thirdPartyNoticesUrl` 指针。
+- **配置导出类改为注册表查找**：生成的 `XxxExport` 静态构造里 `Register` 自身，
+  `ConfigExportService.FindExportType` 先查字典、未注册才做一次性程序集扫描（原先每个类型都扫一遍全程序集）。
+- **`Scan Key Usage` 新增 `Packages/` 开关与扫描进度条**，并把"收集全工程引号字符串"
+  改为"扫到即查表命中才记"（原先几十万条字符串字面量全进 HashSet）。
+
+### Fixed（2026-10-07 框架审计）
+> 本轮全框架审计发现的修复项，按严重度排序（🔴 为数据丢失/内存泄漏级）。
+
+- **🔴 实体销毁时 BT 原生内存泄漏（审计未捕获，由核实 SnowBros 实体销毁路径时发现）**。
+  `BTManager._nodeStates` 里每个 `(实体, 树ID)` 持一份 `Allocator.Persistent` 的 `NativeArray`，
+  原本**唯一**的释放路径是「树跑完（结果 != Running）时调 `ClearNodeStates`」。
+  但实体可能在树仍 Running 时被销毁——SnowBros 的"敌人冻成雪球 = 销毁旧实体 + 新建球形实体"
+  正是这种情形：`RunningBT` 组件随实体消失 → Query 不再返回它 → 那条释放路径**永不执行** →
+  每死一个敌人漏一份 Persistent 分配；实体私有黑板（10 个 Native 容器）同理。
+  修法：`BTInterpreterSystem` 用两份 `NativeHashSet<Entity>` 交替记住「上一帧 / 本帧」活跃实体，
+  帧末发现「上一帧有、本帧没有」即调新增的 `BTManager.ReleaseEntityRuntimeState(entity)`
+  （子树态 + per-node 态 + 守卫锁 + 黑板 + 事件，一次清干净）；`OnDestroy` 另加
+  `BTManager.ClearAllRuntimeStates()` 兜 World 销毁。
+- **`SaveManager` 的"原子写"名不副实**：原实现是 `File.Delete(path)` + `File.Move(tmp, path)`，
+  两步之间崩溃则新旧档同时丢失。改为 `File.Replace(tmp, path, bak)` 真正原子替换并留 `.bak`；
+  `PlatformNotSupportedException`（WebGL 等不支持 `File.Replace`）时退回"先备份再移动"。
+- **`LocalizationManager.Reload` 读盘失败会永久丢表**：原实现先清空全部字段再读盘，
+  目录不存在 / 读到 0 条就再也回不去了（10-06 本地化事故的根因）。改为"先读进局部变量，
+  全部成功才原子替换字段并 `RefreshAll()`"；读不到 `mSensitiveWords` 时保留原值。
+- **`BTNodeRuntimeRegistry` 的静默失败与静默覆盖**：`catch { }` 改为 `LogError` 并点名类型
+  （实例化失败会让该节点在所有树里永久 Failed 却毫无线索）；`asm.GetTypes()` 区分
+  `ReflectionTypeLoadException` 与其他异常；裸键 `_bySubType` 冲突时 `LogError` 而非"最后一个赢"
+  （原症状：AI 树的动作被子类型相同的技能树节点执行）。
+- **`BTGraphWindow` 恢复失败时每帧重试**：`_current` 为空时每帧 `LoadAllTrees()`（全量 `FindAssets`）
+  且失败则每帧 `CreateInstance`。加 `MaxRecoverAttempts = 3` 上限，超过即停止并报错。
+- **`BTGraphIMGUI` 连线绘制的三重 O(n²)**：连线绘制循环里的 `List.Find`（O(连线×节点)）、
+  `ChildIndex` 的线性扫连线（O(连线²)）、每节点一次 `Connections.Count(linq)`，
+  改为按「节点数/连线数」作指纹惰性构建的字典索引，全部降为 O(1)；顺带删掉零调用的
+  `IsConnectedIn`/`IsConnectedOut` 死代码。
+- **`ConfigExportService` 硬编码 `"Assembly-CSharp-Editor"`** 去反射：一旦使用方把生成代码放进自定义
+  asmdef 就定位不到导出类，且旧兜底只按**短名**匹配，会命中其它工程/命名空间下的同名类并静默导出错表。
+  改为注册表优先 + 一次性全程序集扫描（按 `Type.FullName` 全名匹配），扫描结果整域会话缓存。
+- **代码生成每次都无条件重写文件**：一次生成要产出六七个 `.cs`，无条件 `WriteAllText` + `ImportAsset`
+  会白白触发一串重新导入（`.meta` 时间戳刷新、编译抖动、版本库无意义 diff）。
+  新增 `ConfigTemplateCodeGen.WriteIfChanged`（内容一致则跳过写入与导入），7 个生成点与枚举生成器共用；
+  校验路径改用 `LoadAllTemplates(ensureFolder: false)`，**不再为了一次校验在磁盘上留下目录**；
+  className 唯一性判断从两处重复实现收敛到 `FindClassNameConflict`。
+- **`UIManager.Close` 不清理窗口态**：`ViewStates` / `FocusedWindow` / `SingleUISystem`
+  对已关闭窗口的引用永不释放（每开关一次窗口泄漏一份 `WindowState`）。
+  `Close` 末尾补 `ForgetWindowState(window)`，`OnDestroy` 补 `ViewStates.Clear()`。
+- **`BTInterpreterSystem` 缺 `[UpdateInGroup]`**：系统落在 Root 组根级，
+  相对 A0~B9 整条阶梯的执行顺序取决于 Unity 自动排序——改别的系统的 `Update` 属性就可能悄悄变顺序，
+  且无任何编译期提示。已显式落到 `UpdateGroup_A3`（Gameplay，与技能/战斗同梯队）。
+- **`HotkeyManager.BindAsset` 重复订阅** `InputSystem.onActionChange` → 事件重复触发。补 `-=`。
+- **`DataModel` 的 `NewItemFlagSystem` 每帧 Temp 分配未释放**：`ToEntityArray(Allocator.Temp)` 后
+  `if (entities.Length == 0) return;` 直接返回，跳过了 Dispose。补 `try/finally`，
+  并加 `RequireForUpdate(_query)` 使无标记时整帧跳过。
+- **`BTManager.DisposeAll` 漏清 `_guards` / `_breakpoints`**：守卫锁是进程级字典、
+  断点集合跨 Play 会串。补齐，并改为幂等（重复调用安全）。
 - **包内示例（Samples~）与一键导入**：新增 `Samples~/HYCSimple/`（带 `~`，Unity 不编译；导入后位于
   `Assets/Samples/com.hyc.framework/<版本>/HYCSimple/`）作为框架接入参考——当前含**属性 Attr** 全链路示例
   （`GameAttrKey` / `GameAttrKeyMap` / `GameAttrBag` 三件套 + 自包含 `HYCSimpleAttrDemoSystem` + `AI-NOTES.md`）。
@@ -109,7 +192,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
       `Runtime/ConfigRowRef.cs`（`HYC.Framework.Config`）**，消除 `Attr → Talent` 的反向依赖；
       `TalentTreeAsset.cs` / `TalentGraphIMGUI.cs` 加 `using HYC.Framework.Config;` 并移除内联定义。
 
-### Fixed
+### Fixed（示例加固，2026-10-06 血泪案）
+
 - **🔴 示例会把宿主工程的本地化表整张洗掉（`HYCSimple` 示例侧安全加固）**。
   `LocalizationManager` 是**进程级静态单例**，而 `Reload(folder)` 的第一步是把旧状态全部清空
   （`mIDs/mLangs/mTexts/mLang2Index/mKey2Index = null`）再按目标目录重填。宿主工程（如 SnowBros）

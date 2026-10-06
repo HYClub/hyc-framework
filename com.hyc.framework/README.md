@@ -384,6 +384,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
 │   ├── Components/                # LocalizedText / LocalizedTMP / LocalizedTextMesh
 │   └── ToolTip/                   # ToolTipManager / Tip 视图
 ├── Samples~/HYCSimple/            # 接入示例（带 ~ 不被 Unity 编译，导入工程后才生效）
+├── Tests/Editor/                  # EditMode 测试（HYC.Framework.Tests.Editor.asmdef，UNITY_INCLUDE_TESTS 约束）
 └── Editor/                        # 编辑器工具（HYC.Framework.Editor.asmdef）
     ├── 配置管线：ConfigGenerator / ConfigValidator / ExcelReader
     ├── 组件绑定：ComponentBinderTableEditor / ComponentBinderCodeGenerator / ComponentBinderSetting*
@@ -391,11 +392,42 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
     ├── Attr/                      # 属性目录编辑器 / 属性组编辑器 / 校验器 / 代码生成向导
     ├── Talent/                    # 天赋树编辑器（画布 / 校验 / 配置选择 / 代码生成）
     ├── Samples/                   # HYCSimpleSampleImporter（一键导入示例）
-    ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，10 个文件）
+    ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，11 个文件）
     ├── DataEditor/                # 配置数据编辑器（44 个文件 + FrameworkTemplates/）
     ├── Loc/Editor/                # Key 使用扫描（LocaleKeyUsageWindow）
-    └── Dlls/                      # NPOI / SharpZipLib / BouncyCastle（Excel 导入依赖，仅编辑器）
+    ├── Dlls/                      # NPOI / SharpZipLib / BouncyCastle（Excel 导入依赖，仅编辑器）
+    │                              # 许可见 Dlls/THIRD-PARTY-NOTICES.md
 ```
+
+### 跑测试
+
+Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
+测试程序集 `Tests/Editor/HYC.Framework.Tests.Editor.asmdef` 带 `defineConstraints: ["UNITY_INCLUDE_TESTS"]`
+且 `autoReferenced: false`——**不进播放器、也不会被使用方工程自动编译**，只有本仓库开发时才会生效。
+
+首批用例覆盖两处最容易静默退化的契约：`AttributeKey` 的 FNV-1a 哈希（哈希值会烘进代码生成的
+`AttrKeyMap`，算法一改历史数据资产就会静默变成默认值）与 `ConfigBlobTable` / `ConfigManager` 的查询语义。
+
+#### 公开 API 守护（重要）
+
+框架被使用方以 `file:` 方式引用、**没有内嵌副本**，改框架即时生效且使用方**没有版本锁**——
+任何"顺手改个签名"都会立刻打断使用方编译，而对方只能自己撞到编译错误才知道。
+
+为此 `Tests/Editor/PublicApiSnapshot.txt` 记录了 `HYC.Framework.Runtime` 与 `HYC.Framework.Editor`
+的全部 public 类型与成员签名，测试 `公开API签名_与快照一致` 会自动比对：
+
+| 情况 | 处理 |
+| --- | --- |
+| 首次运行 | 自动生成快照，按提示提交该文件（它是 API 基线） |
+| **有意**改动 API | 菜单 `Tools/Tests/更新 Public API 快照`，或删掉快照文件重跑测试 |
+| **无意**改动 | 测试失败，Console 列出「消失/新增」的签名 |
+
+快照刻意包含**参数默认值**（改 `Foo(int a = 1)` 的默认值会静默改变已编译调用方行为），
+并排除属性访问器等编译器生成成员以免噪音。
+
+> CI 尚未接入（本仓库当前无 `.github/workflows`）。Unity batchmode 需要在装有对应 Unity 版本的
+> 机器上跑，不能在普通 CI runner 上直接编译——这是接入 CI 时的主要约束。
+> 本轮审计（含分阶段方案 A–F）结论见 [CHANGELOG.md](./CHANGELOG.md) 的 `[2.0.6]` 段。
 
 ---
 
