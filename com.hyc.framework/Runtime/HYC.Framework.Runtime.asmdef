@@ -10,6 +10,7 @@
     "Unity.TextMeshPro",
     "Unity.Addressables",
     "Unity.ResourceManager",
+    "Newtonsoft.Json",
     "Unity.Mathematics",
     "Unity.Timeline",
     "Unity.Burst"

@@ -1,18 +1,37 @@
 ﻿using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEngine;
 
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// 多语言 key 选择：主交互是 <see cref="OpenFoldMenu"/> 折叠多级菜单
-    /// （按 key 的 "/" 分层，多 excel 时先出文件层）；菜单顶部提供
-    /// "搜索 key…" 入口，打开本窗口做模糊查询（平铺列表）。
+    /// 多语言 key 选择。有两条入口，按需要挑：
+    /// <list type="bullet">
+    /// <item><see cref="OpenDropdown"/> —— <b>Unity 原生风格</b>，基于 <see cref="AdvancedDropdown"/>：
+    /// 自带搜索框、层级折叠、键盘导航，外观与 Unity 自己的 "Add Component" 面板一致。**推荐**。</item>
+    /// <item><see cref="OpenFoldMenu"/> —— 旧的 GenericMenu 折叠菜单（按 "/" 分层）+ 搜索子窗口。
+    /// 配置数据编辑器仍在使用，保留以免影响既有行为。</item>
+    /// </list>
     /// 数据来自 <see cref="LocAccess"/>（反射 loc 包）。
     /// </summary>
     public class LocKeyPickerWindow : EditorWindow
     {
+        /// <summary>
+        /// Unity 原生风格的多语言 key 下拉。数据为空时直接返回（调用方应先判断
+        /// <see cref="LocAccess.GetKeys"/> 是否为空并把控件置灰，别让用户点开一个空面板）。
+        /// </summary>
+        /// <param name="anchor">按钮所在的 <b>GUI 坐标</b> 矩形（内部自己转屏幕坐标，别预先转）。</param>
+        /// <param name="onPick">选中回调；用户选第一项「（无）」时回传空字符串。</param>
+        public static void OpenDropdown(Rect anchor, Action<string> onPick)
+        {
+            var keys = LocAccess.GetKeys();
+            if (keys.Length == 0)
+                return;
+            new LocKeyDropdown(new AdvancedDropdownState(), keys, "（无）", onPick).Show(anchor);
+        }
+
         private Action<string> mOnPick;
         private string mFilter = "";
         private Vector2 mScroll;
@@ -285,6 +304,101 @@ namespace HYC.Framework.Config.Editor
                     Event.current.Use();
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// 多语言 key 的 <see cref="AdvancedDropdown"/> 实现 —— Unity 自己的可搜索层级下拉。
+    /// key 按 <c>/</c> 与 <c>.</c> 两种分隔符分层（两组数据风格不同，两种都要认）；
+    /// 叶子显示<b>完整 key</b>，这样搜索框里输入任意片段都能命中，也不会因为同名叶子产生歧义。
+    /// </summary>
+    public class LocKeyDropdown : AdvancedDropdown
+    {
+        private static readonly char[] Separators = { '/', '.', '\\' };
+
+        /// <summary>携带原始 key 的叶子项（<see cref="AdvancedDropdownItem"/> 只有名字，回不去 key）。</summary>
+        private sealed class KeyItem : AdvancedDropdownItem
+        {
+            public readonly string Key;
+
+            public KeyItem(string label, string key) : base(label)
+            {
+                Key = key;
+            }
+        }
+
+        private readonly string[] mKeys;
+        private readonly string mNoneLabel;
+        private readonly Action<string> mOnPick;
+
+        public LocKeyDropdown(AdvancedDropdownState state, string[] keys, string noneLabel, Action<string> onPick)
+            : base(state)
+        {
+            mKeys = keys ?? Array.Empty<string>();
+            mNoneLabel = noneLabel;
+            mOnPick = onPick;
+            minimumSize = new Vector2(340f, 420f);
+        }
+
+        /// <summary>叶子标签: key + 暗色翻译预览(若有), 让你在选择面板里也能直接看到内容而非只有 key。</summary>
+        private static string LeafLabel(string key)
+        {
+            var text = LocAccess.GetText(key);
+            if (string.IsNullOrEmpty(text)) return key;
+            var t = text.Length > 40 ? text.Substring(0, 40) + "…" : text;
+            return key + "  →  " + t;
+        }
+
+        protected override AdvancedDropdownItem BuildRoot()
+        {
+            var root = new AdvancedDropdownItem("本地化 Key");
+
+            // 第一项 = 清空（等价于原来的 × 按钮，Unity 的 "None" 惯例）
+            if (!string.IsNullOrEmpty(mNoneLabel))
+                root.AddChild(new KeyItem(mNoneLabel, ""));
+
+            var groups = new Dictionary<string, AdvancedDropdownItem>();
+            foreach (var key in mKeys)
+            {
+                if (string.IsNullOrEmpty(key))
+                    continue;
+
+                var segments = key.Split(Separators, StringSplitOptions.RemoveEmptyEntries);
+                if (segments.Length <= 1)
+                {
+                    root.AddChild(new KeyItem(LeafLabel(key), key));
+                    continue;
+                }
+
+                var parent = root;
+                var path = "";
+                for (var i = 0; i < segments.Length; i++)
+                {
+                    path = path.Length == 0 ? segments[i] : path + "/" + segments[i];
+
+                    if (i == segments.Length - 1)
+                    {
+                        parent.AddChild(new KeyItem(LeafLabel(key), key));
+                        continue;
+                    }
+
+                    if (!groups.TryGetValue(path, out var group))
+                    {
+                        group = new AdvancedDropdownItem(segments[i]);
+                        groups[path] = group;
+                        parent.AddChild(group);
+                    }
+                    parent = group;
+                }
+            }
+
+            return root;
+        }
+
+        protected override void ItemSelected(AdvancedDropdownItem item)
+        {
+            if (item is KeyItem keyItem)
+                mOnPick?.Invoke(keyItem.Key);
         }
     }
 }

@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Attribute Catalog 窗口 · 重设计原型（目录 + 属性组 两页）</title>
+<style>
+  :root{
+    --win:#383838; --panel:#2d2d2d; --panel2:#333333; --head:#3c3c3c;
+    --field:#2a2a2a; --fieldbrd:#1c1c1c; --fieldhi:#3a3a3a;
+    --text:#d2d2d2; --muted:#9a9a9a; --faint:#6e6e6e;
+    --accent:#4a90c2; --accentbg:#2c5d87; --rowalt:#313131; --rowhov:#3a3a3a;
+    --ok:#7fbf7f; --warn:#d9b45a; --err:#d97b7b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#1e1e1e;color:var(--text);
+       font:12px/1.4 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+       display:flex;justify-content:center;padding:28px 16px}
+  .wrap{width:760px}
+  .caption{color:var(--faint);font-size:11px;margin:0 0 10px 2px}
+  .win{background:var(--win);border:1px solid #202020;border-radius:6px;overflow:hidden;
+       box-shadow:0 12px 40px rgba(0,0,0,.55)}
+  .titlebar{height:28px;display:flex;align-items:center;gap:8px;padding:0 12px;
+            background:var(--head);border-bottom:1px solid #232323;font-size:12px;color:#cfcfcf}
+  .titlebar .dot{width:11px;height:11px;border-radius:3px;background:#5a5a5a}
+  .titlebar .sp{flex:1}
+  .titlebar .x{color:#8a8a8a}
+
+  .tabs{display:flex;gap:2px;padding:0 8px;background:#303030;border-bottom:1px solid #232323}
+  .tab{position:relative;padding:7px 14px;color:#9a9a9a;cursor:pointer;font-size:12px;
+       border-bottom:2px solid transparent;user-select:none}
+  .tab:hover{color:#c9c9c9}
+  .tab.active{color:#e6e6e6;background:#383838;border-bottom-color:var(--accent)}
+  .tab .badge{margin-left:8px;font-size:10px;background:var(--accentbg);color:#cfe6f7;border-radius:8px;padding:1px 7px}
+
+  .body{padding:12px 12px 14px}
+  .page{display:none}
+  .page.active{display:block}
+  .asserrow{display:grid;grid-template-columns:88px 1fr;align-items:center;gap:10px;margin-bottom:12px}
+  .lbl{color:#c2c2c2}
+  .objfield{display:flex;align-items:center;gap:8px;height:22px;padding:0 8px;
+            background:var(--field);border:1px solid var(--fieldbrd);border-radius:3px}
+  .objfield .ic{width:14px;height:14px;border-radius:3px;background:linear-gradient(135deg,#8fb0cf,#4a6f8f)}
+  .objfield .nm{color:#e6e6e6}
+  .objfield .car{margin-left:auto;color:#9a9a9a}
+
+  .section{border:1px solid #242424;border-radius:5px;background:var(--panel);overflow:hidden}
+  .sechead{display:flex;align-items:center;gap:8px;height:26px;padding:0 10px;
+           background:var(--head);border-bottom:1px solid #232323;font-weight:600;color:#dcdcdc}
+  .sechead .tri{color:#9a9a9a;font-size:10px}
+  .sechead .count{margin-left:auto;color:var(--muted);font-weight:400}
+
+  .colhead,.row{display:grid;grid-template-columns:20px 1fr 104px 84px 92px 84px 26px;
+                align-items:center;gap:8px;padding:0 10px}
+  .colhead{height:22px;color:var(--faint);font-size:11px;background:var(--panel2);
+           border-bottom:1px solid #242424;text-transform:none}
+  .row{height:30px;border-bottom:1px solid #292929}
+  .row:nth-child(odd){background:var(--rowalt)}
+  .row:hover{background:var(--rowhov)}
+  .row .handle{color:#5f5f5f;font-size:13px;cursor:grab;text-align:center}
+  .inp,select.inp{width:100%;height:20px;background:var(--field);color:#e6e6e6;
+       border:1px solid var(--fieldbrd);border-radius:3px;padding:0 6px;font:inherit;outline:none}
+  .inp:focus{border-color:var(--accent);background:#233140}
+  select.inp{appearance:none;background-image:linear-gradient(45deg,transparent 50%,#9a9a9a 50%),linear-gradient(135deg,#9a9a9a 50%,transparent 50%);
+       background-position:calc(100% - 12px) 8px,calc(100% - 8px) 8px;background-size:4px 4px,4px 4px;background-repeat:no-repeat;cursor:pointer}
+  .inp.dim{color:#6b6b6b;background:#262626;display:flex;align-items:center;justify-content:center}
+  .del{color:#8a8a8a;text-align:center;cursor:pointer;border-radius:3px;line-height:18px;height:18px}
+  .del:hover{background:#5a2d2d;color:#e8b0b0}
+  .chk{display:flex;align-items:center;justify-content:center}
+  .chk input{width:14px;height:14px;accent-color:#4a90c2}
+
+  .addrow{display:flex;align-items:center;gap:8px;padding:8px 10px}
+  .add{display:flex;align-items:center;gap:6px;height:24px;padding:0 12px;border-radius:4px;
+       background:#3f3f3f;border:1px solid #262626;color:#d8d8d8;cursor:pointer;font:inherit}
+  .add:hover{background:#4a4a4a;border-color:#333}
+  .add .plus{color:var(--ok);font-weight:700}
+
+  .hint{padding:16px 12px 20px;text-align:center;color:var(--faint)}
+
+  .setgrid{display:grid;grid-template-columns:184px 1fr;gap:10px}
+  .setlist{border:1px solid #242424;border-radius:5px;background:var(--panel);padding:4px;
+           display:flex;flex-direction:column;min-height:220px}
+  .setitem{display:flex;align-items:center;height:28px;padding:0 10px;border-radius:4px;
+           color:#d2d2d2;cursor:pointer;margin:2px 0}
+  .setitem:hover{background:var(--rowhov)}
+  .setitem.sel{background:var(--accentbg);color:#eaf3fb}
+  .setitem .n{margin-left:auto;color:#a9c9e0;font-size:11px}
+  .setitem.sel .n{color:#cfe6f7}
+  .setlist .sp{flex:1}
+  .setlist .add{margin:6px 2px 2px}
+
+  .checklist{padding:6px}
+  .citem{display:flex;align-items:center;gap:10px;height:28px;padding:0 8px;border-radius:4px;cursor:pointer}
+  .citem:hover{background:var(--rowhov)}
+  .citem input{width:14px;height:14px;accent-color:#4a90c2}
+  .citem .t{margin-left:auto;color:var(--muted);font-size:11px}
+  .baked{padding:8px 12px;color:var(--ok);font-size:11px;border-top:1px solid #242424}
+
+  .footer{display:flex;gap:10px;padding:12px}
+  .btn{height:30px;border-radius:4px;border:1px solid #262626;background:#454545;color:#e2e2e2;
+       cursor:pointer;font:inherit;padding:0 14px}
+  .btn:hover{background:#515151}
+  .btn.primary{flex:1;background:#3d5f80;border-color:#2b4763}
+  .btn.primary:hover{background:#486e93}
+  .btn.ghost{flex:0 0 150px}
+
+  .legend{margin:14px 2px 0;color:#8f8f8f;font-size:11px;line-height:1.7}
+  .legend b{color:#c9c9c9}
+  .legend code{background:#2a2a2a;border:1px solid #333;border-radius:3px;padding:0 4px;color:#cfd8e0}
+  .legend .new{color:#9ecbf0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="caption">▸ 原型预览（非真实 Unity 窗口）：Attribute Catalog 独立编辑窗口 · 两页版（页签可点）</p>
+
+  <div class="win">
+    <div class="titlebar"><span class="dot"></span>属性配置<span class="sp"></span><span class="x">✕</span></div>
+
+    <div class="tabs">
+      <div class="tab active" id="tab-cat" onclick="switchTab('cat')">属性目录</div>
+      <div class="tab" id="tab-set" onclick="switchTab('set')">属性组<span class="badge">新增</span></div>
+    </div>
+
+    <div class="body">
+      <div class="page active" id="page-cat">
+        <div class="asserrow">
+          <span class="lbl">目录资产</span>
+          <div class="objfield"><span class="ic"></span><span class="nm">AttributeCatalog (Attribute Catalog)</span><span class="car">▾</span></div>
+        </div>
+
+        <div class="section">
+          <div class="sechead"><span class="tri">▼</span>属性条目 (entries)<span class="count" id="cnt"></span></div>
+          <div class="colhead">
+            <span></span><span>Key</span><span>类型</span><span>最小值</span><span>默认</span><span>最大值</span><span></span>
+          </div>
+          <div class="rows" id="rows"></div>
+          <div class="addrow"><button class="add" onclick="addRow()"><span class="plus">＋</span> 添加属性</button></div>
+        </div>
+      </div>
+
+      <div class="page" id="page-set">
+        <div class="setgrid">
+          <div class="setlist" id="setlist"></div>
+          <div class="section">
+            <div class="sechead"><span class="tri">▣</span><span id="settitle">属性组</span><span class="count" id="setcount"></span></div>
+            <div class="checklist" id="checklist"></div>
+            <div class="baked" id="baked"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="btn primary">生成属性访问器（enum ＋ 映射 ＋ 类型安全 AttrBag）</button>
+      <button class="btn ghost">校验目录</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>本页改动（新增「属性组」页）：</b><br>
+    <span class="new">① 顶部页签</span>：「属性目录」= 现有表格（定义属性）；<span class="new">「属性组」</span> = 组装（给 Hero 这类实体挑一篮子属性）。<br>
+    <span class="new">② 左栏</span>：工程里的属性组资产列表（<code>AttributeSetAsset</code>），底部「＋ 新建属性组」自动绑定当前目录。<br>
+    <span class="new">③ 右栏</span>：勾选该组要包含哪些 key —— 选项**实时取自第 1 页的属性目录**（去第 1 页加/改/删属性，这里跟着变）。<br>
+    <span class="new">④ 底部</span>：<code>已烘焙 N 个属性 → values</code>，对应 <code>Rebuild()</code>（改动即重烘）。<br>
+    <span style="color:#6e6e6e">（试用：切换页签 / 点左栏属性组 / 勾选框 / 在第 1 页改 Key 名与类型，观察右栏同步）</span>
+  </div>
+</div>
+
+<script>
+  // 第 1 页：属性目录（定义）
+  const rows = [
+    { key:'HP',        type:'Int',   min:0,   def:100, max:9999 },
+    { key:'ATK',       type:'Int',   min:0,   def:10,  max:999  },
+    { key:'MoveSpeed', type:'Float', min:0.0, def:3.5, max:20.0 },
+    { key:'IsBoss',    type:'Bool',  min:0,   def:0,   max:1    },
+  ];
+  const TYPES = ['Int','Float','Long','Bool'];
+
+  // 第 2 页：属性组（组装）—— keys 引用第 1 页的 key
+  const sets = [
+    { name:'Hero',    keys:['HP','ATK','MoveSpeed'] },
+    { name:'Monster', keys:['HP','ATK'] },
+    { name:'NPC',     keys:['MoveSpeed'] },
+  ];
+  let sel = 0;
+
+  function fmt(v,t){ return t==='Float' ? Number(v).toFixed(1) : String(v); }
+  function inCatalog(k){ return rows.some(r=>r.key===k); }
+
+  // ---- 第 1 页渲染 ----
+  function render(){
+    const box = document.getElementById('rows');
+    box.innerHTML = '';
+    rows.forEach((r,i)=>{
+      const row = document.createElement('div');
+      row.className = 'row';
+      const isBool = r.type==='Bool';
+      row.innerHTML = `
+        <span class="handle" title="拖动排序（序数 = 生成枚举的顺序）">≡</span>
+        <input class="inp" value="${r.key}" oninput="setKey(${i}, this.value)">
+        <select class="inp" onchange="setType(${i}, this.value)">
+          ${TYPES.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}
+        </select>
+        ${ isBool
+            ? `<span class="inp dim" style="text-align:center">—</span>
+               <span class="chk"><input type="checkbox" ${r.def?'checked':''} onchange="setDef(${i}, this.checked)"></span>
+               <span class="inp dim" style="text-align:center">—</span>`
+            : `<input class="inp" type="number" step="any" value="${fmt(r.min,r.type)}" oninput="setNum(${i},'min',this.value)">
+               <input class="inp" type="number" step="any" value="${fmt(r.def,r.type)}" oninput="setNum(${i},'def',this.value)">
+               <input class="inp" type="number" step="any" value="${fmt(r.max,r.type)}" oninput="setNum(${i},'max',this.value)">`
+        }
+        <span class="del" title="删除" onclick="delRow(${i})">✕</span>`;
+      box.appendChild(row);
+    });
+    document.getElementById('cnt').textContent = rows.length + ' 项';
+    if(rows.length===0){
+      box.innerHTML = '<div class="hint">还没有属性。点下面「＋ 添加属性」开始——Key 填属性名（如 HP），类型决定数值解释方式。</div>';
+    }
+  }
+  function addRow(){ rows.push({key:'NewAttr',type:'Int',min:0,def:0,max:0}); render(); renderSets(); }
+  function delRow(i){ rows.splice(i,1); render(); renderSets(); }
+  function setKey(i,v){ rows[i].key = v; renderSets(); }
+  function setType(i,v){ rows[i].type = v; render(); renderSets(); }
+  function setNum(i,f,v){ rows[i][f] = v; }
+  function setDef(i,chk){ rows[i].def = chk ? 1 : 0; }
+
+  // ---- 第 2 页渲染 ----
+  function renderSets(){
+    const list = document.getElementById('setlist');
+    list.innerHTML = '';
+    sets.forEach((s,i)=>{
+      const d = document.createElement('div');
+      d.className = 'setitem' + (i===sel?' sel':'');
+      d.onclick = ()=>selSet(i);
+      const n = s.keys.filter(inCatalog).length;
+      d.innerHTML = `<span>${s.name}</span><span class="n">${n}</span>`;
+      list.appendChild(d);
+    });
+    const spacer = document.createElement('div'); spacer.className='sp'; list.appendChild(spacer);
+    const b = document.createElement('button');
+    b.className='add';
+    b.innerHTML='<span class="plus">＋</span> 新建属性组';
+    b.onclick = addSet;
+    list.appendChild(b);
+
+    const set = sets[sel];
+    document.getElementById('settitle').textContent = (set?set.name:'（无）') + ' · 从「属性目录」勾选';
+    document.getElementById('setcount').textContent = set ? (set.keys.filter(inCatalog).length + ' / ' + rows.length) : '';
+
+    const cl = document.getElementById('checklist');
+    cl.innerHTML = '';
+    if(rows.length===0){
+      cl.innerHTML = '<div class="hint" style="padding:14px">「属性目录」还没有属性，先去第 1 页添加。</div>';
+    }
+    rows.forEach(r=>{
+      const on = set && set.keys.includes(r.key);
+      const d = document.createElement('div');
+      d.className='citem';
+      d.innerHTML = `<input type="checkbox" ${on?'checked':''} onchange="toggleKey('${r.key}',this.checked)">
+                     <span>${r.key||'(未命名)'}</span><span class="t">${r.type}</span>`;
+      cl.appendChild(d);
+    });
+    const baked = set ? set.keys.filter(inCatalog).length : 0;
+    document.getElementById('baked').textContent = `已烘焙 ${baked} 个属性 → values（OnValidate 自动维护）`;
+  }
+  function selSet(i){ sel=i; renderSets(); }
+  function addSet(){ sets.push({name:'Set'+(sets.length+1), keys:[]}); sel=sets.length-1; renderSets(); }
+  function toggleKey(k,on){
+    const s = sets[sel]; if(!s) return;
+    if(on){ if(!s.keys.includes(k)) s.keys.push(k); }
+    else  { s.keys = s.keys.filter(x=>x!==k); }
+    renderSets();
+  }
+
+  // ---- 页签 ----
+  function switchTab(p){
+    document.getElementById('tab-cat').classList.toggle('active', p==='cat');
+    document.getElementById('tab-set').classList.toggle('active', p==='set');
+    document.getElementById('page-cat').classList.toggle('active', p==='cat');
+    document.getElementById('page-set').classList.toggle('active', p==='set');
+  }
+
+  render();
+  renderSets();
+</script>
+</body>
+</html>

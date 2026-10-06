@@ -73,7 +73,7 @@ namespace HYC.Framework.BT
 
             if (!File.Exists(path))
             {
-                Debug.LogWarning($"[BT] Blob 文件不存在: {path}（菜单 Tools/HYC/BT/导出 Blob(打包用) 重新导出）");
+                Debug.LogWarning($"[BT] Blob 文件不存在: {path}（菜单 HYC Framework/BT/导出 Blob(打包用) 重新导出）");
                 return false;
             }
 
@@ -84,7 +84,7 @@ namespace HYC.Framework.BT
             }
 
             Debug.LogError($"[BT] Blob 读取失败: {path}（文件损坏，或格式版本不一致：期望 {version}。" +
-                           "请重新执行 菜单 Tools/HYC/BT/导出 Blob(打包用)）");
+                           "请重新执行 菜单 HYC Framework/BT/导出 Blob(打包用)）");
             return false;
         }
 

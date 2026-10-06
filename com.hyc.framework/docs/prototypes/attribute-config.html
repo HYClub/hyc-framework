@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYC 框架 · 通用属性配置系统（基础版原型）</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#1c1e21; --sub:#5b6470;
+    --line:#e1e4e8; --accent:#3b6cff; --accent2:#7a4dff;
+    --warn:#d9822b; --ok:#2e9e5b; --bad:#d64545;
+    --code-bg:#1e1e2e; --code-ink:#e6e6ef;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--ink);font-size:13px;line-height:1.55}
+  header{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;
+         padding:14px 20px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{margin:0;font-size:16px;font-weight:600}
+  header .tag{background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;font-size:11px}
+  header .note{font-size:11px;opacity:.85}
+  nav.tabs{display:flex;gap:6px;padding:10px 20px 0;background:var(--bg)}
+  nav.tabs button{border:1px solid var(--line);background:var(--panel);color:var(--sub);
+       padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px;font-weight:600}
+  nav.tabs button.active{color:var(--accent);border-bottom-color:var(--panel);background:var(--panel)}
+  .view{display:none;padding:16px 20px 40px;background:var(--panel);border:1px solid var(--line);
+        border-top:none;margin:0 20px 20px;border-radius:0 0 10px 10px}
+  .view.active{display:block}
+  h2{font-size:14px;margin:0 0 10px;color:var(--ink)}
+  h3{font-size:12.5px;margin:16px 0 8px;color:var(--accent2)}
+  p.lead{color:var(--sub);margin:2px 0 14px}
+  .cols{display:flex;gap:18px;flex-wrap:wrap}
+  .col{flex:1;min-width:330px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:middle}
+  th{background:#eef1f6;color:var(--sub);font-weight:600}
+  td input,td select{border:1px solid var(--line);border-radius:5px;padding:3px 5px;width:100%;
+        font-size:12px;background:#fff;color:var(--ink)}
+  td input[type=number]{width:78px}
+  .row-actions button{border:none;background:transparent;color:var(--bad);cursor:pointer;font-size:13px}
+  .btn{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;
+       padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600}
+  .btn.ghost{background:#fff;color:var(--accent)}
+  .btn.sm{padding:3px 9px;font-size:11px}
+  .card{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:10px}
+  .card .ename{font-weight:700;font-size:13px}
+  .kv{font-size:11.5px;color:var(--sub);margin:4px 0 6px}
+  .chk{display:inline-flex;align-items:center;gap:4px;margin:2px 8px 2px 0;font-size:11.5px;
+       background:#fff;border:1px solid var(--line);border-radius:14px;padding:2px 9px}
+  .chk input{margin:0}
+  .pill{display:inline-block;background:#eaf0ff;color:var(--accent);border-radius:10px;
+        padding:1px 8px;font-size:11px;margin-left:6px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:12px 14px;border-radius:9px;
+      overflow:auto;font-size:12px;line-height:1.5;font-family:"JetBrains Mono",Consolas,monospace}
+  pre .c{color:#7d8aa3}   /* comment */
+  pre .k{color:#c792ea}   /* keyword */
+  pre .t{color:#82aaff}   /* type */
+  pre .s{color:#c3e88d}   /* string */
+  pre .n{color:#f78c6c}   /* number */
+  .play{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .play .left,.play .right{flex:1;min-width:320px}
+  .controls{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .controls label{font-size:11px;color:var(--sub)}
+  .controls input[type=text],.controls input[type=number]{border:1px solid var(--line);border-radius:5px;
+        padding:4px 6px;font-size:12px;width:130px}
+  .log{background:#0f1020;color:#9be8a8;font-family:Consolas,monospace;font-size:11.5px;
+       padding:9px 11px;border-radius:8px;height:120px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+  .clamp-note{color:var(--warn);font-size:11px;margin-top:4px}
+  .foot{margin:20px;padding:12px 16px;background:#fff7ec;border:1px solid #f3d9a8;border-radius:10px;font-size:12px}
+  .foot b{color:var(--warn)}
+  .muted{color:var(--sub);font-size:11px}
+  code.ic{background:#eef1f6;padding:1px 5px;border-radius:4px;font-family:Consolas,monospace;font-size:11.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>通用属性配置系统 · 基础版原型</h1>
+  <span class="tag">路线 A</span>
+  <span class="tag">配置表驱动</span>
+  <span class="note">编辑时怎么配 + 代码里怎么用（可交互演示）。数据只在浏览器内，不会保存。</span>
+</header>
+
+<nav class="tabs">
+  <button id="t-edit" class="active" onclick="switchTab('edit')">① 编辑时 · 怎么配</button>
+  <button id="t-code" onclick="switchTab('code')">② 代码里 · 怎么用</button>
+</nav>
+
+<!-- ============ 编辑时 ============ -->
+<section id="view-edit" class="view active">
+  <p class="lead">属性系统 = 一张<b>属性目录</b>（配置表生成的 <code class="ic">AttributeDef</code> 行）+ 每个实体自己引用其中若干条。
+  框架只认 <code class="ic">key + 类型 + 默认/上下限</code>，不认识 "HP/ATK" 是什么。</p>
+
+  <div class="cols">
+    <!-- 目录 -->
+    <div class="col">
+      <h2>属性目录（= AttributeDef 配置行）</h2>
+      <p class="muted">现实中由配置管线（Excel/模板）生成；这里直接展示它长什么样、能在编辑器里改什么。</p>
+      <table id="cat-table">
+        <thead><tr>
+          <th>key</th><th>类型</th><th>默认</th><th>min</th><th>max</th><th>显示名</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:8px">
+        <button class="btn sm" onclick="addDef()">+ 加一条属性</button>
+      </div>
+    </div>
+
+    <!-- 实体分配 -->
+    <div class="col">
+      <h2>实体 → 引用哪些属性</h2>
+      <p class="muted">"每个实体有每个实体的属性" = 勾选它引用目录里的哪几条。运行时按这条清单初始化它的属性袋。</p>
+      <div id="entity-list"></div>
+      <button class="btn sm ghost" onclick="addEntity()">+ 加一个实体</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>对应到框架代码：</b> 目录的每一行 = 一个 <code class="ic">AttributeDef</code> 配置行（实现接缝接口 <code class="ic">IAttributeDef</code>）；
+    实体勾选的清单 = 一串 <code class="ic">ConfigRowRef</code>（typeName + id），交给
+    <code class="ic">AttributeInitializer.Init&lt;T&gt;(em, entity, refs)</code> 初始化属性袋，默认值按 <code class="ic">[min,max]</code> 钳制。
+  </div>
+</section>
+
+<!-- ============ 代码里 ============ -->
+<section id="view-code" class="view">
+  <h2>1) 配置侧：属性目录的一行（由使用方用管线生成）</h2>
+  <pre><span class="c">// 框架只定义接缝接口，不认识具体属性名；使用方生成的配置行去实现它</span>
+<span class="k">public interface</span> <span class="t">IAttributeDef</span> {
+    <span class="t">string</span> Key { <span class="k">get</span>; }
+    <span class="t">AttributeType</span> ValueType { <span class="k">get</span>; }
+    <span class="k">long</span> DefaultRaw { <span class="k">get</span>; }   <span class="c">// Float 用 IEEE754 bits 存进来</span>
+    <span class="k">long</span> MinRaw { <span class="k">get</span>; } <span class="k">long</span> MaxRaw { <span class="k">get</span>; }
+}
+
+<span class="c">// 配置管线生成的行（示意：HP / ATK / MoveSpeed / IsBoss）</span>
+<span class="k">public struct</span> <span class="t">AttrConfig</span> : <span class="t">IAttributeDef</span> {
+    <span class="k">public long</span> id;                 <span class="c">// ConfigId</span>
+    <span class="k">public string</span> Key =&gt; <span class="s">"HP"</span>;
+    <span class="k">public</span> <span class="t">AttributeType</span> ValueType =&gt; <span class="t">AttributeType</span>.Int;
+    <span class="k">public long</span> DefaultRaw =&gt; <span class="n">100</span>;
+    <span class="k">public long</span> MinRaw =&gt; <span class="n">1</span>;   <span class="k">public long</span> MaxRaw =&gt; <span class="n">9999</span>;
+}</pre>
+
+  <h2>2) 运行期：初始化一个实体的属性袋</h2>
+  <pre><span class="c">// 实体上挂 DynamicBuffer&lt;AttributeValue&gt;；用它对引用的属性目录行初始化</span>
+<span class="t">List</span>&lt;<span class="t">ConfigRowRef</span>&gt; refs = <span class="k">new</span> <span class="t">List</span>&lt;<span class="t">ConfigRowRef</span>&gt; {
+    <span class="k">new</span> <span class="t">ConfigRowRef</span> { typeName = <span class="s">"HYC.Framework.Config.Generated.AttrConfig"</span>, id = hpId },
+    <span class="k">new</span> <span class="t">ConfigRowRef</span> { typeName = <span class="s">"HYC.Framework.Config.Generated.AttrConfig"</span>, id = atkId },
+    <span class="k">new</span> <span class="t">ConfigRowRef</span> { typeName = <span class="s">"HYC.Framework.Config.Generated.AttrConfig"</span>, id = spdId },
+};
+<span class="t">AttributeInitializer</span>.<span class="t">Init</span>&lt;<span class="t">AttrConfig</span>&gt;(entityManager, heroEntity, refs);</pre>
+
+  <h2>3) 运行期：按 key 读写（key 自动 FNV-1a 哈希，与 BT 同算法）</h2>
+  <pre><span class="k">int</span> atk = <span class="t">AttributeStore</span>.GetInt(em, heroEntity, <span class="s">"ATK"</span>);
+<span class="t">AttributeStore</span>.SetInt(em, heroEntity, <span class="s">"ATK"</span>, atk + <span class="n">10</span>);      <span class="c">// 超 max 自动钳制</span>
+<span class="k">float</span> spd = <span class="t">AttributeStore</span>.GetFloat(em, heroEntity, <span class="s">"MoveSpeed"</span>);
+<span class="t">AttributeStore</span>.SetFloat(em, heroEntity, <span class="s">"MoveSpeed"</span>, <span class="n">8.0f</span>);
+
+<span class="c">// 底层：每个实体一个 DynamicBuffer&lt;AttributeValue&gt;</span>
+<span class="c">//   struct AttributeValue : IBufferElementData {</span>
+<span class="c">//     public ulong keyHash;   // FNV-1a("ATK")</span>
+<span class="c">//     public AttributeType type;</span>
+<span class="c">//     public long  raw;       // 数值/布尔；Float 用 bits 存</span>
+<span class="c">//   }</span></pre>
+
+  <h2>4) 点这里看运行时行为（与上面编辑时共享同一份数据）</h2>
+  <div class="play">
+    <div class="left">
+      <label class="muted">选实体：</label>
+      <select id="play-entity" onchange="renderBag()"></select>
+      <div class="controls">
+        <button class="btn sm" onclick="quick('ATK',10)">ATK +10</button>
+        <button class="btn sm" onclick="quick('HP',-50)">HP -50</button>
+        <button class="btn sm" onclick="quick('MoveSpeed',1.2,true)">MoveSpeed ×1.2</button>
+        <button class="btn sm ghost" onclick="resetBag()">重置为目录默认</button>
+      </div>
+      <table id="bag-table"><thead><tr>
+        <th>key</th><th>类型</th><th>值</th><th>raw(数值位)</th><th>类型安全 Get</th>
+      </tr></thead><tbody></tbody></table>
+      <div id="clamp-note" class="clamp-note"></div>
+    </div>
+    <div class="right">
+      <div class="muted">Get/Set 调用日志（模拟）：</div>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>设计待你拍板（原型仅为看效果，未写进框架）：</b>
+    ① 存储只给 ECS（DynamicBuffer）还是加非 ECS 版 <code class="ic">AttributeSet</code>？
+    ② 目录实现 <code class="ic">IAttributeDef</code> 接口，还是用约定式（反射）？
+    ③ 目录放 <code class="ic">Runtime/Attr/</code> 还是别的名字？
+    ④ 类型集要不要 Float？⑤ 初始化时是否按 min/max 钳制？
+  </div>
+</section>
+
+<script>
+// ---------- 共享状态 ----------
+const TYPES = ["Int","Float","Long","Bool"];
+const state = {
+  catalog: [
+    {key:"HP",       type:"Int",   def:100,  min:1,    max:9999, name:"生命值"},
+    {key:"ATK",      type:"Int",   def:10,   min:0,    max:999,  name:"攻击力"},
+    {key:"MoveSpeed",type:"Float", def:3.5,  min:0.5,  max:10,   name:"移动速度"},
+    {key:"IsBoss",   type:"Bool",  def:0,    min:0,    max:1,    name:"是否Boss"},
+  ],
+  entities: [
+    {name:"Hero",  kind:"角色", refs:["HP","ATK","MoveSpeed"]},
+    {name:"Slime", kind:"怪",  refs:["HP","MoveSpeed","IsBoss"]},
+  ],
+  runtime: {}  // entityName -> { key: value }
+};
+
+// FNV-1a 64 (与 C# BTBlackboardRuntime.HashKey 同算法，仅用于演示 keyHash)
+function fnv1a(str){
+  let h = 14695981039346656037n;
+  for (let i=0;i<str.length;i++){ h ^= BigInt(str.charCodeAt(i)); h = (h * 1099511628211n) & 0xffffffffffffffffn; }
+  return h;
+}
+function defOf(key){ return state.catalog.find(d=>d.key===key); }
+function clampTo(def, v){
+  let lo = Number(def.min), hi = Number(def.max);
+  if (v < lo) return {v:lo, clamped:true};
+  if (v > hi) return {v:hi, clamped:true};
+  return {v, clamped:false};
+}
+// Float -> 64bit raw (IEEE754 bits)，仅用于演示 "float 存进 long raw"
+function floatToRaw(f){ const b=new Float64Array([f]); return new BigInt64Array(b.buffer)[0]; }
+
+// ---------- 编辑 tab ----------
+function renderCatalog(){
+  const tb = document.querySelector("#cat-table tbody");
+  tb.innerHTML = "";
+  state.catalog.forEach((d, i)=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input value="${d.key}" onchange="upd(${i},'key',this.value)"></td>
+      <td><select onchange="upd(${i},'type',this.value)">${TYPES.map(t=>`<option ${t===d.type?'selected':''}>${t}</option>`).join('')}</select></td>
+      <td><input type="number" step="any" value="${d.def}" onchange="upd(${i},'def',this.value)"></td>
+      <td><input type="number" step="any" value="${d.min}" onchange="upd(${i},'min',this.value)"></td>
+      <td><input type="number" step="any" value="${d.max}" onchange="upd(${i},'max',this.value)"></td>
+      <td><input value="${d.name}" onchange="upd(${i},'name',this.value)"></td>
+      <td class="row-actions"><button onclick="delDef(${i})" title="删除">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+function upd(i, field, val){
+  state.catalog[i][field] = (field==='def'||field==='min'||field==='max') ? Number(val) : val;
+  renderEntities(); // 显示名/类型可能变了
+}
+function addDef(){ state.catalog.push({key:"NewAttr"+state.catalog.length, type:"Int", def:0, min:0, max:999, name:"新属性"}); renderCatalog(); renderEntities(); }
+function delDef(i){ const k=state.catalog[i].key; state.catalog.splice(i,1);
+  state.entities.forEach(e=> e.refs = e.refs.filter(r=>r!==k));
+  renderCatalog(); renderEntities(); }
+
+function renderEntities(){
+  const box = document.getElementById("entity-list");
+  box.innerHTML = "";
+  state.entities.forEach((e, ei)=>{
+    const card = document.createElement("div"); card.className="card";
+    const chks = state.catalog.map(d=>{
+      const on = e.refs.includes(d.key);
+      return `<label class="chk"><input type="checkbox" ${on?'checked':''} onchange="toggleRef(${ei},'${d.key}',this.checked)">${d.key}</label>`;
+    }).join("");
+    const resolved = e.refs.map(k=>{ const d=defOf(k); if(!d) return "";
+      const c = clampTo(d, Number(d.def));
+      return `<span class="pill">${k}=${fmt(d.type,c.v)}</span>`; }).join("");
+    card.innerHTML = `<div class="ename">${e.name} <span class="pill">${e.kind}</span></div>
+      <div class="kv">引用的属性（初始化后的默认值，已按 [min,max] 钳制）：</div>
+      <div>${chks || '<span class="muted">目录为空</span>'}</div>
+      <div class="kv" style="margin-top:6px">初始属性袋：${resolved || '<span class="muted">未引用任何属性</span>'}</div>
+      <button class="btn sm ghost" onclick="delEntity(${ei})">删除实体</button>`;
+    box.appendChild(card);
+  });
+}
+function toggleRef(ei, key, on){
+  const e = state.entities[ei];
+  if (on && !e.refs.includes(key)) e.refs.push(key);
+  if (!on) e.refs = e.refs.filter(r=>r!==key);
+  delete state.runtime[e.name];   // 引用变了，下次进入重算
+  renderEntities(); renderPlaySelect();
+}
+function addEntity(){ state.entities.push({name:"Entity"+state.entities.length, kind:"角色", refs:[]}); renderEntities(); renderPlaySelect(); }
+function delEntity(ei){ const n=state.entities[ei].name; state.entities.splice(ei,1); delete state.runtime[n]; renderEntities(); renderPlaySelect(); }
+
+function fmt(type, v){
+  if (type==="Float") return Number(v).toFixed(2);
+  if (type==="Bool") return v ? "true" : "false";
+  return String(v);
+}
+
+// ---------- 代码 tab / 运行时演示 ----------
+function ensureRuntime(name){
+  if (state.runtime[name]) return state.runtime[name];
+  const e = state.entities.find(x=>x.name===name);
+  const bag = {};
+  (e?e.refs:[]).forEach(k=>{ const d=defOf(k); if(d) bag[k]=Number(d.def); });
+  state.runtime[name] = bag; return bag;
+}
+function renderPlaySelect(){
+  const sel = document.getElementById("play-entity");
+  const cur = sel.value;
+  sel.innerHTML = state.entities.map(e=>`<option ${e.name===cur?'selected':''}>${e.name}</option>`).join("");
+  if (!state.entities.find(e=>e.name===cur)) sel.value = state.entities[0]?state.entities[0].name:"";
+}
+function renderBag(){
+  const name = document.getElementById("play-entity").value;
+  const bag = ensureRuntime(name);
+  const e = state.entities.find(x=>x.name===name);
+  const tb = document.querySelector("#bag-table tbody"); tb.innerHTML="";
+  document.getElementById("clamp-note").textContent="";
+  (e?e.refs:[]).forEach(k=>{
+    const d=defOf(k); if(!d) return;
+    const v = bag[k];
+    const raw = d.type==="Float" ? floatToRaw(Number(v)).toString() : String(v);
+    const getCall = d.type==="Float" ? `GetFloat("${k}") = ${fmt('Float',v)}`
+                  : d.type==="Bool"  ? `GetBool("${k}") = ${fmt('Bool',v)}`
+                  : `GetInt("${k}") = ${v}`;
+    const tr=document.createElement("tr");
+    tr.innerHTML = `<td><code class="ic">${k}</code></td><td>${d.type}</td>
+      <td><b>${fmt(d.type,v)}</b></td><td class="muted">${raw}</td><td>${getCall}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function logMsg(m){ const el=document.getElementById("log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; }
+function setAttr(key, val, isMul){
+  const name = document.getElementById("play-entity").value;
+  const bag = ensureRuntime(name);
+  const d = defOf(key);
+  if (!d || !(state.entities.find(x=>x.name===name).refs.includes(key))){ logMsg(`// 该实体没有属性 "${key}"`); return; }
+  let nv = isMul ? Number(bag[key]) * val : val;
+  nv = d.type==="Int"||d.type==="Long"||d.type==="Bool" ? Math.round(nv) : nv;
+  const c = clampTo(d, nv);
+  bag[key] = c.v;
+  logMsg(`Set${d.type}("${name}", "${key}", ${fmt(d.type,c.v)})${c.clamped?"  // clamped":""}`);
+  renderBag();   // 先渲染表格（renderBag 内部会清空钳制提示）
+  document.getElementById("clamp-note").textContent = c.clamped ? `⚠ 越界，已钳制到 [${d.min}, ${d.max}]` : "";
+}
+function quick(key, val, isMul){
+  const name = document.getElementById("play-entity").value;
+  const bag = ensureRuntime(name);
+  const cur = Number(bag[key]);
+  const target = isMul ? cur * val : cur + val;   // +10 / -50 / ×1.2 都由当前值推算
+  setAttr(key, target, false);                    // 底层仍是绝对 Set（与 AttributeStore.SetInt 一致）
+}
+function resetBag(){
+  const name = document.getElementById("play-entity").value;
+  delete state.runtime[name]; ensureRuntime(name);
+  document.getElementById("clamp-note").textContent=""; logMsg(`// reset ${name} -> 目录默认`); renderBag();
+}
+
+// ---------- tab 切换 ----------
+function switchTab(which){
+  document.getElementById("view-edit").classList.toggle("active", which==="edit");
+  document.getElementById("view-code").classList.toggle("active", which==="code");
+  document.getElementById("t-edit").classList.toggle("active", which==="edit");
+  document.getElementById("t-code").classList.toggle("active", which==="code");
+  if (which==="code"){ renderPlaySelect(); renderBag(); }
+}
+
+// ---------- init ----------
+renderCatalog(); renderEntities(); renderPlaySelect();
+</script>
+</body>
+</html>

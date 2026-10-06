@@ -1,0 +1,18 @@
+{
+  "name": "HYCSimple",
+  "rootNamespace": "HYC.Simple",
+  "references": [
+    "Unity.Entities",
+    "Unity.Collections",
+    "HYC.Framework.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

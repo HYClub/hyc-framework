@@ -153,7 +153,7 @@ public static BTNodeState Tick(BTRootBlob* tree, ref BTRunState state, ref BTCon
 
 ### 导出（Editor）
 
-菜单 **`Tools/HYC/BT/导出 Blob(打包用)`**，或直接调用：
+菜单 **`HYC Framework/BT/导出 Blob(打包用)`**，或直接调用：
 
 ```csharp
 HYC.Framework.BT.Editor.BTBlobExporter.ExportAll();          // → Assets/StreamingAssets/BTBlob

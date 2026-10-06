@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYC 框架 · 属性配置：目录 / 组合 / 生成访问器</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#fff; --ink:#1c1e21; --sub:#5b6470; --line:#e1e4e8;
+    --accent:#3b6cff; --accent2:#7a4dff; --warn:#d9822b; --ok:#2e9e5b; --bad:#d64545;
+    --code-bg:#1e1e2e; --code-ink:#e6e6ef;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);
+       color:var(--ink);font-size:13px;line-height:1.55}
+  header{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;padding:14px 20px;
+         display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{margin:0;font-size:16px;font-weight:600}
+  header .tag{background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;font-size:11px}
+  nav.tabs{display:flex;gap:6px;padding:10px 20px 0}
+  nav.tabs button{border:1px solid var(--line);background:var(--panel);color:var(--sub);padding:7px 16px;
+       border-radius:8px 8px 0 0;cursor:pointer;font-size:13px;font-weight:600}
+  nav.tabs button.active{color:var(--accent);border-bottom-color:var(--panel);background:var(--panel)}
+  .view{display:none;padding:16px 20px 40px;background:var(--panel);border:1px solid var(--line);
+        border-top:none;margin:0 20px 20px;border-radius:0 0 10px 10px}
+  .view.active{display:block}
+  h2{font-size:14px;margin:0 0 8px}
+  h3{font-size:12.5px;margin:14px 0 6px;color:var(--accent2)}
+  p.lead{color:var(--sub);margin:2px 0 12px}
+  .cols{display:flex;gap:18px;flex-wrap:wrap}
+  .col{flex:1;min-width:340px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:middle}
+  th{background:#eef1f6;color:var(--sub);font-weight:600}
+  td input,td select{border:1px solid var(--line);border-radius:5px;padding:3px 5px;width:100%;font-size:12px;background:#fff;color:var(--ink)}
+  td input[type=number]{width:74px}
+  .row-actions button{border:none;background:transparent;color:var(--bad);cursor:pointer;font-size:13px}
+  .btn{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600}
+  .btn.ghost{background:#fff;color:var(--accent)}
+  .btn.sm{padding:3px 9px;font-size:11px}
+  .card{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:10px}
+  .chk{display:inline-flex;align-items:center;gap:4px;margin:2px 8px 2px 0;font-size:11.5px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:2px 9px}
+  .pill{display:inline-block;background:#eaf0ff;color:var(--accent);border-radius:10px;padding:1px 8px;font-size:11px;margin-left:6px;margin-top:3px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:12px 14px;border-radius:9px;overflow:auto;font-size:12px;line-height:1.5;font-family:"JetBrains Mono",Consolas,monospace;white-space:pre}
+  .play{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .play .left,.play .right{flex:1;min-width:320px}
+  .controls{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .log{background:#0f1020;color:#9be8a8;font-family:Consolas,monospace;font-size:11.5px;padding:9px 11px;border-radius:8px;height:130px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+  .clamp-note{color:var(--warn);font-size:11px;margin-top:4px}
+  .foot{margin:20px;padding:12px 16px;background:#fff7ec;border:1px solid #f3d9a8;border-radius:10px;font-size:12px}
+  .foot b{color:var(--warn)}
+  .muted{color:var(--sub);font-size:11px}
+  code.ic{background:#eef1f6;padding:1px 5px;border-radius:4px;font-family:Consolas,monospace;font-size:11.5px}
+  .ans{background:#eef6ff;border:1px solid #cfe0ff;border-radius:10px;padding:10px 14px;margin:10px 0;font-size:12px}
+  .ans b{color:var(--accent)}
+  .seg{display:inline-flex;border:1px solid var(--accent);border-radius:7px;overflow:hidden;margin:6px 0}
+  .seg button{border:none;background:#fff;color:var(--accent);padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600}
+  .seg button.on{background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>属性配置：目录 / 组合 / 生成访问器</h1>
+  <span class="tag">v2</span>
+  <span class="tag">配置表驱动</span>
+  <span class="note">回答三个问题：①目录是一堆属性 ②组合是数据不是代码 ③可 codegen 访问器让代码更好用</span>
+</header>
+
+<nav class="tabs">
+  <button id="t-edit" class="active" onclick="switchTab('edit')">① 配置（目录 + 组合）</button>
+  <button id="t-code" onclick="switchTab('code')">② 代码里怎么用</button>
+</nav>
+
+<!-- ============ 配置 ============ -->
+<section id="view-edit" class="view active">
+  <div class="ans"><b>问题 1：</b>配置就是<b>写一堆属性，不管谁有谁没有</b>。目录是扁平全量的 <code class="ic">AttributeDef</code> 行（由配置管线生成），它不关心归属——"HP/ATK" 只是两条并列的定义。</div>
+
+  <div class="cols">
+    <div class="col">
+      <h2>属性目录（全量，扁平）</h2>
+      <p class="muted">每条 = 一个属性定义。下面随便加/改，右栏组合和底部的生成访问器会同步。</p>
+      <table id="cat-table"><thead><tr>
+        <th>key</th><th>类型</th><th>默认</th><th>min</th><th>max</th><th>显示名</th><th></th>
+      </tr></thead><tbody></tbody></table>
+      <div style="margin-top:8px"><button class="btn sm" onclick="addDef()">+ 加一条属性</button></div>
+    </div>
+
+    <div class="col">
+      <h2>角色组合（编辑器勾选 = 数据）</h2>
+      <div class="ans"><b>问题 2：</b>组合是<b>编辑器里勾选的数据</b>，不是代码。勾完存成一串 <code class="ic">ConfigRowRef</code>，运行时 <code class="ic">AttributeInitializer.Init</code> 消费。<b>不需要生成代码</b>。</div>
+      <div id="entity-list"></div>
+      <button class="btn sm ghost" onclick="addEntity()">+ 加一个实体</button>
+    </div>
+  </div>
+
+  <h3>[可选] 从目录生成便捷访问器（让代码更好用）</h3>
+  <div class="ans"><b>问题 3：</b>想代码里更方便，可<b>额外</b>从目录 codegen 一个 <code class="ic">AttrAccess</code>：预哈希 key + 类型安全 Get/Set。它和"组合"无关，纯属调用 convenience 层。</div>
+  <pre id="gen-code"></pre>
+
+  <div class="foot">
+    <b>一句话总结工作流：</b> 目录（Excel→生成 AttributeDef 行）→ 在实体编辑器里勾选它引用哪些（数据）→ 运行时 Init 出属性袋。
+    想要代码好用就再 codegen 一个 AttrAccess。组合本身永远是数据，不进代码。
+  </div>
+</section>
+
+<!-- ============ 代码 ============ -->
+<section id="view-code" class="view">
+  <h2>1) 裸 API 用法（框架直接给的）</h2>
+  <pre>// 按 key 字符串读写，key 运行时 FNV-1a 哈希；拼错 key 只能运行期发现
+int  atk = AttributeStore.GetInt (em, hero, "ATK");
+AttributeStore.SetInt (em, hero, "ATK", atk + 10);   // 越界自动钳制
+float spd = AttributeStore.GetFloat(em, hero, "MoveSpeed");</pre>
+
+  <h2>2) 生成访问器用法（codegen 出来的 AttrAccess）</h2>
+  <pre>// 预哈希 key 编译期算好；Get/Set 类型安全；拼错方法名编译期就报错；省掉每帧哈希
+int  atk = AttrAccess.GetATK(em, hero);
+AttrAccess.SetATK(em, hero, atk + 10);
+float spd = AttrAccess.GetMoveSpeed(em, hero);</pre>
+
+  <h2>3) 点这里看两种调用形式（与编辑时共享数据）</h2>
+  <div class="play">
+    <div class="left">
+      <label class="muted">选实体：</label>
+      <select id="play-entity" onchange="renderBag()"></select>
+      <div class="seg">
+        <button id="seg-raw" class="on" onclick="setMode('raw')">裸 API</button>
+        <button id="seg-gen" onclick="setMode('gen')">生成访问器</button>
+      </div>
+      <div class="controls">
+        <button class="btn sm" onclick="quick('ATK',10)">ATK +10</button>
+        <button class="btn sm" onclick="quick('HP',-50)">HP -50</button>
+        <button class="btn sm" onclick="quick('MoveSpeed',1.2,true)">MoveSpeed ×1.2</button>
+        <button class="btn sm ghost" onclick="resetBag()">重置为目录默认</button>
+      </div>
+      <table id="bag-table"><thead><tr>
+        <th>key</th><th>类型</th><th>值</th><th>raw(数值位)</th><th>类型安全 Get</th>
+      </tr></thead><tbody></tbody></table>
+      <div id="clamp-note" class="clamp-note"></div>
+    </div>
+    <div class="right">
+      <div class="muted">调用日志（切换上方"裸 API / 生成访问器"看区别）：</div>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>待拍板：</b> ① 只 ECS 还是加非 ECS 版？② 目录实现 <code class="ic">IAttributeDef</code> 还是约定式反射？
+    ③ 目录放 <code class="ic">Runtime/Attr/</code> 还是改名？④ 类型集要不要 Float？⑤ 初始化是否钳制？
+    ⑥ <b>生成访问器</b>做不做、做到什么粒度（全局 AttrAccess / 还是按预设各生成一个 HeroAttrs）？
+  </div>
+</section>
+
+<script>
+const TYPES=["Int","Float","Long","Bool"];
+const state={
+  catalog:[
+    {key:"HP",type:"Int",def:100,min:1,max:9999,name:"生命值"},
+    {key:"ATK",type:"Int",def:10,min:0,max:999,name:"攻击力"},
+    {key:"MoveSpeed",type:"Float",def:3.5,min:0.5,max:10,name:"移动速度"},
+    {key:"IsBoss",type:"Bool",def:0,min:0,max:1,name:"是否Boss"},
+  ],
+  entities:[
+    {name:"Hero",kind:"角色",refs:["HP","ATK","MoveSpeed"]},
+    {name:"Slime",kind:"怪",refs:["HP","MoveSpeed","IsBoss"]},
+  ],
+  runtime:{},
+  mode:"raw"   // raw | gen
+};
+function fnv1a(str){let h=14695981039346656037n;for(let i=0;i<str.length;i++){h^=BigInt(str.charCodeAt(i));h=(h*1099511628211n)&0xffffffffffffffffn;}return h;}
+function defOf(k){return state.catalog.find(d=>d.key===k);}
+function clampTo(d,v){let lo=Number(d.min),hi=Number(d.max);if(v<lo)return{v:lo,clamped:true};if(v>hi)return{v:hi,clamped:true};return{v,clamped:false};}
+function floatToRaw(f){const b=new Float64Array([f]);return new BigInt64Array(b.buffer)[0];}
+function fmt(type,v){if(type==="Float")return Number(v).toFixed(2);if(type==="Bool")return v?"true":"false";return String(v);}
+
+// ---- 编辑 tab ----
+function renderCatalog(){
+  const tb=document.querySelector("#cat-table tbody");tb.innerHTML="";
+  state.catalog.forEach((d,i)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td><input value="${d.key}" onchange="upd(${i},'key',this.value)"></td>
+      <td><select onchange="upd(${i},'type',this.value)">${TYPES.map(t=>`<option ${t===d.type?'selected':''}>${t}</option>`).join('')}</select></td>
+      <td><input type="number" step="any" value="${d.def}" onchange="upd(${i},'def',this.value)"></td>
+      <td><input type="number" step="any" value="${d.min}" onchange="upd(${i},'min',this.value)"></td>
+      <td><input type="number" step="any" value="${d.max}" onchange="upd(${i},'max',this.value)"></td>
+      <td><input value="${d.name}" onchange="upd(${i},'name',this.value)"></td>
+      <td class="row-actions"><button onclick="delDef(${i})" title="删除">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  renderGenCode();
+}
+function upd(i,f,val){state.catalog[i][f]=(f==='def'||f==='min'||f==='max')?Number(val):val;renderEntities();}
+function addDef(){state.catalog.push({key:"NewAttr"+state.catalog.length,type:"Int",def:0,min:0,max:999,name:"新属性"});renderCatalog();renderEntities();}
+function delDef(i){const k=state.catalog[i].key;state.catalog.splice(i,1);state.entities.forEach(e=>e.refs=e.refs.filter(r=>r!==k));renderCatalog();renderEntities();}
+function renderEntities(){
+  const box=document.getElementById("entity-list");box.innerHTML="";
+  state.entities.forEach((e,ei)=>{
+    const card=document.createElement("div");card.className="card";
+    const chks=state.catalog.map(d=>`<label class="chk"><input type="checkbox" ${(e.refs.includes(d.key)?'checked':'')} onchange="toggleRef(${ei},'${d.key}',this.checked)">${d.key}</label>`).join("");
+    const resolved=e.refs.map(k=>{const d=defOf(k);if(!d)return"";const c=clampTo(d,Number(d.def));return `<span class="pill">${k}=${fmt(d.type,c.v)}</span>`;}).join("");
+    card.innerHTML=`<div class="ename">${e.name} <span class="pill">${e.kind}</span></div>
+      <div class="muted" style="margin:4px 0">引用哪些属性（= 一串 ConfigRowRef，运行时 Init）：</div>
+      <div>${chks||'<span class="muted">目录为空</span>'}</div>
+      <div style="margin-top:6px">初始属性袋：${resolved||'<span class="muted">未引用任何属性</span>'}</div>
+      <button class="btn sm ghost" style="margin-top:6px" onclick="delEntity(${ei})">删除实体</button>`;
+    box.appendChild(card);
+  });
+}
+function toggleRef(ei,k,on){const e=state.entities[ei];if(on&&!e.refs.includes(k))e.refs.push(k);if(!on)e.refs=e.refs.filter(r=>r!==k);delete state.runtime[e.name];renderEntities();renderPlaySelect();}
+function addEntity(){state.entities.push({name:"Entity"+state.entities.length,kind:"角色",refs:[]});renderEntities();renderPlaySelect();}
+function delEntity(ei){const n=state.entities[ei].name;state.entities.splice(ei,1);delete state.runtime[n];renderEntities();renderPlaySelect();}
+
+// ---- 生成访问器代码 ----
+function renderGenCode(){
+  const lines=state.catalog.map(d=>{
+    const hk="K_"+d.key, hash=fnv1a(d.key).toString();
+    let typ,get,set;
+    if(d.type==="Float"){typ="float";get="GetFloat";set="SetFloat";}
+    else if(d.type==="Bool"){typ="bool";get="GetBool";set="SetBool";}
+    else {typ="int";get="GetInt";set="SetInt";}
+    return `    public static readonly ulong ${hk} = ${hash}; // "${d.key}"\n`+
+           `    public static ${typ} Get${d.key}(EntityManager em, Entity e) => AttributeStore.${get}(em, e, ${hk});\n`+
+           `    public static void Set${d.key}(EntityManager em, Entity e, ${typ} v) => AttributeStore.${set}(em, e, ${hk}, v);`;
+  }).join("\n");
+  document.getElementById("gen-code").textContent =
+    "// ===== 由框架从属性目录自动生成：AttrAccess.cs =====\n"+
+    "public static class AttrAccess {\n"+lines+"\n}";
+}
+
+// ---- 代码 tab / 演示 ----
+function setMode(m){state.mode=m;document.getElementById("seg-raw").classList.toggle("on",m==="raw");document.getElementById("seg-gen").classList.toggle("on",m==="gen");logMsg("// 切换调用形式 -> "+(m==="raw"?"裸 API":"生成访问器 AttrAccess"));}
+function ensureRuntime(name){if(state.runtime[name])return state.runtime[name];const e=state.entities.find(x=>x.name===name);const bag={};(e?e.refs:[]).forEach(k=>{const d=defOf(k);if(d)bag[k]=Number(d.def);});state.runtime[name]=bag;return bag;}
+function renderPlaySelect(){const sel=document.getElementById("play-entity");const cur=sel.value;sel.innerHTML=state.entities.map(e=>`<option ${e.name===cur?'selected':''}>${e.name}</option>`).join("");if(!state.entities.find(e=>e.name===cur))sel.value=state.entities[0]?state.entities[0].name:"";}
+function curEntity(){return document.getElementById("play-entity").value;}
+function getLabel(key,d,v){return state.mode==="gen"?`AttrAccess.Get${key}(${curEntity()}) = ${fmt(d.type,v)}`:`Get${d.type}("${key}") = ${fmt(d.type,v)}`;}
+function callLabel(key,d,v){return state.mode==="gen"?`AttrAccess.Set${key}(em, ${curEntity()}, ${fmt(d.type,v)})`:`Set${d.type}("${curEntity()}", "${key}", ${fmt(d.type,v)})`;}
+function renderBag(){
+  const name=curEntity();const bag=ensureRuntime(name);const e=state.entities.find(x=>x.name===name);
+  const tb=document.querySelector("#bag-table tbody");tb.innerHTML="";document.getElementById("clamp-note").textContent="";
+  (e?e.refs:[]).forEach(k=>{const d=defOf(k);if(!d)return;const v=bag[k];
+    const raw=d.type==="Float"?floatToRaw(Number(v)).toString():String(v);
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td><code class="ic">${k}</code></td><td>${d.type}</td><td><b>${fmt(d.type,v)}</b></td><td class="muted">${raw}</td><td>${getLabel(k,d,v)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function logMsg(m){const el=document.getElementById("log");el.textContent+=m+"\n";el.scrollTop=el.scrollHeight;}
+function setAttr(key,val,isMul){
+  const name=curEntity();const bag=ensureRuntime(name);const d=defOf(key);
+  if(!d||!state.entities.find(x=>x.name===name).refs.includes(key)){logMsg(`// 实体 ${name} 没有属性 "${key}"`);return;}
+  let nv=isMul?Number(bag[key])*val:val;nv=d.type==="Int"||d.type==="Long"||d.type==="Bool"?Math.round(nv):nv;
+  const c=clampTo(d,nv);bag[key]=c.v;
+  logMsg(callLabel(key,d,c.v)+(c.clamped?"  // clamped":""));
+  renderBag();
+  document.getElementById("clamp-note").textContent=c.clamped?`⚠ 越界，已钳制到 [${d.min}, ${d.max}]`:"";
+}
+function quick(key,val,isMul){const name=curEntity();const bag=ensureRuntime(name);const cur=Number(bag[key]);const target=isMul?cur*val:cur+val;setAttr(key,target,false);}
+function resetBag(){const name=curEntity();delete state.runtime[name];ensureRuntime(name);document.getElementById("clamp-note").textContent="";logMsg(`// reset ${name} -> 目录默认`);renderBag();}
+function switchTab(which){
+  document.getElementById("view-edit").classList.toggle("active",which==="edit");
+  document.getElementById("view-code").classList.toggle("active",which==="code");
+  document.getElementById("t-edit").classList.toggle("active",which==="edit");
+  document.getElementById("t-code").classList.toggle("active",which==="code");
+  if(which==="code"){renderPlaySelect();renderBag();}
+}
+renderCatalog();renderEntities();renderPlaySelect();
+</script>
+</body>
+</html>

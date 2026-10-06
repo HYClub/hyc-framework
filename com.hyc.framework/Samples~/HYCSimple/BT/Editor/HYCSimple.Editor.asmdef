@@ -1,0 +1,19 @@
+{
+  "name": "HYCSimple.Editor",
+  "rootNamespace": "HYC.Simple.Editor",
+  "references": [
+    "HYC.Framework.Editor",
+    "HYC.Framework.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

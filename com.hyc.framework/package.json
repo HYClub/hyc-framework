@@ -19,7 +19,15 @@
     "documentationUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/README.md",
     "changelogUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md",
     "licensesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE",
+    "samples": [
+        {
+            "displayName": "HYC Simple",
+            "description": "HYC 框架最小可运行接入示例（属性 Attr / 配置 Config / 行为树 BT / 本地化 Loc / 场景串联）。导入后位于 Assets/Samples/com.hyc.framework/<版本>/HYCSimple/。",
+            "path": "Samples~/HYCSimple"
+        }
+    ],
     "dependencies": {
-        "com.unity.addressables": "1.21.21"
+        "com.unity.addressables": "1.21.21",
+        "com.unity.nuget.newtonsoft-json": "3.2.1"
     }
 }

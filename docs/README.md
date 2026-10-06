@@ -3,10 +3,23 @@
 > 对象：`com.hyc.framework/`（UPM 包 **v2.0.4**，Unity 2022.3）
 > 本目录位于**仓库根**（包外），仅作文档用途，不会被 Unity 当作资源导入。
 
-> ✅ **状态**：共 25 篇，全部基于仓库源码实测撰写（先读源码再写，不编造）。每篇深度 = 架构 + 关键类 + 用法 + 坑。最后更新：2026-09-26。
+> ✅ **状态**：共 28 篇，全部基于仓库源码实测撰写（先读源码再写，不编造）。每篇深度 = 架构 + 关键类 + 用法 + 坑。最后更新：2026-10-06。
 >
 > 🎯 **要动手做事 → 直接看 [02 操作手册（按任务）](./02-操作手册-按任务.md)**。
 > 其余各篇是「机制说明」，02 篇是「照着做的步骤」。
+
+> 📦 **包内示例（Samples~）**：含 **Attr / Config / BT / Loc / Scene** 五块接入示例，每块配 `AI-NOTES.md`（心智模型 / 端到端步骤 / 雷区 / 验证清单）。
+> 示例自带 4 个菜单（导入后才出现）：`HYC Framework/Samples/` 下的
+> `Import HYCSimple` / `创建全部示例资产` / `BT/创建示例树并导出` / `Attr/创建示例属性资产`。
+> 引入二选一：① 官方 Package Manager **Samples → HYCSimple → Import**（落 `Assets/Samples/com.hyc.framework/<版本>/HYCSimple/`，需包已解析）；
+> ② 菜单 `HYC Framework/Samples/Import HYCSimple`（全量重拷到 `Assets/HYCSimple/`，不依赖包解析）。
+> ⚠️ 别把示例拷进 `Assets/Samples/<包名>/`——那是 PM 保留区，包未解析时 Unity 不导入其内容（展开为空、不报错）。`Samples~` 不被 Unity 编译，故不计入包内 .cs 统计。
+>
+> 🔒 **示例默认「不自动运行」**（重要）：4 个 `*DemoSystem`（Loc/BT/Config/Attr）全部标了 `[DisableAutoCreation]`，
+> 不会自动进宿主 World；要看演示须把 `HYCSimpleSceneBootstrap` 挂到**空场景**的 GameObject 上，由它手动驱动。
+> 因为框架 Manager 是**进程级静态单例**、`LocalizationManager.Reload()` 又是「先清空再重填」，
+> 示例若自启会洗掉宿主已加载的本地化表（症状：宿主 UI 全线 `未找到Key : xxx`，且重导无效）。
+> 宿主工程什么都不挂 ⇒ 零副作用。详见 `Samples~/HYCSimple/README.md` 与 `Loc/AI-NOTES.md` 雷区 #8。
 
 ---
 
@@ -62,6 +75,9 @@
 | --- | --- |
 | [40-输入与热键](./40-输入与热键.md) | InputSystem 分发、Press/Hold、设备切换 |
 | [50-过场-Timeline](./50-过场-Timeline.md) | CutsceneDirector、播放队列、接入自己的片段 |
+| [52-存档存储](./52-存档存储.md) | SaveManager 按类型存取、原子写、坏档备份、序列化器选型 |
+| [53-天赋树](./53-天赋树.md) | TalentTreeAsset / TalentTree、可视化编辑器、**属性引用配置表**、打包即用 |
+| [54-通用属性配置](./54-通用属性配置.md) | Attr：单一属性清单 / 代码生成 / 预设自动初始化 / 编辑器校验（ECS 版基础属性能力） |
 | [60-引导与世界-Bootstrap](./60-引导与世界-Bootstrap.md) | Bootstrap、UpdateGroups、Simulation、Settings |
 | [70-消息与日志](./70-消息与日志.md) | MessageEntity 单帧消息、Log / GameLog |
 
@@ -83,4 +99,4 @@
 ### 速查索引
 | 文档 | 内容 |
 | --- | --- |
-| [100-文件与类索引](./100-文件与类索引.md) | **168 个 .cs 文件 ↔ 285 个类型**速查表 + 重新生成脚本（改脚本后必须更新它） |
+| [100-文件与类索引](./100-文件与类索引.md) | **203 个 .cs 文件 ↔ 337 个类型**速查表（改脚本后必须更新它） |

@@ -19,6 +19,12 @@
 - **过场演出（Timeline）**：轻量过场导演，维护播放队列、支持跳过，片段播放由游戏层重写 `PlayClip` 接入（Timeline / Playable / 视频皆可）。
 - **可视化行为树（BT）**：`BTTreeAsset` 可视化编辑 → 序列化为 `BTRootBlob` → `BTManager` 注册 → `BTInterpreterSystem` 逐帧解释执行；支持自定义节点与运行时黑板。
 - **编辑器工具链**：Excel 配置自动生成、组件绑定代码生成、本地化 Key 管理、行为树可视化编辑器与校验器，大幅降低手工出错率。
+- **包内接入示例（Samples）**：`Samples~/HYCSimple/` 含 **Attr（属性）/ Config（配置）/ BT（行为树）/ Loc（本地化）/ Scene（引导串联）** 五块示例，每块各配一份 `AI-NOTES.md`（心智模型 / 端到端步骤 / 雷区 / 验证清单）。
+  - 引入二选一：Package Manager **Samples → HYCSimple → Import**，或菜单 `HYC Framework/Samples/Import HYCSimple`。
+  - 🔒 **示例默认不自动运行**：4 个 `*DemoSystem` 均标 `[DisableAutoCreation]`，须把 `HYCSimpleSceneBootstrap`
+    挂到**空场景**的 GameObject 上才会被手动驱动。这样设计是因为框架 Manager 是进程级静态单例，
+    示例若自启会覆盖宿主已加载的数据（详见示例 README）。
+    宿主工程**什么都不挂即零副作用**。
 
 ---
 
@@ -68,7 +74,7 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 框架的数据流可概括为四个阶段，配置 / 本地化 / 行为树三者产物都是**不可变 Blob**：
 
 1. **生成期（Editor）**：Excel / 配置模板经 `ConfigGenerator` 产出 `[BlobGenerate]` 的 blittable `struct`（命名空间 `HYC.Framework.Config.Generated`），经 `ConfigExportService` 烘焙成 `BlobAssetReference<BlobRoot<TRow>>`；本地化表经 `LocalizedExcelReader`(NPOI) 产出 `id` / `lang` / `filter` 与每语言 `{lang}.lang` Blob；行为树在 `BTTreeAsset` 中可视化编辑，由 `BTBlobBuilder.Build` 序列化为纯数据 `BTRootBlob`。三者均可在运行期用 `BlobAssetReference<T>.TryRead` 直接读入，无需反序列化托管对象。
-    - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `Tools/HYC/BT/导出 Blob(打包用)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `docs/82-BT-运行时与Blob.md` 第七节。
+    - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `HYC Framework/BT/导出 Blob(打包用)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `docs/82-BT-运行时与Blob.md` 第七节。
 2. **引导期（A0 / A1 数据阶段）**：游戏 Bootstrap 把 Blob 读入，调用 `ConfigManager.Register(table)`（世界无关静态表）、`LocalizationManager.Reload(folder)`（或 `LocalizationBlobSystem` 自动从 `StreamingAssets/Localization` 加载）、`BTManager.Register(treeId, blobRef)`（编辑器里由 `BTAutoRegisterOnPlay` 进 Play 自动注册；打包后由 `BTBlobLoader.LoadAll()` 从 `StreamingAssets/BTBlob` 读回）。
 3. **运行期（A2 / A3 玩法阶段）**：玩法系统从 `ConfigManager` 查行（无需 World 句柄）、从 `LocalizationManager` 取文本；行为树由 `BTInterpreterSystem`（ISystem）对挂 `RunningBT` 的实体逐帧 `Tick`，`BTInterpreter` 以指针遍历 `BTRootBlob`，通过 `BTContext.GameHandler` 把 `GameCustom` 节点派发到 `BTNodeRuntimeRegistry`（反射缓存的 `BTCustomNode` 子类），并读写 `BTBlackboardRuntime`（每树实例一个，定义只读、实例可写）。
 4. **表现期（B9，最后运行）**：UI 系统（`UIManager` + `AbsUISystem`）最后运行，读玩法阶段产生的最新状态刷新 HUD / 窗口；单帧 `MessageEntity` / `EventMessage` 在玩法阶段被消费，帧末由 `MessageExpirySystem` / `MessageClearSystem` 清理，消息绝不过帧。
@@ -371,13 +377,20 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
 │   ├── 过场演出：CutsceneDirector
 │   ├── 消息与日志：MessageEntity / Log / GameLog
 │   ├── Attributes/                # 17 个编辑器增强特性（Group/InfoBox/File/ListDrawer...）
+│   ├── Attr/                      # 通用属性配置（AttributeCatalog / AttributeSet / AttributeStore / AttrBag / AttributeInitSystem）
+│   ├── Save/                      # 存档（SaveManager / SaveSerializer）
+│   ├── Talent/                    # 天赋树（TalentTreeAsset / TalentNode / TalentRuntime / TalentTreeUIBase）
 │   ├── BT/                        # 行为树运行时（解释器 / 管理器 / 黑板 / 事件总线 / Blob 定义）
 │   ├── Components/                # LocalizedText / LocalizedTMP / LocalizedTextMesh
 │   └── ToolTip/                   # ToolTipManager / Tip 视图
+├── Samples~/HYCSimple/            # 接入示例（带 ~ 不被 Unity 编译，导入工程后才生效）
 └── Editor/                        # 编辑器工具（HYC.Framework.Editor.asmdef）
     ├── 配置管线：ConfigGenerator / ConfigValidator / ExcelReader
     ├── 组件绑定：ComponentBinderTableEditor / ComponentBinderCodeGenerator / ComponentBinderSetting*
     ├── 本地化：LocaleWindow / LocalizedExcelReader / LocalizedKeyPickerWindow / LocalizationSettings / SensitiveWordWindow
+    ├── Attr/                      # 属性目录编辑器 / 属性组编辑器 / 校验器 / 代码生成向导
+    ├── Talent/                    # 天赋树编辑器（画布 / 校验 / 配置选择 / 代码生成）
+    ├── Samples/                   # HYCSimpleSampleImporter（一键导入示例）
     ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，10 个文件）
     ├── DataEditor/                # 配置数据编辑器（44 个文件 + FrameworkTemplates/）
     ├── Loc/Editor/                # Key 使用扫描（LocaleKeyUsageWindow）
@@ -388,7 +401,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
 
 ## 📚 文档导航
 
-完整文档在仓库根的 `docs/`（25 篇，全部基于源码实测撰写）：
+完整文档在仓库根的 `docs/`（28 篇，全部基于源码实测撰写）：
 
 - **要动手做事 → [`docs/02-操作手册-按任务.md`](../docs/02-操作手册-按任务.md)**
   —— 新增配置表、选字段类型与导出模式、写枚举、跑行为树、加 UI 窗口的**分步操作**，

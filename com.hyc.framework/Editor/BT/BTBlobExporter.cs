@@ -30,7 +30,7 @@ namespace HYC.Framework.BT.Editor
 
         public const string TreeTypeFilter = "t:HYC.Framework.BT.Editor.BTTreeAsset";
 
-        [MenuItem("Tools/HYC/BT/导出 Blob(打包用)", false, 30)]
+        [MenuItem("HYC Framework/BT/导出 Blob(打包用)", false, 30)]
         public static void ExportAllMenu()
         {
             var ok = ExportAll();
@@ -53,7 +53,7 @@ namespace HYC.Framework.BT.Editor
             var manifest = new List<string>
             {
                 "# HYC BT Blob manifest",
-                "# 格式: treeId|资产名   (由 菜单 Tools/HYC/BT/导出 Blob(打包用) 自动生成, 请勿手改)",
+                "# 格式: treeId|资产名   (由 菜单 HYC Framework/BT/导出 Blob(打包用) 自动生成, 请勿手改)",
                 $"# version={BTBlobLoader.FileVersion}",
             };
 
