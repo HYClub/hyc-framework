@@ -26,7 +26,10 @@ namespace HYC.Framework.Editor
         const string DestFolder = "HYCSimple";              // → Assets/HYCSimple
         const string ProbeRelFile = "/Attr/GameAttrKey.cs"; // 判断整棵树是否真被导入
 
-        [MenuItem("HYC Framework/Samples/Import HYCSimple", false, 1000)]
+        // priority=210：与 Settings 同属"项目级低频"档（差 10，故两项之间不画线）。
+        // 上一档 Tools 是 100，差值 110 ≥ 11 ⇒ 与 Tools 之间有分隔线。
+        // 导入是破坏性操作（每次全量重拷 Assets/HYCSimple），故置于该档末尾。
+        [MenuItem("HYC Framework/Samples/Import HYCSimple", false, 210)]
         public static void Import()
         {
             // 1) 包在磁盘上的根目录

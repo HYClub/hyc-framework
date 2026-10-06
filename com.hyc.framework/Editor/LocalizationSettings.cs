@@ -49,7 +49,8 @@ namespace HYC.Framework.Loc.Editor
     /// <summary>Editor window for the localization pipeline settings.</summary>
     public sealed class LocalizationSettingsWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Localization/Settings")]
+        // priority=34：Localization 档内末位。与 Attributes(40) 差 6 < 11 ⇒ 不额外画线。
+        [MenuItem("HYC Framework/Localization/Settings/Localization Settings", false, 34)]
         public static void Open()
         {
             GetWindow<LocalizationSettingsWindow>(true, "Localization Settings");

@@ -21,7 +21,8 @@ namespace HYC.Framework.Config.Editor
 
         private static Texture mRootFolderIcon => EditorGUIUtility.IconContent("Folder Icon").image;
 
-        [MenuItem("HYC Framework/Config/Data Editor")]
+        // priority=2：Config 档内，Config Window(0) → Validate(1) → 本项，组内差1 ⇒ 不画线。
+        [MenuItem("HYC Framework/Config/Data Editor", false, 2)]
         public static void Open()
         {
             var window = GetWindow<ConfigDataWindow>(false, "数据配置", true);

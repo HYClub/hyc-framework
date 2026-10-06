@@ -24,7 +24,8 @@ namespace HYC.Framework.Loc.Editor
     /// </summary>
     public sealed class LocaleKeyUsageWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Localization/Scan Key Usage")]
+        // priority=32：Localization 档内，紧跟 Key Browser(31)。
+        [MenuItem("HYC Framework/Localization/Editors/Scan Key Usage", false, 32)]
         public static void Open() => GetWindow<LocaleKeyUsageWindow>("Loc Key Usage");
 
         private readonly List<string> _unused = new List<string>();

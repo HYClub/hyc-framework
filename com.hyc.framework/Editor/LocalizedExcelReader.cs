@@ -25,7 +25,8 @@ namespace HYC.Framework.Loc.Editor
     {
         private const string IdColumn = "id";
 
-        [MenuItem("HYC Framework/Localization/Import Excel")]
+        // priority=30：Localization 档基准。与上一档 UI(22) 差 8 < 11 ⇒ 仍属同一档。
+        [MenuItem("HYC Framework/Localization/Import/Excel (Import & Build Blob)", false, 30)]
         public static void ImportFromMenu() => ImportAll();
 
         /// <summary>Imports all Excels, writes blob files and reloads the manager.</summary>

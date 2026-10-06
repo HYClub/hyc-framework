@@ -9,7 +9,8 @@ namespace HYC.Framework.Loc.Editor
     /// </summary>
     public sealed class SensitiveWordWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Localization/Sensitive Words")]
+        // priority=33：Localization 档内，排在 Scan Key Usage 之后（先扫描，再管词库）。
+        [MenuItem("HYC Framework/Localization/Editors/Sensitive Words", false, 33)]
         public static void Open()
         {
             GetWindow<SensitiveWordWindow>(false, "Sensitive Words");

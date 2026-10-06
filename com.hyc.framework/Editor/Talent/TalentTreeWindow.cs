@@ -26,7 +26,8 @@ namespace HYC.Framework.Talent.Editor
         private TalentGraphIMGUI _graphIMGUI;
         private IMGUIContainer _imguiContainer;
 
-        [MenuItem("HYC Framework/Talent/Talent Tree Editor")]
+        // priority=50："内容制作"档末位。与下一档 Tools(100) 差 50 ≥ 11 ⇒ 此处有分隔线。
+        [MenuItem("HYC Framework/Talent/Talent Tree Editor", false, 50)]
         public static void Open()
         {
             var w = GetWindow<TalentTreeWindow>();

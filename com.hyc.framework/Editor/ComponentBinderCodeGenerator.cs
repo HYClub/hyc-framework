@@ -26,11 +26,13 @@ namespace HYC.Framework.UI.Editor
     {
         public const string GeneratedFileMarker = "// ComponentBinder";
 
-        [MenuItem("HYC Framework/UI/Generate UI Binders")]
+        // UI 档基准=20。三项依次 20/21/22，组内差 1 ⇒ 不画线；
+        // 与上一档 BT(11) 差 9 < 11 ⇒ 也不画线，故 UI 与 BT 同属"内容制作"档。
+        [MenuItem("HYC Framework/UI/Generate UI Binders", false, 20)]
         public static void GenerateAllMenu() => GenerateAll();
 
         /// <summary>Force a clean full regeneration (deletes cache + stale output first).</summary>
-        [MenuItem("HYC Framework/UI/Regenerate UI Binders (Clean)")]
+        [MenuItem("HYC Framework/UI/Regenerate UI Binders (Clean)", false, 21)]
         public static void RegenerateAllMenu()
         {
             var setting = ComponentBinderSetting.instance;
@@ -43,7 +45,7 @@ namespace HYC.Framework.UI.Editor
         }
 
         /// <summary>Generate binders only for the Prefab currently selected in the Project window.</summary>
-        [MenuItem("HYC Framework/UI/Generate UI Binders (Selected)")]
+        [MenuItem("HYC Framework/UI/Generate UI Binders (Selected)", false, 22)]
         public static void GenerateSelectedMenu()
         {
             var go = Selection.activeObject as GameObject;

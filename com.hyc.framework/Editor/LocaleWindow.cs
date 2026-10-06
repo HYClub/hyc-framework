@@ -13,7 +13,8 @@ namespace HYC.Framework.Loc.Editor
     /// </summary>
     public sealed class LocaleWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Localization/Key Browser")]
+        // priority=31：Localization 档内，紧跟 Import(30)。
+        [MenuItem("HYC Framework/Localization/Editors/Key Browser", false, 31)]
         public static void Open() => GetWindow<LocaleWindow>("Localization");
 
         private string _filter = "";

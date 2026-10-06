@@ -10,7 +10,9 @@ namespace HYC.Framework.Editor
     /// </summary>
     public sealed class HYCEditorSettingsWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Settings/Project Settings")]
+        // priority=200：进入"项目级低频"档。上一档 Tools 是 100，
+        // 差值 100 ≥ 11 ⇒ Unity 自动在 Tools 与本项之间画分隔线。
+        [MenuItem("HYC Framework/Settings/Project Settings", false, 200)]
         public static void Open() => GetWindow<HYCEditorSettingsWindow>("HYC Settings");
 
         private const string PrefVerbose = "HYC.Framework.Editor.VerboseLogs";

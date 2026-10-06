@@ -28,7 +28,8 @@ namespace HYC.Framework.BT.Editor
         /// <summary>「_current 已失效 → 重建」连续尝试次数，_current 有效时归零。</summary>
         private int _recoverAttempts;
 
-        [MenuItem("HYC Framework/BT/BT Editor")]
+        // priority=10：Config(0) 之后，与之差 10 ⇒ 同属"内容制作"档且不画线。
+        [MenuItem("HYC Framework/BT/BT Editor", false, 10)]
         public static void Open()
         {
             var w = GetWindow<BTGraphWindow>();

@@ -35,7 +35,9 @@ namespace HYC.Framework.Editor
 
         public static List<Issue> Issues = new List<Issue>();
 
-        [MenuItem("HYC Framework/Tools/Validate Config")]
+        // 校验是配置管线的一环，故放在 Config 下而非 Tools——分组按"能力归属"，
+        // 不按"实现类型"。菜单布局约定见 Editor/MenuLayout.md。
+        [MenuItem("HYC Framework/Config/Validate Config", false, 1)]
         public static void ValidateAll()
         {
             Issues.Clear();

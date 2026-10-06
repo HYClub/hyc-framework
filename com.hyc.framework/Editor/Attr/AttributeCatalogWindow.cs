@@ -45,7 +45,8 @@ namespace HYC.Framework.Attr.Editor
         private const float WValue = 84f;
         private const float WDel = 22f;
 
-        [MenuItem("HYC Framework/Attributes/Attribute Catalog Editor")]
+        // priority=40：Attributes 档基准。与上一档 Localization(34) 差 6 < 11 ⇒ 同档。
+        [MenuItem("HYC Framework/Attributes/Attribute Catalog Editor", false, 40)]
         private static void Open()
         {
             var w = GetWindow<AttributeCatalogWindow>("属性配置");

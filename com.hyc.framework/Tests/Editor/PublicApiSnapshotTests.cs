@@ -23,7 +23,7 @@ namespace HYC.Framework.Tests
     /// <list type="bullet">
     /// <item>首次运行 → 测试失败并提示"快照缺失"，把生成的文件提交即可。</item>
     /// <item>有意改动 API → 确认这就是想要的破坏性变更，再更新快照
-    /// （菜单 <c>Tools/Tests/更新 Public API 快照</c>，或删除快照文件后重跑测试自动重建）。</item>
+    /// （菜单 <c>Tools/Tests/Update Public API Snapshot</c>，或删除快照文件后重跑测试自动重建）。</item>
     /// <item>无意改动 → 测试失败说明回归被及早拦下。</item>
     /// </list>
     ///
@@ -230,7 +230,7 @@ namespace HYC.Framework.Tests
 
                 var sb = new StringBuilder();
                 sb.AppendLine("公开 API 签名与快照不一致 —— 这可能是无意的破坏性变更。");
-                sb.AppendLine("若确为有意改动：删掉 " + PublicApiSnapshot.SnapshotPath + " 重跑本测试，或执行菜单「Tools/Tests/更新 Public API 快照」。");
+                sb.AppendLine("若确为有意改动：删掉 " + PublicApiSnapshot.SnapshotPath + " 重跑本测试，或执行菜单「Tools/Tests/Update Public API Snapshot」。");
                 if (removed.Count > 0) { sb.AppendLine("\n--- 消失的签名（最多 30 条）---"); removed.ForEach(l => sb.AppendLine("  - " + l.Trim())); }
                 if (added.Count > 0) { sb.AppendLine("\n--- 新增的签名（最多 30 条）---"); added.ForEach(l => sb.AppendLine("  + " + l.Trim())); }
                 Assert.Fail(sb.ToString());

@@ -7,7 +7,9 @@ namespace HYC.Framework.Editor
     /// <summary>Reports dependents/referrers of a selected asset and cleans missing references.</summary>
     public static class AssetTools
     {
-        [MenuItem("HYC Framework/Tools/Show Dependents of Selection")]
+        // Tools 组只放"与具体子系统无关"的通用资产工具。
+        // 能力类的（如配置校验）归到各自子系统菜单下。约定见 Editor/MenuLayout.md。
+        [MenuItem("HYC Framework/Tools/Assets/Show Dependents", false, 100)]
         public static void ShowDependents()
         {
             var sel = Selection.activeObject;
@@ -41,7 +43,7 @@ namespace HYC.Framework.Editor
         }
 
         /// <summary>Removes MonoScript/Reference entries that point to missing files.</summary>
-        [MenuItem("HYC Framework/Tools/Clean Missing Asset References")]
+        [MenuItem("HYC Framework/Tools/Assets/Clean Missing References", false, 101)]
         public static void CleanMissingRefs()
         {
             int fixedCount = 0;

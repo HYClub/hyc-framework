@@ -9,7 +9,7 @@ namespace HYC.Framework.Tests
     /// </summary>
     public static class PublicApiSnapshotMenu
     {
-        [MenuItem("Tools/Tests/更新 Public API 快照")]
+        [MenuItem("Tools/Tests/Update Public API Snapshot")]
         private static void UpdateSnapshot()
         {
             var changed = PublicApiSnapshot.Write();
@@ -18,13 +18,13 @@ namespace HYC.Framework.Tests
                 : $"[API 快照] 内容无变化，无需更新（{PublicApiSnapshot.SnapshotPath}）。");
         }
 
-        [MenuItem("Tools/Tests/查看 Public API 差异")]
+        [MenuItem("Tools/Tests/Show Public API Diff")]
         private static void ShowDiff()
         {
             var abs = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), PublicApiSnapshot.SnapshotPath);
             if (!System.IO.File.Exists(abs))
             {
-                EditorUtility.DisplayDialog("Public API 快照", $"快照不存在：\n{PublicApiSnapshot.SnapshotPath}\n\n执行「更新 Public API 快照」以生成。", "好");
+                EditorUtility.DisplayDialog("Public API 快照", $"快照不存在：\n{PublicApiSnapshot.SnapshotPath}\n\n执行「Tools/Tests/Update Public API Snapshot」以生成。", "好");
                 return;
             }
 

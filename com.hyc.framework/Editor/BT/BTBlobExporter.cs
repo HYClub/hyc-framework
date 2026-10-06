@@ -30,7 +30,10 @@ namespace HYC.Framework.BT.Editor
 
         public const string TreeTypeFilter = "t:HYC.Framework.BT.Editor.BTTreeAsset";
 
-        [MenuItem("HYC Framework/BT/导出 Blob(打包用)", false, 30)]
+        // priority=11：紧跟 BT Editor(10) 且差值仅 1 ⇒ 同一档内不画分隔线。
+        // 它与上一档的 Talent(50) 差 39 ≥ 11 ⇒ 档间有分隔线。
+        // 菜单布局约定见 Editor/MenuLayout.md。
+        [MenuItem("HYC Framework/BT/Export Blob (For Build)", false, 11)]
         public static void ExportAllMenu()
         {
             var ok = ExportAll();
@@ -53,7 +56,7 @@ namespace HYC.Framework.BT.Editor
             var manifest = new List<string>
             {
                 "# HYC BT Blob manifest",
-                "# 格式: treeId|资产名   (由 菜单 HYC Framework/BT/导出 Blob(打包用) 自动生成, 请勿手改)",
+                "# 格式: treeId|资产名   (由菜单 HYC Framework/BT/Export Blob (For Build) 自动生成, 请勿手改)",
                 $"# version={BTBlobLoader.FileVersion}",
             };
 

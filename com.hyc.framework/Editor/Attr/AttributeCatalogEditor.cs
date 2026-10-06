@@ -28,7 +28,8 @@ namespace HYC.Framework.Attr.Editor
             }
         }
 
-        [MenuItem("HYC Framework/Attributes/Generate Accessor")]
+        // priority=41：Attributes 档内。
+        [MenuItem("HYC Framework/Attributes/Generate Accessor", false, 41)]
         static void MenuGenerate()
         {
             var cat = Selection.activeObject as AttributeCatalog;

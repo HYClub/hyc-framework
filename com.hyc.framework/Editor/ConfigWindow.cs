@@ -12,7 +12,9 @@ namespace HYC.Framework.Config.Editor
     /// </summary>
     public sealed class ConfigWindow : EditorWindow
     {
-        [MenuItem("HYC Framework/Config/Config Window")]
+        // priority=0："内容制作"档的第一个父菜单，故排最前。
+        // Unity 的父菜单排序由其首个子菜单的 priority 决定——详见 Editor/MenuLayout.md。
+        [MenuItem("HYC Framework/Config/Config Window", false, 0)]
         public static void Open() => GetWindow<ConfigWindow>("Config");
 
         private string _sheetPath;
