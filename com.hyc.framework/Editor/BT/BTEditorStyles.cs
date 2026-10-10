@@ -5,7 +5,7 @@
 //       ★ 圆角卡片 / 端口圆点 / 状态角标等几何形状均**程序化生成纹理**:
 //         - RoundedBoxTexture : 4x 超采样 + SDF 抗锯齿 + mipmap(替代 NodeCanvas 9-slice .psd)
 //         - AACircleTexture   : SDF 抗锯齿实心圆(替代 NodeCanvas Circle.png 硬边圆)
-//         => 解决了旧 9-slice 拉伸的色块瑕疵与硬边锯齿(详见 docs/84)。
+//         => 解决了旧 9-slice 拉伸的色块瑕疵与硬边锯齿(详见 Documentation~/84-BT-编辑器视觉重构.md)。
 //       ★ 仅保留两张 NodeCanvas 原版纹理(Editor/BT/Styles/Textures/, 用户自有资产):
 //         - Bezier.psd       : 连线贝塞尔的纹理参数(Handles.DrawBezier)
 //         - WindowShadow.psd : 小地图(minimap)节点阴影(NodeShadowStyle)

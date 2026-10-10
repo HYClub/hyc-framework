@@ -377,7 +377,7 @@ declaration type. It is only valid on 'class' declarations.`
   - `Samples/` 下三个中文项**有意保留**——它们导入示例后才出现在用户工程，属"使用者的操作指引"，
     此时中文界面更合适，与主菜单取舍不同。
   - 新增 **`Editor/MenuLayout.md`** 作为菜单结构唯一真源，内含 priority 两次踩坑记录、三档设计意图、
-    改动检查清单；`docs/90-编辑器工具链.md` 补全带 pri 列的全量菜单表。
+    改动检查清单；`Documentation~/90-编辑器工具链.md` 补全带 pri 列的全量菜单表。
   - 同步订正 12 篇文档共 35 处菜单路径引用。**CHANGELOG 历史段落中的旧菜单名按历史事实保留**，
     不追溯改写。
 
@@ -399,7 +399,7 @@ declaration type. It is only valid on 'class' declarations.`
   - `gate` job **启用**：Ubuntu + Python 3.12，跑 `verify-gate.sh`，无 Unity 依赖。
   - `unity-tests` job **停用**（`if: false`）：需Unity 许可密钥。Unity 个人版许可绑定桌面激活、
     **不提供 CI 密钥**，公开仓库的 Actions 上拿不到可用的 batchmode 许可；强行开启只会得到一个必红的 job。
-    开启步骤写在 `docs/95-CI与本地验证.md`。这不等于放弃——先把不依赖许可的部分全做掉。
+    开启步骤写在 `Documentation~/95-CI与本地验证.md`。这不等于放弃——先把不依赖许可的部分全做掉。
 - **CI 壳工程生成脚本（`ci/make-test-project.sh`，新增）**：本仓库是 **UPM 包**，没有
   `ProjectSettings/`，Unity batchmode 打不开——脚本生成一个最小壳工程（`ci/TestProject/`，已gitignore），
   以 `file:` 方式把包引进去。壳工程依赖版本从 `package.json` 的 `dependencies` 读取而非硬编码；
@@ -420,7 +420,7 @@ declaration type. It is only valid on 'class' declarations.`
   - ⚠️ 写涉及日志的用例时：`Log.Error` 走 `Debug.LogError`，Unity 测试框架遇到**未声明**的 Error
     会直接判失败——必须显式 `LogAssert.Expect`（本批 4 处）。
 - **索引文档自检（`Tests/Editor/FileIndexAuditTests.cs`，新增文件）**：断言
-  `docs/100-文件与类索引.md` 声明的文件数 / 类型数 / 各分组之和等于实际扫描结果。
+  `Documentation~/100-文件与类索引.md` 声明的文件数 / 类型数 / 各分组之和等于实际扫描结果。
   只做文本解析与目录扫描、**不碰任何 `UnityEditor` API**，因此即使 CI 拿不到 Unity 许可，
   它仍能在纯 .NET 环境作为兜底闸门运行。首跑即抓出索引已过期（声明 208 / 345，实际 209 / 356），
   已据此更新文档——证明这类"文档腐化"确实在发生，不是假想。
@@ -574,7 +574,7 @@ declaration type. It is only valid on 'class' declarations.`
   - **codegen 便利层（使用方基于属性目录生成，不进框架）**：`enum AttrKey`（int 序号，加属性同步增长）
     + `AttrKeyMap.Hash[]`（枚举序号 → FNV-1a 哈希）+ 枚举版 `AttrBag`（实现 `IAttrBag`，暴露
     `GetInt(AttrKey.ATK)` 这类友好重载）——零手写 key、IntelliSense、拼错编译期报错。
-  - 交互原型：`docs/prototypes/attribute-config-3.html`（编辑 + 枚举 `IAttrBag` 用法演示，jsdom 冒烟通过）。
+  - 交互原型：`Documentation~/prototypes/attribute-config-3.html`（编辑 + 枚举 `IAttrBag` 用法演示，jsdom 冒烟通过）。
   - **通用属性配置系统（Attr）四大优化（单一清单 / 代码生成 / 预设自动初始化 / 编辑器校验）**：在核心
     8 文件基础上补齐"更少手写、更多生成、更易用"的工具链（用户选定四个方向全做）：
     - **单一属性清单（B）**：`Runtime/Attr/AttributeCatalog.cs` —— `AttributeCatalog : ScriptableObject`
@@ -636,8 +636,8 @@ declaration type. It is only valid on 'class' declarations.`
   2.0.6 进一步统一为**全英文命名** **`HYC Framework/BT/Export Blob (For Build)`**
   （`Editor/BT/BTBlobExporter.cs` 的 `[MenuItem]`）；
   同步订正 `Runtime/BT/BTBlobLoader.cs` 两处提示文案、`manifest.txt` 注释、包 `README.md`、
-  `Samples~/HYCSimple/BT/AI-NOTES.md`，以及 `docs/01`、`docs/02`、`docs/80`~`84`、`docs/90` 的菜单表；
-  顺带订正 `docs/80` / `docs/81` / `docs/84` 里把 BT 编辑器误写成 `Tools/HYC/BT Editor` 的旧错
+  `Samples~/HYCSimple/BT/AI-NOTES.md`，以及 `Documentation~/01`、`Documentation~/02`、`Documentation~/80`~`84`、`Documentation~/90` 的菜单表；
+  顺带订正 `Documentation~/80` / `Documentation~/81` / `Documentation~/84` 里把 BT 编辑器误写成 `Tools/HYC/BT Editor` 的旧错
   （正确路径一直是 `HYC Framework/BT/BT Editor`）。
 - **天赋树：节点子资源无法持久化（`TalentNode` 类名与文件不匹配）**。Unity 只给「与文件同名的类」
   生成 `MonoScript`，而 `AssetDatabase.AddObjectToAsset` 写子资源时必须解析到它——`TalentNode` 原先
@@ -677,7 +677,7 @@ declaration type. It is only valid on 'class' declarations.`
   - 明确**不做**的事（属表现层 / 玩法层，归使用方）：存档槽、列表界面、摘要、自动保存时机。
     想要多档就自己存 `List<T>` 或自己定义类型。
   - 依赖新增 `com.unity.nuget.newtonsoft-json@3.2.1`（写进 `package.json` 与 Runtime asmdef references）。
-  - 文档：`docs/52-存档存储.md`（架构 / 关键类 / 用法 / 9 条坑）。
+  - 文档：`Documentation~/52-存档存储.md`（架构 / 关键类 / 用法 / 9 条坑）。
 - **天赋树模块（Talent）**：可视化编辑天赋树 + 运行期只读查询，**黑板属性引用配置表**。
   - `Runtime/Talent/TalentTreeAsset.cs`：`TalentTreeAsset`（ScriptableObject）+ `TalentNode` /
     `TalentLink` / `TalentCost` / `TalentAttribute` / `ConfigRowRef`。
@@ -709,7 +709,7 @@ declaration type. It is only valid on 'class' declarations.`
   - `Editor/Talent/TalentConfigPicker.cs`：**独立居中的**配置行拾取窗口（560×600），扫描带
     `[CfgAsset]` 的类型实例，复用框架已有的 `ConfigIdService.TryReadId`，不自己反射 ID 字段。
     含搜索框、配置表分类筛选、↑↓/Enter/Esc 键盘导航、行尾资产路径。
-  - 文档：`docs/53-天赋树.md`；视觉原型 `docs/prototypes/talent-tree-editor.html`。
+  - 文档：`Documentation~/53-天赋树.md`；视觉原型 `Documentation~/prototypes/talent-tree-editor.html`。
 - **行为树打包支持（补齐缺口）**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，且 `BTAutoRegisterOnPlay`（进 Play 自动注册）是编辑器钩子——打包后两者都不存在，真机拿不到任何树。现补上与配置管线（`StreamingAssets/ConfigBlob` + `TryRead`）同构的打包路径：
   - `Editor/BT/BTBlobExporter.cs`：菜单 `Tools/HYC/BT/导出 Blob(打包用)`，把全工程树资产导出为 `Assets/StreamingAssets/BTBlob/<treeId>.blob` + `manifest.txt`（导出前清空旧产物，避免删树/改名后残留）；`ExportAll(dir)` 可供构建流程直接调用。
   - `Runtime/BT/BTBlobLoader.cs`：`LoadAll()` / `Load(treeId)`，`BlobAssetReference<BTRootBlob>.TryRead` → `BTManager.Register`；清单缺失时回退扫描目录；检测到 `jar:`（Android APK 内）路径时给出明确报错而不是静默失败。
@@ -720,8 +720,8 @@ declaration type. It is only valid on 'class' declarations.`
   - `Editor/DataEditor/ConfigDataTree.cs` + `ConfigDataWindow.cs`：数据编辑器新增根目录右键「全量清理后全量导出」与工具栏「全量导出」按钮，配置文件 / 文件夹右键新增「保存并导出」。
   - `Editor/BT/BTBlobExporter.cs`：新增 `ExportFolder(folder)`（递归该目录下全部 `BTTreeAsset`，先存盘再导出）与 `ExportTrees(trees)`（只覆盖这批 blob，不清空目录，导出后 `SyncManifest` 重建清单）；`TreeTypeFilter` 由 private 改 public。
   - `Editor/BT/BTGraphIMGUI.cs`：BT 编辑器 File 菜单新增「全量清理后全量导出」，单棵树 / 文件夹右键新增「保存并导出」。
-- **文档：补齐枚举配置（此前该能力无文档）**：新增 `docs/13-枚举配置.md`——枚举定义资产 → 生成 C# 枚举类 → 配置字段引用的完整机制、`ValueOf` 的 **1 基**（`index+1`）与 Flags（`1<<index`）数值约定、**配置类字段是枚举类型而 Blob 字段是 `int`** 这一最易误判点、校验规则与 9 条踩坑（含从 0 基手写枚举迁移要 `+1`、脚本化 `EnsureEnumDefs()` 必须排在 OutputDir 清理之后）。`11-字段类型与导出设置` 的 `Enum` 行、`docs/README.md` 索引、`90-编辑器工具链` 同步更新。
-- **文档：新增 `docs/02-操作手册-按任务.md`（处方型，补齐「读完知道怎么做」的缺口）**：现有各篇都是「机制说明」（有什么、是什么），缺「要完成 X 按顺序做这些」。02 篇按任务组织——新增配置表（**脚本驱动 / 编辑器驱动两条路**，此前只讲了编辑器一条，而 SnowBros / TD 都是脚本驱动）、字段类型与导出模式决策表、枚举字段步骤、运行期读配置、行为树从零到跑通（含 `BTInterpreterSystem` 是 struct、须用 `GetOrCreateSystem<T>()`）、新增 UI 窗口、**基类 / 接口一览表**、「改完必须重跑什么」清单、菜单路径速查。另含两条易漏铁律：UI 类必须写 `partial`、引用 `UpdateGroup_*` 必须 `using HYC.Framework.Dots;`。
+- **文档：补齐枚举配置（此前该能力无文档）**：新增 `Documentation~/13-枚举配置.md`——枚举定义资产 → 生成 C# 枚举类 → 配置字段引用的完整机制、`ValueOf` 的 **1 基**（`index+1`）与 Flags（`1<<index`）数值约定、**配置类字段是枚举类型而 Blob 字段是 `int`** 这一最易误判点、校验规则与 9 条踩坑（含从 0 基手写枚举迁移要 `+1`、脚本化 `EnsureEnumDefs()` 必须排在 OutputDir 清理之后）。`11-字段类型与导出设置` 的 `Enum` 行、`Documentation~/README.md` 索引、`90-编辑器工具链` 同步更新。
+- **文档：新增 `Documentation~/02-操作手册-按任务.md`（处方型，补齐「读完知道怎么做」的缺口）**：现有各篇都是「机制说明」（有什么、是什么），缺「要完成 X 按顺序做这些」。02 篇按任务组织——新增配置表（**脚本驱动 / 编辑器驱动两条路**，此前只讲了编辑器一条，而 SnowBros / TD 都是脚本驱动）、字段类型与导出模式决策表、枚举字段步骤、运行期读配置、行为树从零到跑通（含 `BTInterpreterSystem` 是 struct、须用 `GetOrCreateSystem<T>()`）、新增 UI 窗口、**基类 / 接口一览表**、「改完必须重跑什么」清单、菜单路径速查。另含两条易漏铁律：UI 类必须写 `partial`、引用 `UpdateGroup_*` 必须 `using HYC.Framework.Dots;`。
 - **文档订正（菜单路径此前写错，会直接误导 AI）**：行为树编辑器实际是 `HYC Framework/BT/BT Editor`，`01` / `90` 两篇误写为 `Tools/HYC/BT Editor`（已订正）；`01` 篇列出的 `HYC Framework/Config/Generate Config` **并不存在**（已移除）；`90` 篇补上遗漏的 `HYC Framework/Localization/Editors/Scan Key Usage` 与两个 UI Binder 生成变体。全部菜单路径已逐条比对源码 `[MenuItem]`。
 
 ### Changed

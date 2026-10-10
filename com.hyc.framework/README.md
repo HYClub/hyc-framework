@@ -74,7 +74,7 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 框架的数据流可概括为四个阶段，配置 / 本地化 / 行为树三者产物都是**不可变 Blob**：
 
 1. **生成期（Editor）**：Excel / 配置模板经 `ConfigGenerator` 产出 `[BlobGenerate]` 的 blittable `struct`（命名空间 `HYC.Framework.Config.Generated`），经 `ConfigExportService` 烘焙成 `BlobAssetReference<BlobRoot<TRow>>`；本地化表经 `LocalizedExcelReader`(NPOI) 产出 `id` / `lang` / `filter` 与每语言 `{lang}.lang` Blob；行为树在 `BTTreeAsset` 中可视化编辑，由 `BTBlobBuilder.Build` 序列化为纯数据 `BTRootBlob`。三者均可在运行期用 `BlobAssetReference<T>.TryRead` 直接读入，无需反序列化托管对象。
-    - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `HYC Framework/BT/Export Blob (For Build)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `docs/82-BT-运行时与Blob.md` 第七节。
+    - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `HYC Framework/BT/Export Blob (For Build)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `Documentation~/82-BT-运行时与Blob.md` 第七节。
 2. **引导期（A0 / A1 数据阶段）**：游戏 Bootstrap 把 Blob 读入，调用 `ConfigManager.Register(table)`（世界无关静态表）、`LocalizationManager.Reload(folder)`（或 `LocalizationBlobSystem` 自动从 `StreamingAssets/Localization` 加载）、`BTManager.Register(treeId, blobRef)`（编辑器里由 `BTAutoRegisterOnPlay` 进 Play 自动注册；打包后由 `BTBlobLoader.LoadAll()` 从 `StreamingAssets/BTBlob` 读回）。
 3. **运行期（A2 / A3 玩法阶段）**：玩法系统从 `ConfigManager` 查行（无需 World 句柄）、从 `LocalizationManager` 取文本；行为树由 `BTInterpreterSystem`（ISystem）对挂 `RunningBT` 的实体逐帧 `Tick`，`BTInterpreter` 以指针遍历 `BTRootBlob`，通过 `BTContext.GameHandler` 把 `GameCustom` 节点派发到 `BTNodeRuntimeRegistry`（反射缓存的 `BTCustomNode` 子类），并读写 `BTBlackboardRuntime`（每树实例一个，定义只读、实例可写）。
 4. **表现期（B9，最后运行）**：UI 系统（`UIManager` + `AbsUISystem`）最后运行，读玩法阶段产生的最新状态刷新 HUD / 窗口；单帧 `MessageEntity` / `EventMessage` 在玩法阶段被消费，帧末由 `MessageExpirySystem` / `MessageClearSystem` 清理，消息绝不过帧。
@@ -160,7 +160,7 @@ F("PointStrategy", ConfigFieldType.Enum, "顺序/随机/离玩家最远", "WaveP
 > ⚠️ **Blob 里枚举字段是 `int`**（写入时 `(int)` 转换），**只有生成的配置类字段是枚举类型**。
 > 运行期从 `ConfigManager` 取到的是 `int`，需自行转枚举或与枚举常量比较（`row.Kind == (int)ItemKind.Red`）。
 > 数值是 **1 基**（普通 `index+1`、复合 `1<<index`），**没有 `0` 值**——从 0 基手写枚举迁移时所有数据要 `+1`。
-> 完整机制、校验规则与迁移要点见 `docs/13-枚举配置.md`。
+> 完整机制、校验规则与迁移要点见 `Documentation~/13-枚举配置.md`。
 
 核心类型：`ConfigManager`、`ConfigBlobTable<TRow>`、`BlobRoot<TRow>`、`ConfigTemplate`、`ConfigEnumDefinition` / `ConfigEnumValue`、`ConfigFieldType.Enum`（`enumRefClassName`）、`CfgAssetAttribute`、`IConfigIdProvider`、`BlobGenerateAttribute`。
 
@@ -434,9 +434,9 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
 
 ## 📚 文档导航
 
-完整文档在仓库根的 `docs/`（28 篇，全部基于源码实测撰写）：
+完整文档在包的 `Documentation~/`（28 篇，全部基于源码实测撰写）：
 
-- **要动手做事 → [`docs/02-操作手册-按任务.md`](../docs/02-操作手册-按任务.md)**
+- **要动手做事 → [`Documentation~/02-操作手册-按任务.md`](Documentation~/02-操作手册-按任务.md)**
   —— 新增配置表、选字段类型与导出模式、写枚举、跑行为树、加 UI 窗口的**分步操作**，
   另含基类一览、导出模式决策表、改完要重跑什么、菜单路径速查。
 - 机制说明按模块分篇：`00` 架构 · `01` 上手 · `10~13` 配置与枚举 · `20~22` 多语言 ·
@@ -444,7 +444,7 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
   `90` 编辑器工具链 · `99` Blob 约定 · `100` 文件与类索引。
 
 > 文档同时面向 **AI**：结构固定、类型全名 / 命名空间 / 菜单路径内联且逐条核对过源码，
-> 可直接把 `docs/` 提供给 Copilot / WorkBuddy / Cursor 等助手使用。
+> 可直接把 `Documentation~/` 提供给 Copilot / WorkBuddy / Cursor 等助手使用。
 
 ---
 
