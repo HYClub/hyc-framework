@@ -4,10 +4,343 @@ All notable changes to the HYC Framework package are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.0.6] - 2026-10-07
+## [Unreleased]
 
+### Fixed
+
+- **git URL 安装时缺依赖报 CS0234**：`package.json` 此前只声明了
+  `com.unity.addressables` 与 `com.unity.nuget.newtonsoft-json`，
+  以 git URL 方式安装到宿主工程时 UPM 不会拉取 DOTS 全家桶，
+  所有 Runtime 脚本报 `error CS0234: "Entities" does not exist in the namespace "Unity"`。
+  现补齐 `dependencies`（版本与 SnowBros 宿主工程实测组合一致）：
+  `com.unity.entities 1.0.16` / `com.unity.burst 1.8.16` /
+  `com.unity.collections 2.1.4` / `com.unity.mathematics 1.2.6` /
+  `com.unity.inputsystem 1.7.0` / `com.unity.timeline 1.7.7` /
+  `com.unity.textmeshpro 3.0.7` / `com.unity.ugui 1.0.0`。
+
+### Added
+
+**音频系统**（框架此前零音频代码，本次从零建链路）
+
+- **统一门面 `Audio`**（`Runtime/Audio/Audio.cs`）：三后端共用一套 API
+  （`Play` / `Stop` / `StopChannel` / `Pause` / `SetVolume` / `SetMuted` / `Dispose`）。
+  切后端只换门面背后的实现，**业务代码与配置表零改动**。
+- **后端契约 `IAudio`** + `AudioHandle` 句柄（`Runtime/Audio/IAudio.cs`）。
+  新增后端（FMOD / 自研）实现此接口即可接入。
+- **框架默认后端 `DefaultAudio`**（`Runtime/Audio/DefaultAudio.cs`）：
+  Addressables 载 `AudioClip` + 池化 `AudioSource`。
+  **Unity 原生与框架模式合并到这一份实现**（都走 AA），区别只在配置字段存什么。
+  句柄**不拥有** AudioClip 引用计数 —— 加载后常驻缓存直到 `Dispose`，
+  避免"第二次播同一音效要重新加载"的卡顿（与 UI 的 `Addressables.Release` 语义一致）。
+- **Wwise 后端 `WwiseAudio`**（`Runtime/Audio/WwiseAudio.cs`）：**类体全部用 `#if HYC_WWISE` 包裹**，
+  没装 Wwise 时编译出空壳、不引用任何 Wwise 类型，框架包本身无需 Wwise 依赖即可编译。
+  未定义宏时所有方法明确 `LogError` 而非静默失败。
+- **分组音量**（`AudioChannel`）：`Master` / `Music` / `Sfx` / `Voice` / `Ui`。
+  实际增益 = `Master × 组音量`。设置界面可分音乐/音效两档调。
+- **音频总览数据结构**（`Runtime/Audio/AudioCatalog.cs`）：
+  `AudioCatalogAsset` 带 `[CfgAsset("音频/音频总览", 60, Unique=true)]`——
+  与其他配置类型**完全同构**，出现在配置树里、可直接编辑。
+  每条 `AudioEntry` 同时挂 `addressableKey`（clip 路径）与 `wwiseEvent`（Wwise 路径）。
+  Blob 侧 `AudioCatalogRow` / `AudioCatalog` / `AudioCatalogBlobSystem`，
+  产物落 `StreamingAssets/AudioBlob`，与 Loc / BT 的 Blob 管线同构。
+- **音频管理窗口** `HYC Framework/Audio/Audio Manager`（priority 60，独立一档）：
+  - **后端切换**：Wwise 选项按"装了没"+"宏有没有"点亮，两者缺一即置灰并显示对应指引
+    （装了但缺宏 → 给"打开 Player Settings 添加宏"按钮；没装 → 给 Launcher 安装指引）。
+  - **音频清单大列表**：启用 / 音频名字 / Addressables 地址 / Wwise 事件名 / 分组 / 已导出 / 描述。
+  - **「是否已导出成框架配置」列**：比对导出时刻写入的内容 hash（FNV-1a，跨会话稳定）
+    与当前总览内容，改动后整列自动转「否」并提示重新导出。
+  - **扫描工程音频**：`AssetDatabase.FindAssets("t:AudioClip")`，
+    自动填 Addressables 地址 + 按路径猜分组（BGM/Music→音乐、UI→界面…），已存在的跳过不覆盖。
+  - **扫描 Wwise 事件**：解析官方 `SoundBanksInfo.json`
+    （`SoundBanksInfo.SoundBanks[].IncludedEvents[].Name`）。
+    找不到时提示在 Wwise Authoring 勾选 *Generate JSON Metadata* 后重新 Generate，
+    并提供手动指定文件路径的口子。
+- **`HYC Framework/Audio/Export Catalog Blob`**（priority 61）：导出 Blob 到 StreamingAssets。
+
+**配置系统接入「框架/音频」字段类型**（`ConfigFieldType.AudioEvent`）
+
+- 存**带前缀的字符串**：`clip:<Addressables地址>` / `wwise:<Wwise事件名>`。
+  前缀决定路由到哪个后端 → **同一张配置表在两种后端下都能播，切后端不改配置**。
+  与现有 `Addressable` 字段一样进 Blob 走字符串（`IsStringLike()`），
+  与 `Unity 对象/音频`（AudioClip 强引用）**并存不冲突**。
+- 6 个接入点全部同步：枚举定义 `Runtime/ConfigTemplate.cs`、
+  菜单路径 `ConfigTemplateEditor.cs`、代码生成加 `[AudioField]` `ConfigTemplateCodeGen.cs`、
+  类型映射 `string` + `using HYC.Framework.Audio`、`IsStringLike()`、
+  属性绘制 `DrawAudioField`（`GUIDrawer.cs`，下拉列出总览条目 + 未登记值标 ⚠ 不静默改写）。
+- 两个 asmdef 加 `versionDefines`：装 `com.audiokinetic.wwise.addressables` 时自动定义 `HYC_WWISE`。
+  **新版 Wwise Unity Integration 是 `.unitypackage`（无 package.json），versionDefines 侦测不到**，
+  故窗口同时用 `AssetDatabase` 探测 `Assets/Wwise/Deployment` 并提示手动加宏。
+
+### Notes
+
+- 主菜单路径**全英文**约定：`HYC Framework/Audio/Export Catalog Blob`（原写成中文被 `verify-gate.sh` 拦下）。
+- 索引更新至 **223 文件 / 383 类型 / 18 分组**（新增 `Runtime/Audio/` 与 `Editor/Audio/`）。
+
+### 勘误：音频模块首轮编译的 16 处错误（2026-10-08 实测发现，已修）
+
+沙箱禁 `csc`，首轮写完没编译过，用户在 Unity 里一开就是 16 个错误。根因四类：
+
+1. **CS0103 `Debug` 不在上下文**（6 处，`WwiseAudio.cs`）：
+   `using UnityEngine;` 被我放进 `#if HYC_WWISE` 块里，但 `#else` 分支（未装 Wwise 时，
+   也就是**默认编译路径**）里的 `Debug.LogError` 同样需要它。
+   → **条件编译分支两侧都要用的 using 必须提到 `#if` 外面。**
+2. **CS1001 `BlobString` 无 `value`**：用了不存在的属性。正确做法是
+   `ref BlobString` 转托管字符串（框架 Loc 有 `ToUtf8String()`；音频自写一份避免跨模块耦合）。
+3. **CS1017 `BlobAssetReference<T>` 无 `CreateFromMemory`**：Entities 1.0 里不存在。
+   框架的正确 API 是 **`TryRead(path, version, out blob)`**（`BTBlobLoader` 用的就是这个）。
+4. **EA0001/EA0009 Blob 数组只能按 ref 访问**（8 处）：
+   托管代码直接遍历 `_ref.Value.Rows` 触发分析器约束。
+   框架 `ConfigBlobTable.TryGetRowAt` 的注释**早就记录了这个坑**，正解是
+   `ref var rows = ref _ref.Value.Rows;` 或值拷贝到托管数组后遍历。
+   另给 Blob 根补上 `where TRow : unmanaged` 约束，与 `BlobRoot<TRow>` / `ConfigBlobTable<TRow>` 同构。
+
+另外 `AllocateString` 是 **`ref` 参数**（`builder.AllocateString(ref arr[i].Ref, value)`），
+不是返回值形式 —— 与配置管线生成代码一致。
+
+### 勘误：给非泛型声明加 where 约束（CS0080）
+
+第一轮修复里我仿照 `BlobRoot<TRow> where TRow : unmanaged` 给 `AudioCatalogBlob` 加了
+`where AudioCatalogRow : unmanaged` —— 但 `AudioCatalogBlob` **不是泛型**，C# 直接
+**CS0080: Constraints are not allowed on non-generic declarations**。
+
+**教训**：照抄代码要抄到"为什么成立"这一层，不能只抄表面形状。
+`BlobRoot<TRow>` 能加约束是因为它**是泛型**；非泛型类型加了就是错。
+
+而那个约束本身**根本不需要** —— `BlobArray<AudioCatalogRow>` 自身就要求
+T 满足 unmanaged，一旦 `AudioCatalogRow` 含托管引用（`AudioClip` / `string`）
+会在编译期直接报错。约束是多余的。
+
+**已加固**：`scripts/verify-gate.sh` 新增第 5 项检查（全仓扫「非泛型声明带 where」），
+这类纯语法错不该再漏到 Unity 才被发现。同项做了双向验证。
+
+### 勘误：blob 行类型不能按值传出（EA0009）
+
+第二轮修 EA0001 时我用了「值拷贝到托管数组」，但 `AudioCatalogRow` 住在 blob 存储里
+且含 `BlobString`，分析器禁止把这种类型**按值作为 out 参数 / 返回值**传出：
+
+```
+error EA0009: You may only access AudioCatalogRow by (non-)readonly ref
+    in AudioCatalog.TryGet(long, out AudioCatalogRow)
+```
+
+框架的 `ConfigBlobTable.TryGet(long, out TRow)` 之所以能 `out TRow`，是因为它带
+`where TRow : unmanaged` 约束 —— **含 `BlobString` 的行不在那个覆盖范围内**。
+
+**正解**：新增托管 DTO `AudioCatalogEntry`（`Ref` 为 `string`），Blob→托管的转换
+**在 `Snapshot()` 里一次做完**，Blob 类型不越过 API 边界。
+`TryGet` / `TryGetByRef` / `All()` 全部改返回 DTO。
+
+顺带修两处设计问题：
+- 门面的 `Play` 此前**从不查总览**（直接用引用里的地址播），导致整个查询层是死代码。
+  现在接上了：命中总览则用规范地址 + 总览登记的分组；未登记则原样播（手填地址也能响）。
+- 分组冲突（调用方传了 vs 总览登记了）用 **`Play` / `PlayIn` 两个重载**表达，
+  不用隐式标志位 —— 后者易错且不可读。
+
+另给 `AudioCatalogBlobSystem` 加 `[RuntimeInitializeOnLoadMethod]` 自动加载
+（照 `LocalizationBlobSystem` 的写法），否则总览在运行时永远是空的。
+
+### 勘误：Editor 侧 7 处编译错（命名空间遮蔽 / 变量残留 / 二义）
+
+1. **CS0234 `Audio.CurrentBackend` 不存在于命名空间**（3 处）：
+   静态类 `Audio` 与命名空间 `HYC.Framework.Audio` **同名**。本文件在
+   `HYC.Framework.AudioEditor` 里，裸写 `Audio.Xxx` 会被解析成**命名空间**。
+   → 加 `using AudioFacade = HYC.Framework.Audio.Audio;` 别名。
+2. **CS0103 `exported` 不存在**：把 `bool exported = ExportStatus()` 改成字段
+   `_exportFresh` 时漏了一处引用（重构改名留漏网）。
+3. **CS1929 `string[]` 无 `Contains`**：用了 LINQ 的 `Enumerable.Contains`，
+   数组本身没有 → 补 `using System.Linq;`。
+4. **CS0104 `GUIDrawer` 二义**：`UnityEditor.GUIDrawer` 与
+   `HYC.Framework.Config.Editor.GUIDrawer` 同名，同时 using 两个命名空间即二义
+   → **去掉** `using HYC.Framework.Config.Editor`，调用处写全名。
+
+**注**：第 4 类（跨命名空间同名二义）在框架里已有先例
+（`UnityEditor.GUIDrawer`），将来跨模块引用要预判。
+
+### 闸门新增检查项的教训：误报率高的检查不如不加
+
+本轮尝试给 `verify-gate.sh` 加第 6 项「未定义标识符残留」（想静态抓 CS0103 类问题），
+结果**全仓 20+ 文件假红**（`_x` 这类字段声明、`foreach (var x in ...)` 都判不出来）。
+判据太粗 ⇒ 噪声淹没信号 ⇒ 这项检查没有价值，已撤掉。
+
+**结论**：静态检查项必须**在全仓跑一遍看误报**，不能只看"能不能抓到我这次的错"。
+抓得到目标错误但误报一片的检查项，宁可不加 —— 留着只会让人忽略真信号。
+
+### 勘误：IMGUI 运行时错误（Invalid GUILayout state）
+
+编译通过后开窗口即报 `Invalid GUILayout state in AudioManagerWindow view`，
+连带 `ArgumentNullException: Value cannot be null. Parameter name: target`。
+
+**根因（主要）**：修 CS0103 时误把两行并成一行 ——
+`EditorGUILayout.BeginHorizontal();  var newEnabled = ...`。
+IMGUI 在 Layout 阶段解析到畸形行直接错位，后续所有控件位置失效。
+**是我自己的编辑造成的**，静态检查第一轮没抓到（正则只数了 Begin/End 个数，没看单行是否含多条语句）。
+
+**同时修掉三处同类的条件性布局**（都会在状态切换那一帧触发同样的报错）：
+IMGUI 要求**每帧控件数量与类型完全一致**（Layout 与 Repaint 两阶段必须匹配），
+条件性地增减控件就会错位：
+1. `if (!_exportFresh) LabelField(...)` → 提示行始终画，按状态换文案。
+2. `if (installed && !compiled) {...} else if (!installed) {...}`
+   → 整块始终画，按状态换内容与按钮可用性。
+3. `foreach (var m in _lastScan.Messages) HelpBox(m)`
+   → 改成固定「摘要行 + 最近一条」，条数不画。
+另外 `OnGUI` 里的 `if (_catalog == null) { ...; return; }` 改成 if/else
+（提前 return 会让两种状态走不同长度的布局）。
+
+**教训**：改 IMGUI 代码时，一条语句一行；批量编辑后必须扫
+「同一行 `;` 后是否还有代码」—— 这条比 Begin/End 计数更能抓到真实问题。
+
+### 勘误：InitializeOnLoad 挂到了静态构造器上（CS0592）
+
+`ConfigTemplateCodeGen.WriteExportFile` 生成的 `XxxConfigExport.cs` 里，
+`[UnityEditor.InitializeOnLoad]` 被吐在了**静态构造器**上：
+
+```csharp
+public static class ActorConfigExport
+{
+    [UnityEditor.InitializeOnLoad]                                    // ← 错
+    static ActorConfigExport() => ConfigExportService.Register(...);
+}
+```
+
+Unity 报 `CS0592: Attribute 'UnityEditor.InitializeOnLoad' is not valid on this
+declaration type. It is only valid on 'class' declarations.`
+
+**为什么**：该特性的语义是「修饰**类**，由 Unity 在程序集重载后调用该类的静态构造器」，
+不是「修饰任意静态构造器」。框架里 `BTAutoRegisterOnPlay` 的正确写法是把它挂在
+`class` 上、由那个类的静态构造器干活——生成器把两者拆错了位。
+
+**修复**：特性上移到 `class` 声明上，静态构造器只留注册语句。注册语义不变
+（`ConfigExportService.Register` 是幂等字典赋值，且 `FindExportType` 还有
+全程序集扫描兜底，所以这一步纯粹是"零反射快捷路径"）。
+
+**已加固**：`scripts/verify-gate.sh` 新增第 6 项检查（全仓扫
+「`InitializeOnLoad` 是否修饰在 class 上」，并用 `\b` 天然排除合法的
+`InitializeOnLoadMethod`）。生成产物落在宿主工程里、包内编译不到，
+这类由生成器吐出的语法错只能静态抓。已做双向验证 + 包全量零误报。
+
+### 变更：ID 服务器状态从「窗口角落绿点」改为「HYC Settings 文字状态行」
+
+原先状态点画在 `ConfigDataWindow` 与 `ConfigDataSettingsWindow` 的**窗口内右下角**
+（`position.width - 18`），视觉上紧贴属性面板的「保存模板」按钮，容易被误认成按钮状态指示。
+
+**现状**：绿点已移除；`HYC Framework/Settings/Project Settings`（HYC Settings 窗口）里新增
+「ID 服务器（配置发号）」区段 ——
+
+- **状态行**：12x12 圆点（绿/黄/红）+ 文字（`已连接（127.0.0.1:8920）` / `不可用（…）`）
+  + 悬停 tips。不可用时提示本地模式始终可用、局域网模式需先启动服务器。
+- **设置项**：类型（本地/局域网）、服务器 IP、端口、「检测」按钮、
+  「在 Unity 内启动 ID 服务器」（无启动插件时给降级提示）。
+  改动**即时写入** `ConfigDataSettings`（EditorPrefs），不需点保存；
+  类型/IP/端口任一变化都调 `ResetProvider()` 重建 Provider（旧连接已失效）。
+- 后台心跳：仅在**非 Connected** 时探（本地模式 `Ping` 恒真不必探），5 秒间隔。
+
+与「数据编辑器设置」窗口操作**同一份** `ConfigDataSettings`（EditorPrefs），两处等价、互不冲突。
+
+**API 变化**：`ConfigIdService.DrawStatusDot(Rect)` **已删除**（无调用点，不留死 API）。
+新增 `GetStatusTexture()` / `StateText` / `StatusTooltip` 三个只读成员供 UI 复用。
+
+### 修复：「生成代码」后模板长期带未保存标记（标题的 `*`）
+
+点「生成代码」后资产一直带 `*`，必须再点一次「保存模板」才消。**有两个独立源头**：
+
+1. `ConfigTemplateEditor.Generate()` 只有 `mTarget.ApplyModifiedProperties()` ——
+   它只把 `SerializedProperty` 提交到**内存对象**，从不写盘。
+2. `ConfigTemplateCodeGen.WriteFile` 内部为记录 `lastGeneratedClassName`
+   会 `EditorUtility.SetDirty(template)` —— **是生成动作自己把资产弄脏的**。
+
+只修 ① 不够：生成器内部那行 `SetDirty` 会在保存之后**重新**标脏。两处都要处理。
+
+**修复**：
+
+- 抽出 `SaveInternal(bool showNotification)`（「净化显示名 → 同步资产名 → SetDirty +
+  SaveAssetIfDirty」），`Save()` 与 `Generate()` 共用。
+  ⚠️ 抽取时**保留原行为**：`Save()` 原本不关闭窗口，`SaveInternal` 因此不带 `close` 参数。
+- `Generate()` 改为**生成前落盘一次、生成后再落盘一次**（后者消掉生成器内部的 `SetDirty`），
+  提示改为「已保存并生成 Xxx.cs」；落盘失败时降级提示请手动保存。
+- 右键菜单入口 `ConfigDataTree.GenerateTemplateCode` 同样补上前后两次落盘
+  （原先只有 `WriteFile` + `Reload`，同样会留 `*`）。
+- `lastGeneratedClassName` 的 `SetDirty` **保留不动** —— 它是改名追踪的依据，去掉会破坏改名功能。
+
+**副作用（正向）**：生成前落盘使「改了显示名没保存就生成」的场景下，
+生成用的资产名与保存后的保持一致（`SyncTemplateAssetName` 一并纳入流程）。
+
+### 变更：框架音频字段从「下拉选总览条目」改为「拖入 AudioClip」
+
+原先 `DrawAudioField` 列出音频总览（`AudioCatalogAsset`）的条目做下拉。实际使用中不便：
+必须先在 Audio Manager 里把条目建好，配置侧才能选；没建总览时整列只能显示「(无)」
+（截图实测：模板里字段填好了，数据配置里仍是无 + 一行「未找到音频总览资产」提示）。
+
+**改为拖拽式**（与 Addressable 字段的交互一致）：
+
+- `ObjectField(AudioClip)` —— 直接把 `.clip` 拖进去，自动取它的 Addressables 地址，
+  写成 `clip:<AA地址>`；清空即删除。
+- 资源未打 Addressables 标签时：填入资源名兜底，并**弹窗告知**（不静默塞一个加载不了的地址）。
+- 字段下方以 miniLabel 显示当前 key（原值），便于核对与手填。
+- `wwise:` 前缀的值没有对应资源可拖，改用**文本框**回退编辑。
+
+**为什么仍存字符串而不是 `AudioClip` 对象引用**：前缀决定路由（`clip:` 走框架默认后端、
+`wwise:` 走 Wwise），换后端不改配置表，且字符串能直接进 Blob；存对象引用则两者都做不到。
+
+**两个 AudioEvent 概念要分清**（此前被我混为一谈）：
+
+| 模板字段类型 | 生成 | 面板画法 |
+|---|---|---|
+| `AudioClip`（Unity 原生，既有） | `public AudioClip X` | Unity 默认对象选择器 |
+| `AudioEvent`（框架/音频） | `public string X` + `[AudioField]` | 本次改为拖拽式 |
+
+**IMGUI 约束**：`wwise` 分支的 TextField 用 `DisabledScope` 而非 `if` 包裹 ——
+控件数量必须每帧恒定，否则 Layout/Repaint 错位触发 `Invalid GUILayout state`。
+
+**注**：`[Header("…")]`（模板里的「显示名字」）与字段标签（`PropertyField` 的 label，
+来自 C# 字段名）是**两套独立机制**，一直并存、不冲突。`[Header]` 渲染为字段上方的分组标题。
+
+### 修复：自定义绘制字段在数据配置面板上丢失 [Header]（模板"显示名字"不显示）
+
+**现象**：模板里给字段填了显示名字（生成 `[Header("角色音效")]`），数据配置面板里看不到。
+**不是模板写错，也不是生成器写错** —— 生成产物确实是 `[Header("角色音效")]` + `[AudioField] public string AudioEvent;`。
+
+**根因**：Unity 只在**默认 `PropertyField` 流程**里绘制 `HeaderAttribute`。
+`GUIDrawer.DrawFieldGUI` 里走自定义绘制分支的字段（Addressable / 行为树 / 多行 /
+多语言Key / **音频**）绕过了那条流程 ⇒ Header 永远不画。
+所以这不是音频独有的问题 —— 行为树 `TreeId` 等自定义字段同样丢描述，一直没人注意。
+
+**修复**：
+
+- `GUITypeField` 新增 `Header` 字段；`GUIType` 反射时读出 `HeaderAttribute.header`。
+- `DrawFieldGUI` 在进入自定义分支前补画 `LabelField(field.Header, EditorStyles.boldLabel)`。
+- ⚠️ 补画的**条件必须与紧随其后的 if/else-if 链逐条一致**（代码里已写明）：
+  少一条 ⇒ 该字段 Header 丢失；多一条 ⇒ Header 画两遍。新增自定义分支时两处一起改。
+- 默认分支不动 —— 那里 Unity 自己会画 Header，画两次会重复。
+
+### 变更：框架音频字段布局（拖拽框与 key 分行）
+
+上一版把 `ObjectField` 和 key 文本框**并排**画在一行，视觉上像"这里在存 AudioClip 对象"，
+容易误读（用户实测截图确认）。改为：
+
+- 第一行：`ObjectField(AudioClip)` —— 拖入 clip 自动写 `clip:<AA地址>`（与 PrefabAddress 同款）。
+- 第二行：文本框显示当前 key。`wwise:` 值无资源可拖，用 `DisabledScope` 放行编辑；
+  `clip:` 值该框只读（改值请重新拖 clip）。
+
+**存储类型仍是字符串**（`public string AudioEvent` → Blob 里 `BlobString`），
+拖拽框只是**选取音频资源的交互手段**，不改变存储形态 —— 这样才能用前缀路由到
+框架默认后端或 Wwise，且能直接进 Blob。
+
+## [2.0.6] - 2026-10-07
 > 版本说明：`2.0.5`（存档存储等）与本节合并为一次发布，`package.json` 由 `2.0.4` 直接 bump 到 `2.0.6`。
 > 此前两个 `- Unreleased` 段落从未发布过，故合并不会影响任何已发布版本。
+
+### 勘误：历史 tag 与包版本脱节（2026-10-07 实测发现）
+
+`v2.0.0` ~ `v2.0.4` 这**五个 tag 内的 `package.json` 全部写着 `"version": "1.0.0"`**，
+与 tag 名完全脱节（另外 `v2.0.5` 无对应 tag，tag 跳号）。2026-10-07 打的 `v2.0.6` 是首个一致的。
+
+**影响**：tag 本应充当"可寻址的发布点"，版本脱节后它失去这个作用——
+按 tag 引用会拿到一个自称 1.0.0 的包。
+
+**处理**：历史 tag **无法改写**（改写会让已引用它的下游失效），故：
+1. 在 `scripts/verify-tag-version.sh` 的 `KNOWN_LEGACY_MISMATCH` 中登记为既成事实；
+2. 该脚本对已登记的历史遗留**只报告不失败**，但**任何新 tag 若与包版本不一致即失败**（退出码 1），
+   并提示"不要为了让 CI 变绿而随便加进基线"。
 
 ### Changed
 - **编辑器菜单三档分级**（用户反馈：「Setting 和 Samples 明显和其他功能不是一回事」、
@@ -52,6 +385,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > 所以"分级"只能靠**位置语义**表达——这也是**排序比命名更重要**的原因。
 
 ### Added
+- **静态闸门脚本（`scripts/verify-gate.sh`，新增）**：一次跑完四类"Unity 编译发现不了"的检查——
+  索引文件数 / 类型数 / 分组和与磁盘一致、新增 `.cs` 都有 `.meta` 且无孤儿 `.meta`、
+  tag 与 `package.json` 版本一致、主菜单路径全英文。纯 bash + python，**不需要 Unity**，
+  提交前 3 秒出结果；CI 上每次 push / PR 自动跑。
+  - **首版自身有两个 bug，均由反向验证抓出**：① 统计类型数时没剥离注释，
+    XML 文档注释里的 `<c>class Foo</c>` 被计入（报 387 而实际 362，虚高 25）；
+    ② 孤儿 `.meta` 分支从未被真正触发——第一次注入测试用的是"移走 `.meta`"（变成"缺 `.meta`"）
+    而不是"造孤儿 `.meta`"（有 meta 无 cs）。
+  - 因此确立一条流程要求：**每个检查项都要先注入一个错误、确认退出码非 0，再恢复**。
+    只跑"正着过"证明不了检查是活的。当前四项检查均已双向验证。
+- **CI 工作流（`.github/workflows/gate.yml`，新增）**：
+  - `gate` job **启用**：Ubuntu + Python 3.12，跑 `verify-gate.sh`，无 Unity 依赖。
+  - `unity-tests` job **停用**（`if: false`）：需Unity 许可密钥。Unity 个人版许可绑定桌面激活、
+    **不提供 CI 密钥**，公开仓库的 Actions 上拿不到可用的 batchmode 许可；强行开启只会得到一个必红的 job。
+    开启步骤写在 `docs/95-CI与本地验证.md`。这不等于放弃——先把不依赖许可的部分全做掉。
+- **CI 壳工程生成脚本（`ci/make-test-project.sh`，新增）**：本仓库是 **UPM 包**，没有
+  `ProjectSettings/`，Unity batchmode 打不开——脚本生成一个最小壳工程（`ci/TestProject/`，已gitignore），
+  以 `file:` 方式把包引进去。壳工程依赖版本从 `package.json` 的 `dependencies` 读取而非硬编码；
+  Unity 版本以包根新增的 **`.unityVersion`** 为单一真源，并与 `package.json` 的 `unity` 字段交叉校验
+  （版本猜错的后果是"编译报一堆看不懂的 API 错误"，比直接失败难查得多）。
+  - 踩坑：Git Bash 下 `/e/...` 是 MSYS 虚拟路径，**`python.exe` 与 `Unity.exe` 都是原生 Win32 程序、
+    收不到这个转换**。喂给 Python 的路径先 `cd` 进去用相对路径；写给 Unity 的用 `pwd -W` 转成 `E:/...`。
+- **EditMode 测试 13 → 55 个用例**（4 个新文件）：
+  | 文件 | 用例 | 钉住的契约 |
+  | --- | --- | --- |
+  | `SaveManagerTests.cs` | 16 | 存档三条本分保证：原子写（`.tmp`→`File.Replace`，旧版进 `.bak` 且内容是**上一版**）、坏档改名 `.corrupt_*` 绝不静默覆盖、格式版本不匹配按坏档处理。含"序列化抛异常时**不留正式文件**"——否则玩家下次读档拿到的是损坏存档而非"读不到存档" |
+  | `LocalizationManagerAtomicCommitTests.cs` | 10 | `Reload` 失败 ⇒ 现有一字不动。**这是 2026-10-06 示例洗掉宿主 18 条key 那次雪崩的根因**（旧实现"先清空静态字段再读盘"）。三种坏输入（目录不存在 / null / 空目录）+ 失败时不广播 `onLanguageChanged` + 索引惰性重建自愈 |
+  | `ConfigCodeGenWriteTests.cs` | 7 | `ConfigTemplateCodeGen.WriteIfChanged`：内容未变不重写（避免无谓重编译），换行差异视为变化 |
+  | `BTManagerRuntimeStateTests.cs` | 6 | BT 运行态释放入口对"从未注册 / 默认 / 已释放"实体安全且幂等 |
+  - 两个测试类通过**反射**直接摆 `LocalizationManager` / `SaveManager` 的静态字段（这两处没有注入/Reset API，
+    构造合法 blob 成本远高于用例价值）。代价已写进代码注释：
+    **`LocalizationManager` 新增静态字段时必须补进 `TrackedFields`**，否则用例跨用例污染。
+  - ⚠️ 写涉及日志的用例时：`Log.Error` 走 `Debug.LogError`，Unity 测试框架遇到**未声明**的 Error
+    会直接判失败——必须显式 `LogAssert.Expect`（本批 4 处）。
+- **索引文档自检（`Tests/Editor/FileIndexAuditTests.cs`，新增文件）**：断言
+  `docs/100-文件与类索引.md` 声明的文件数 / 类型数 / 各分组之和等于实际扫描结果。
+  只做文本解析与目录扫描、**不碰任何 `UnityEditor` API**，因此即使 CI 拿不到 Unity 许可，
+  它仍能在纯 .NET 环境作为兜底闸门运行。首跑即抓出索引已过期（声明 208 / 345，实际 209 / 356），
+  已据此更新文档——证明这类"文档腐化"确实在发生，不是假想。
+- **tag 版本一致性校验（`scripts/verify-tag-version.sh`，新增）**：见上方勘误段。
+  已双向验证：已登记的历史遗留 → 退出码 0；临时造一个不一致的新 tag → 正确报错。
 - **World 生命周期钩子（`Runtime/FrameworkLifecycle.cs`，新增文件）**：进程级静态单例此前**没有任何释放时机**——
   `BTManager` / `ConfigManager` 等持有 `Allocator.Persistent` 原生容器，World 销毁时无人调用 `DisposeAll()`。
   新增 `FrameworkLifecycle.DisposeAll(reason)` 统一释放 BT / 黑板 / 事件总线 / 节点注册表 / 配置表，
