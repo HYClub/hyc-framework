@@ -73,13 +73,15 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 
 框架的数据流可概括为四个阶段，配置 / 本地化 / 行为树三者产物都是**不可变 Blob**：
 
-1. **生成期（Editor）**：Excel / 配置模板经 `ConfigGenerator` 产出 `[BlobGenerate]` 的 blittable `struct`（命名空间 `HYC.Framework.Config.Generated`），经 `ConfigExportService` 烘焙成 `BlobAssetReference<BlobRoot<TRow>>`；本地化表经 `LocalizedExcelReader`(NPOI) 产出 `id` / `lang` / `filter` 与每语言 `{lang}.lang` Blob；行为树在 `BTTreeAsset` 中可视化编辑，由 `BTBlobBuilder.Build` 序列化为纯数据 `BTRootBlob`。三者均可在运行期用 `BlobAssetReference<T>.TryRead` 直接读入，无需反序列化托管对象。
+1. **生成期（Editor）**：Excel / 配置模板经 `ConfigGenerator` 产出 `[BlobGenerate]` 的 blittable `struct`（命名空间 `{命名空间root}.config`，root 由 HYC Settings → CodeGen 分组设置，留空取项目公司名），经 `ConfigExportService` 烘焙成 `BlobAssetReference<BlobRoot<TRow>>`；本地化表经 `LocalizedExcelReader`(NPOI) 产出 `id` / `lang` / `filter` 与每语言 `{lang}.lang` Blob；行为树在 `BTTreeAsset` 中可视化编辑，由 `BTBlobBuilder.Build` 序列化为纯数据 `BTRootBlob`。三者均可在运行期用 `BlobAssetReference<T>.TryRead` 直接读入，无需反序列化托管对象。
     - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `HYC Framework/BT/Export Blob (For Build)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `Documentation~/82-BT-运行时与Blob.md` 第七节。
 2. **引导期（A0 / A1 数据阶段）**：游戏 Bootstrap 把 Blob 读入，调用 `ConfigManager.Register(table)`（世界无关静态表）、`LocalizationManager.Reload(folder)`（或 `LocalizationBlobSystem` 自动从 `StreamingAssets/Localization` 加载）、`BTManager.Register(treeId, blobRef)`（编辑器里由 `BTAutoRegisterOnPlay` 进 Play 自动注册；打包后由 `BTBlobLoader.LoadAll()` 从 `StreamingAssets/BTBlob` 读回）。
 3. **运行期（A2 / A3 玩法阶段）**：玩法系统从 `ConfigManager` 查行（无需 World 句柄）、从 `LocalizationManager` 取文本；行为树由 `BTInterpreterSystem`（ISystem）对挂 `RunningBT` 的实体逐帧 `Tick`，`BTInterpreter` 以指针遍历 `BTRootBlob`，通过 `BTContext.GameHandler` 把 `GameCustom` 节点派发到 `BTNodeRuntimeRegistry`（反射缓存的 `BTCustomNode` 子类），并读写 `BTBlackboardRuntime`（每树实例一个，定义只读、实例可写）。
 4. **表现期（B9，最后运行）**：UI 系统（`UIManager` + `AbsUISystem`）最后运行，读玩法阶段产生的最新状态刷新 HUD / 窗口；单帧 `MessageEntity` / `EventMessage` 在玩法阶段被消费，帧末由 `MessageExpirySystem` / `MessageClearSystem` 清理，消息绝不过帧。
 
 **UI 如何挂在 ECS 上**：`AbsUISystem`（`[DisableAutoCreation]`）由游戏显式 `CreateSystemManaged` 并加入某 `UpdateGroup`（通常 B9 内）；其 `PrefabKey` 是 Addressable key，`UIManager` 在打开时 `Addressables.InstantiateAsync` 实例化 Prefab 并挂到分层 Canvas 下。视图内组件通过 `ComponentBinderTable` 配置、由 `ComponentBinderCodeGenerator` 生成强类型 `class X : IComponentBinder`，在视图（重）显示时 `Reset` 重新绑定，避免跨场景后引用失效。
+
+> 🔴 **跨端契约（WebGL / Android / PC / iOS 同一套代码）**：三种 Blob 都从 `StreamingAssets` 读——PC / iOS 直读文件；WebGL（浏览器无文件系统）与 Android（文件在 APK 压缩包内）不能裸读，必须由引导先 `await StreamingAssets.PreloadAsync()`。框架已收口全部平台差异：引导用 `FrameworkBootstrap.InitializeAsync`（内部先预取再建 World），读取用 `StreamingAssets.ReadBytes / ReadText / Exists / GetKeysUnder`，判据是 `StreamingAssets.NeedsPreload`（= WebGL || Android）——**游戏层不需要写任何平台分支**。详见 `Documentation~/99-Blob-与数据约定.md`「五·补 · 跨端数据加载契约」。
 
 ---
 
@@ -89,7 +91,7 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 
 框架的启动宿主与 ECS 更新阶梯——用 `IFrameworkInstaller` 组合安装世界、以双模式（Live / Sim）启动，并通过单帧消息实体在系统间解耦通信。
 
-> ⚠️ `FrameworkBootstrap` **不会**被 Entities 的 `ICustomBootstrap` 自动发现（避免与游戏自有 bootstrap 冲突）。游戏需直接调用 `Initialize`，或自定义 `ICustomBootstrap` 来 `new FrameworkWorld()`。
+> ⚠️ `FrameworkBootstrap` **不会**被 Entities 的 `ICustomBootstrap` 自动发现（避免与游戏自有 bootstrap 冲突）。游戏需直接调用 `Initialize` / `InitializeAsync`，或自定义 `ICustomBootstrap` 来 `new FrameworkWorld()`。
 
 ```csharp
 // 1) 自定义安装器，把系统挂进世界
@@ -102,7 +104,11 @@ class MyInstaller : HYC.Framework.Runtime.IFrameworkInstaller
 // 2) 注册安装器并启动（Live 模式）
 HYC.Framework.Runtime.FrameworkBootstrap.Installers.Add(new MyInstaller());
 HYC.Framework.Runtime.FrameworkBootstrap.BootMode = HYC.Framework.Dots.SimulationBootstrap.Live;
-new HYC.Framework.Runtime.FrameworkBootstrap().Initialize("Game World");
+// 🔴 跨端推荐用异步入口：内部先 await StreamingAssets.PreloadAsync() 再建 World。
+//    WebGL（无文件系统）/ Android（APK 压缩包内）不能裸读 StreamingAssets，而配置 / 本地化 / BT 的
+//    读取都发生在建 World 时的 System.OnCreate，预取必须在建 World 前完成。
+//    PC / iOS 上 PreloadAsync 是 no-op，同步 Initialize 与异步入口等价——同一套代码全平台通用。
+await new HYC.Framework.Runtime.FrameworkBootstrap().InitializeAsync("Game World");
 
 // 3) 在系统内发一条单帧引导消息（UI 系统的 OpenGuide 内部即如此实现）
 var beginSim = world.GetExistingSystemManaged<BeginSimulationEntityCommandBufferSystem>();
@@ -126,7 +132,7 @@ Excel / 模板驱动的「不可变 Blob 配置表」——生成期把行烘焙
 
 ```csharp
 // 1) 生成期由 Excel / 模板产出（示意，真实由 ConfigGenerator 生成）：
-// namespace HYC.Framework.Config.Generated
+// namespace {命名空间root}.config
 // [HYC.Framework.Config.BlobGenerate("Item")]
 // public struct ItemCfg : Unity.Entities.IComponentData, System.IEquatable<ItemCfg>
 // { public long Id; public int Price; public int StackMax; }
@@ -182,6 +188,9 @@ HYC.Framework.Loc.LocalizationManager.SetLanguage(HYC.Framework.Loc.Locale.Chine
 //    切语言时 onLanguageChanged → 组件自动 Refresh，无需手写。
 
 // 4) 从 StreamingAssets 重新加载（LocalizationBlobSystem 在 BeforeSceneLoad 已自动调一次）
+//    跨端注意：WebGL / Android 上引导必须先 await FrameworkBootstrap.InitializeAsync(...)
+//    （内部先 await StreamingAssets.PreloadAsync() 再建 World），否则预取缓存为空、读取全部 miss；
+//    Reload 内部已按平台分流（NeedsPreload 平台走预取缓存），调用方不需要写平台分支。
 HYC.Framework.Loc.LocalizationManager.Reload(Application.streamingAssetsPath + "/Localization");
 ```
 
@@ -369,7 +378,7 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 com.hyc.framework/                 ← Unity 包（package.json 在此）
 ├── package.json / LICENSE / CHANGELOG.md / README.md
 ├── Runtime/                       # 运行时（HYC.Framework.Runtime.asmdef）
-│   ├── 引导与生命周期：Bootstrap / BootstrapSystems / UpdateGroups / Simulation / Settings / StartupSetting / GameCommandArgs
+│   ├── 引导与生命周期：Bootstrap / BootstrapSystems / FrameworkBootstrapBase / UpdateGroups / Simulation / Settings / GameCommandArgs
 │   ├── 配置：ConfigManager / BlobTable / ConfigTemplate / ConfigEnumDefinition / DataModel
 │   ├── 本地化：LocalizationManager / LocalizationBlobSystem / LocalizationExtension / SensitiveWordManager
 │   ├── UI：UIManager / AbsUISystem / UIGroup / Base*System / Binder / ComponentBinderTable
@@ -393,7 +402,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
     ├── Talent/                    # 天赋树编辑器（画布 / 校验 / 配置选择 / 代码生成）
     ├── Samples/                   # HYCSimpleSampleImporter（一键导入示例）
     ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，11 个文件）
-    ├── DataEditor/                # 配置数据编辑器（44 个文件 + FrameworkTemplates/）
+    ├── DataEditor/                # 配置数据编辑器（47 个文件 + FrameworkTemplates/）
     ├── Loc/Editor/                # Key 使用扫描（LocaleKeyUsageWindow）
     ├── Dlls/                      # NPOI / SharpZipLib / BouncyCastle（Excel 导入依赖，仅编辑器）
     │                              # 许可见 Dlls/THIRD-PARTY-NOTICES.md
@@ -434,7 +443,7 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
 
 ## 📚 文档导航
 
-完整文档在包的 `Documentation~/`（28 篇，全部基于源码实测撰写）：
+完整文档在包的 `Documentation~/`（29 篇，全部基于源码实测撰写）：
 
 - **要动手做事 → [`Documentation~/02-操作手册-按任务.md`](Documentation~/02-操作手册-按任务.md)**
   —— 新增配置表、选字段类型与导出模式、写枚举、跑行为树、加 UI 窗口的**分步操作**，

@@ -6,13 +6,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **遗留 Excel→IComponentData 生成链的硬编码命名空间修正（`Editor/ConfigGenerator.cs`，ns `HYC.Framework.Config.Editor`）**：命名空间统一收尾时发现 `ConfigWindow`（菜单 `HYC Framework/Config/Config Window`）经 `ConfigGenerator.GenerateStruct` 产出的 `[BlobGenerate]` blittable 行结构仍写死 `namespace HYC.Framework.Config.Generated`——该链虽不参与配置资产系统（无资产、不过滤器），但同一工程里两套配置命名空间并存，用户一生成就出现「规则说改了、实际没改」的货不对板。现改读 `ConfigDataSettings.Namespace`（root 派生），与 Config 主链单点切换、自动跟随；生成文件内 `[HYC.Framework.Config.BlobGenerate]` 本为全限定引用，不受影响。同步 `Runtime/ConfigRowRef.cs` XML 注释与 `README.md` 两处示例表述（`HYC.Framework.Config.Generated` → `{命名空间root}.config`）。**破坏性变更**：若曾用过该遗留链生成过代码，重生成后旧文件命名空间变迁，需删除旧产物重生成。
+
+- **生成代码命名空间统一到「root」派生（HYC Settings 新增 `CodeGen` 分组「生成代码命名空间 root」，`Editor/HYCSettings.cs` + `Editor/HYCEditorSettingsWindow.cs` + `Editor/DataEditor/ConfigDataSettings.cs` + `Editor/DataEditor/ConfigDataSettingsWindow.cs` + `Editor/BT/BTNodeCreatorWindow.cs`）**：此前配置生成命名空间是数据编辑器设置窗里的独立字段（默认 `HYC.Sample.Generated`），BT 自定义节点命名空间更是**硬编码** `GameBT.Nodes`——两处各配各的、改一边忘一边。现统一为一个 root：HYC Settings 窗口新增 `CodeGen` 分组（输入框 + 「生效 root / 配置代码 / BT 节点」三行预览，控件集合恒定），值存 `HYCSettings` 资产（`GeneratedNamespaceRoot`）；**留空 = 自动取项目公司名**（`PlayerSettings.companyName`，按点号分段净化：只保留字母/数字/下划线、数字开头的段整段丢弃），公司名不可用回落 `Default`。配置代码 → `{root}.config`：`ConfigDataSettings.Namespace` 改为**派生只读**（`HYCSettings.ConfigCodeNamespace`），资产过滤器（`ConfigDataTree`/`ConfigExportService`/`ConfigIdService` 的 `type.Namespace.StartsWith(...)`）、`FindExportType` 的 `{ns}.Editor.*Export` 前缀、枚举/模板/BlobBuilder/导出等全部生成点因共用同一属性而**单点切换自动跟随**；BT 自定义节点 → `{root}.BT.Nodes`（替硬编码，创建窗实时显示目标命名空间）。数据编辑器设置窗的「命名空间」字段、合法性校验与保存写入一并移除，改为只读展示派生值并指向 CodeGen 分组。**破坏性变更**：默认命名空间从 `HYC.Sample.Generated` 变为 `{公司名}.config`（公司名不可用时 `Default.config`），升级后需重新生成配置代码——旧资产仍在旧命名空间下，而过滤器/导出类查找按新命名空间走，重生成后归一；`ConfigTemplateCodeGen.LegacyDefaultNamespace` 常量保留作历史参照。
+
+- **HYC Settings 与数据编辑器设置改存纯 SO 资产 `Assets/HYC/HYCSettings.asset`（新增 `Editor/HYCSettings.cs`，ns `HYC.Framework.Editor`）**：EditorPrefs 只存本机（Windows 注册表 / macOS plist）——不进版本控制、多人协作不同步、换机即丢；现全部设置值改落工程内 ScriptableObject 资产，随提交全团队共享。加载顺序：约定路径 `LoadAssetAtPath` → 全工程搜 `t:HYCSettings`（用户把资产移走也能用）→ 都没有则就地创建（逐级建 `Assets/HYC`）；**不做迁移**（首次打开用代码默认值建资产，迁移只会把本机值带进团队仓库）。`ConfigDataSettings`（数据编辑器全项：配置根目录 / 生成目录 / 命名空间 / 编辑器生成目录 / 客户端·服务器导出目录与格式 / Blob 输出目录 / struct 开关 / ID 服务器类型·IP·端口）与 HYC Settings 窗口项（Verbose / AutoGen 经注册表字段条目、音频后端为手写下拉）统一改为委托该资产读写，公开 API 与调用方零改动；`[HYCSettingsGroup]` 字段的持久化从 EditorPrefs 键值改为资产内**键值条目表**（平行 `List<string>` 存取，bool/int/float/string/枚举统一转字符串、不变区域性往返，写入与解析严格配对），字段 `Key` 语义不变。所有写操作（属性 setter / `SetEntry`）立即 `SetDirty + SaveAssetIfDirty` 落盘，杜绝「改了没保存、域重载后还原」；默认值 / 钳制 / 空值回落语义与原 EditorPrefs 版完全一致（端口 1~65535 钳制、IP 空值回落 127.0.0.1、目录空值回落默认路径），`BlobOutputDir` 的一次性 legacy 迁移随 EditorPrefs 存储一并移除。运行时不受影响（`FrameworkSettings` 运行时资产与音频音量分组保留不动）；本地化设置（`LocalizationSettings`，存 EditorPrefs）不在本次范围。
+
+- **配置模板编辑器「基础」页紧凑化（`Editor/DataEditor/ConfigTemplateEditor.cs` + `Editor/DataEditor/ConfigIconPicker.cs`，ns `HYC.Framework.Config.Editor`）**：原图标区（区块标题 + 32px 预览 + 「选择内置图标…」/「浏览项目图标…」/「清除」三个按钮 + 「当前: xxx」说明行，竖排 5 行约 90px）改为面板最左 **88×88 可点击缩略图列**——面上零按钮，点击即弹「选择图标」窗口（内置网格搜索 + 项目图标浏览不变，窗口内新增「清除」按钮回归默认图标，「当前」状态看缩略图本身）；同步删除「配置模板 / 基类 / 图标」三个区块标题（页签与字段名已表意）、字段标签列 200→112 给左列让宽、原常驻两行 Info HelpBox 移入「字段」页签 tooltip（hover 展开）。基础页总高 ~330px → ~120px；显示名净化、Class Name 生成后只读 + 改名流程、基类保护（清空回归 ConfigBase、未生成红底）均原样保留。缩略图内「无图标」标签每帧恒定绘制、仅按有无图标切换文案（IMGUI 控件集合一致性）。
+
+- **枚举命名空间从「配置类命名空间」中独立为平级的 `{root}.Enum`（续命名空间统一到 root 派生）**：此前枚举与配置主类共用 `{root}.config`，用户希望枚举命名空间带 `.Enum` 以明确区分、且不在宿主代码里出现 `Generated`。现枚举命名空间改为 `{root}.Enum`（与 `{root}.config` 平级，均由「生成代码命名空间 root」派生），生成端 `ConfigEnumCodeGen` 与引用端（`ConfigTemplateCodeGen.ResolveTypeName` / `CsTypeName` 的 `using` 注入）一并切换；Settings 的 CodeGen 分组新增「枚举」一行单独显示。特意平级而非 `{root}.config.Enum` 子级——配置资产过滤器（`ConfigDataTree` / `ConfigExportService` / `ConfigIdService` 的 `type.Namespace.StartsWith(ConfigCodeNamespace)`）用前缀匹配识别配置类，子级会被误当成配置类去导出/收集。`CleanStaleNamespaceFiles` 的保留判定同步纳入枚举命名空间。
+
+### Added
+
+- **模板图标传播到 Unity 原生 Project 窗口（新增 `Editor/DataEditor/ConfigIconApplier.cs`，ns `HYC.Framework.Config.Editor`）**：模板 icon 此前只被数据编辑器自己的界面消费（检查器缩略图 / 数据树行 / 创建窗预览），Unity 原生 Project 窗口无感知——该模板生成的配置资产在 Project 窗口仍是默认 ScriptableObject 图标。现新增统一传播入口，把模板图标应用到**生成类型的 MonoScript（类级）**——该类型全部配置资产（Boss/Flyer/Player/Walker…）经类图标继承显示。**为什么只落 MonoScript**：`EditorGUIUtility.SetIconForObject` 官方语义只接受 GameObject / MonoScript，传 ScriptableObject 实例时图标会记到该实例的类上、同类全部资产共享（见 Fixed「图标泄漏到整个类」条）——不存在「单个模板资产自身的原生窗口图标」通道；模板自身的图标仅由框架自绘界面消费（数据树行 / 检查器缩略图读模板字段，逐模板生效）。持久化分两层——**自定义纹理**经 `MonoImporter.SetIcon` + `SaveAndReimport` 写进生成类 `.cs.meta`（`GetIcon()` 已是目标图标则跳过，不白触发重导入；清除图标以 null 恢复默认），跨会话 / 换机 / 进 VCS 有效；**内置图标**（内置纹理无 GUID，写不进 meta）为 session 级，由 `[InitializeOnLoad]` + `delayCall` 的验证式同步兜底（打开工程时 `GetIconForObject` 读回比对，不一致才设，已生效零操作）。即时生效点：保存模板 / 选完图标（`ConfigTemplateEditor`）、工厂创建 / 批量创建（`ConfigAssetFactory`）、复制粘贴落地（`DuplicateIdGuard.Flush`）、生成代码（`WriteFile` 末尾，持久化 + 应用一并做）。手动兜底菜单 `HYC Framework/Config/Apply Template Icons`（pri 5）——MonoScript 一步独立 try/catch 容错（生成脚本未编译时取 MonoScript 抛异常只记日志、不中断），应用后 `EditorApplication.RepaintProjectWindow()` 刷新显示，命中统计（模板数 / MonoScript 数）以对话框报告，便于定位「没设置」与「设置了不显示」两类问题。
+
+- **模板字段「关联参数」条件显示（`Runtime/ConfigTemplate.cs` + `Runtime/ConfigVisibilityAttribute.cs`，ns `HYC.Framework.Config`）**：模板字段小三角展开区新增「关联参数」块——每条条件 = 左下拉选本模板（含继承链）一个 **bool/enum 标量字段** + 右侧控件（bool→勾选「要求真/假」；enum→`MaskField` 多选枚举值，≤32 个），可加多条、× 删除。语义：**多条 AND，全部满足该字段才在数据编辑器的配置面板绘制**；目标字段丢失/类型不符**视为满足（保持显示）**并在模板编辑器给黄字警告（配置面板不能因为目标字段被改名/删除就把字段吞掉）；不级联、不影响反射赋值与导出。数据流复用既有「模板标记→生成特性→编辑器读取」范式：`ConfigTemplateField.visibility`（`List<ConfigVisibilityCondition>`，新序列化类，带 `MatchesBool`/`MatchesEnum` 纯判断）→ 生成字段上的 `[CfgVisibleWhen(...)]`（bool/enum 两个构造重载，`AllowMultiple`）→ `GUITypeField.VisibleWhen` 缓存 → `GUIDrawer.CheckVisible` 求值（反射读目标对象当前值，命中即跳过 `DrawField`）。模板校验覆盖六类失效条件（未选目标/指向自身/目标不存在/目标为列表/目标非 bool-enum/enum 条件未选值），均只警告不阻断生成；无效条件在生成时不发射特性。enum 多选掩码按 Unity 官方语义实现（bit i ↔ 选项 i；全选返回 -1 写回全部值名，`MaskFieldGUI` 源码实证）。`AddEmptyField` 同步复位 `visibility`（防 `arraySize++` 复制上一条条件）。
+
+- **配置资产「类型文件夹」自动归置 + 右键菜单动态化（`Editor/DataEditor/ConfigAssetLayout.cs`，ns `HYC.Framework.Config.Editor`）**：新建的配置/枚举/模板一律落到 `配置根目录/<类型短名>/`（`[CfgAsset("角色/角色配置")]` 的最后一段，即数据树 `[角色]` 那个前缀；模板→`配置模板`、枚举定义→`枚举`），文件夹不存在则逐级创建。`ConfigAssetFactory.Create/CreateMany`、`ConfigCreateWindow`（新增「创建位置」标签实时显示落点）、`ConfigTemplateCodeGen.CreateTemplateAsset`、`ConfigEnumCodeGen.CreateEnumAsset`、数据树与工具栏的全部创建入口统一收口；显式传 folder 的既有调用方式仍然尊重（程序化/AI 入口不受影响）。用户自建子文件夹、手动拖入一律不干预；**已归置资产被移出自己类型文件夹时，`ConfigAssetMoveGuard`（`AssetModificationProcessor.OnWillMoveAsset`）拦截并给出「不建议」提示**（类型文件夹内部移动/重命名/建子文件夹放行；Project 窗口与数据树拖拽两条路径都覆盖，数据树内拦截时弹窗展示提示语）。数据树文件夹右键菜单重写：模板文件夹不再出现不适用的「保存并导出内部所有」，改为按文件夹内容动态列出——「导出」**真子菜单**（GenericMenu 路径按 `/` 拆子菜单）内每种可导出配置类型一项「短名（N 个）」（N = 该文件夹内资产数，与 `ExportFolder` 同一过滤规则实时统计）+ 子菜单内分隔线 + 「导出全部」；枚举 / 模板作为顶级动态项单列（模板是生成代码不是导出，不进导出子菜单），三类皆无时列禁用提示。按类型导出走 `ExportAll` 整类型导出（单资产 `ExportCore` 对 Blob 只写一行，循环调会互相覆盖）。新增 4 个 EditMode 用例钉住布局契约（模板/枚举固定文件夹名、非配置类型不归置、类型文件夹拼在根目录下一层、空路径判定不抛）。
+
+- **生成代码统一写盘 + 「自动生成」头壳 `GeneratedCodeFile`（`Editor/GeneratedCodeFile.cs`，ns `HYC.Framework.Editor`）**：包内所有代码生成器写 `.cs` 的**最底层入口**，两个职责——① 每个产出文件顶部套四行壳：IDE 识别的 `// <auto-generated>` 标签 + 中英文「请勿手工修改」声明 + 变更指引（改生成源后重新生成）；壳内**刻意不含时间戳/路径等易变信息**，否则「内容未变不重写」优化失效、每次生成都白触发重编译。② 内容未变则不重写、不触发 `ImportAsset`。此前 Config 模板生成链（主类/侧类型/Check/Editor/BlobBuilder/BlobSystem/Export 八个产物）与枚举生成器（生成 + 导出两处）**完全没套头**——人手改后下次生成静默覆盖，本次收口；Attr 三件套与 ComponentBinder 原有的三种不同风格 ad-hoc 头移除，禁改声明统一由壳承担（ComponentBinder 的过期文件清理识别同步兼容新旧两种文件头，过渡期不清不掉自家产物）。Talent 生成器（`#region USER` 区可手改，语义不同）与 BT 自定义节点脚手架（本就给用户填逻辑）保持原样。`ConfigTemplateCodeGen.WriteIfChanged` 实现下沉到本类、保留为兼容 shim（纯比对、不套壳）。新增 4 个 EditMode 用例钉住壳契约（含「壳内无当前年份/绝对路径」守卫）。
+
+- **菜单 `HYC Framework/Config/Regenerate All Config Code`（pri 4）**：一键重生成全部配置代码。遍历 `LoadAllTemplates()` 调 `WriteFile`（覆盖写，保留各 `.cs` 的 `.meta` GUID，配置资产不掉脚本）；框架级基类（`generateCode=false`，如 `ConfigBase`）自动跳过并单列计数。带进度条 + 结果汇总对话框（生成/跳过/失败），单个模板异常不中断整批。用于字段类型变更、`ConfigBase` 移入框架等需全量重生成的场景，省去逐个模板右键。
+
+- **配置侧类型/导出基类三件套（框架级手写，随包预编译）**：`ConfigBaseClient`（`Runtime/ConfigBaseClient.cs`，ns `HYC.Framework.Config.Client`）、`ConfigBaseServer`（`Runtime/ConfigBaseServer.cs`，ns `HYC.Framework.Config.Server`） 各承载 ID/GUID + `From(ConfigBase)`；`ConfigBaseExport`（`Editor/DataEditor/ConfigBaseExport.cs`，ns `HYC.Framework.Config.Editor`）为导出管线抽象基类。生成的 `XxxClient`/`XxxServer`/`XxxExport` 分别继承三者——与主类链构成对称的三条继承链，ID/GUID 经侧类型继承自动进入 JSON 导出产物。
+
+- **模板导出可行性静态校验（生成前硬拦截，不捏样例，`Editor/DataEditor/ConfigTemplateCodeGen.cs`）**：解决「资源/对象字段（如 Sprite）用默认『直接导出』又选了客户端+服务器，服务器 JSON 无法序列化、客户端 Blob 落到 `default: int` 兜底编译报错」的坏代码问题。判定直接复用代码生成器自身的类型解析，永不漂移——客户端侧复用 `BlobElemInfoOf` 识别「落到 `default: int` 兜底」的不可 blittable 组合；服务器侧判定「直接导出」+ Unity 对象/不可 JSON 序列化类型（`IsJsonUnsupportedElementType`：资源/对象引用族 + Gradient/AnimationCurve，须随 `UnityTypeName` 同步维护）。两条都进 `Validate` 作为**硬错误直接阻断「生成代码」**，并在模板编辑器顶部红字 `tplErrors` + 导出页不可导侧 Popup 红底高亮 + 表下汇总红字提前暴露（带「改资源名/路径/AA地址/转字符串」的建议）；「保存模板」不受影响（草稿可存）。`GetExportFeasibility` / `ExportFeasibilityMessage` / `CollectExportFeasibilityErrors` 为唯一判定入口，返回用元组不新增类型。覆盖资产/对象/Gradient/曲线/Rect 系/层遮罩/配置引用整对象/Decimal/Char 等 Direct 组合；合法 int/enum、`Vector*`/`Color*`/`Quaternion` 等 blittable 结构、以及一切转 string/取成员/资源名路径地址模式  均判为可导，无误伤。
+
 ### Fixed
 
+- **命名空间 root 切换后「一生成就报 CS0246、且重新生成也好不了」死循环（`Editor/DataEditor/ConfigTemplateCodeGen.cs` + `Editor/DataEditor/ConfigDataWindow.cs` + `Editor/DataEditor/ConfigTemplateEditor.cs`，2026-10-15 线上事故根治）**：改「生成代码命名空间 root」后重新生成，产物里混入失效命名空间（`using HYClub.config;` 之类）→ CS0246 → 编译不过 → Unity 里加载的仍是上一次成功编译的旧程序集 → 再生成依旧反射到旧命名空间类型 → 永远出不来。根因是四处「漏生成/乱反射」：① Reference 字段按模板资产里**存储的 pick 时 Assembly-qualified 全名**反射（`Type.GetType` → `usings.Add(type.Namespace)`），root 切换后反射命中的是旧程序集的旧命名空间，失效 using 直接写进新文件；② 「Regenerate All Config Code」只遍历模板、**不含枚举**，枚举文件永远停在旧命名空间（`ActorKind` 等批量 CS0246 的来源）；③ Blob 三件套被 `ClientFormat == 1` 门挡住，非 Blob 格式下旧 Blob 文件不重生成了也不删；④ `XxxConfigEditor.cs` 「已存在则不覆盖」，命名空间切换后永久钉在旧值、`[CfgEditor]` 指向失效类型。修复：① Reference 字段改**确定性解析**——短名命中某 `generateCode` 模板（= 生成类）时按「短名 + 当前命名空间」零反射构造（侧类型所需 using 一并派生），编译失败期间也能正确生成，直接破死循环；手写 `[CfgAsset]` 类（无对应模板）仍按真实命名空间（当前 ns 重建优先、存储全名兜底），不误伤；`CsTypeName`/`MemberTypeOf` 同步不信旧命名空间；`Validate` 补引用存在性校验（生成期清晰报错，替代「编译期 50 个错」）；② Regenerate All 增加枚举批量重生成（`ConfigEnumCodeGen.WriteFile`），汇总计数；③ 非 Blob 格式（或无客户端导出字段）时删除残留 Blob 三件套（含旧位置文件），Blob 格式正常重生成；④ `XxxConfigEditor.cs` 改**始终覆盖**（文件头壳本就禁手工改，「不覆盖」与头壳自相矛盾），自定义引导改为另建编辑器文件；⑤ Regenerate All 末尾**清理旧命名空间残留生成文件**（`CleanStaleNamespaceFiles`：扫输出目录下带「自动生成」头、命名空间不在当前 root 派生范围的 `.cs`，连 `.meta` 删除；手写文件一律不碰）；⑥ 模板编辑器 UI 的引用解析统一走同一 helper，root 切换后不再误显「引用:未选择」。新增 6 个 EditMode 用例钉住契约（旧命名空间不泄漏 / 短名剥离 / 全名重建 / 手写类不误伤 / 引用缺失报错）。**破坏性**：`XxxConfigEditor.cs` 曾被手工扩展过的工程，重生成会以标准内容覆盖（头壳早已声明禁改）；切换过 root 的工程请跑一次 Regenerate All 自愈。
+
+- **HYC Settings 未显示全部生成产物命名空间 + 旧版枚举残留清不掉（本轮线上事故收尾，`Editor/HYCEditorSettingsWindow.cs` + `Editor/DataEditor/ConfigTemplateCodeGen.cs` + `Editor/DataEditor/ConfigDataWindow.cs`）**：用户重生成后仍见旧命名空间相关编译错，且 HYC Settings 的 CodeGen 分组只显示了「配置代码 / BT 节点」两行，看不到全部生成产物的真实命名空间，无法核对宿主引用是否对齐。修复：① Settings 的 `DrawGeneratedNamespaceRootSection` 补全全部 6 个真实落点——`{root}.config`（主类/枚举）、`{root}.config.Client`、`{root}.config.Server`、`{root}.config.Editor`、`{root}.config.Blob`、`{root}.BT.Nodes`，并加提示「宿主手写代码引用须与此一致」；控件集合全无条件绘制（IMGUI 一致性铁律）。② `CleanStaleNamespaceFiles` 新增 `relaxHeaderForEnums` 参数：`Regenerate All` 调用传 `true`，对框架独占的枚举输出目录（`ConfigEnumCodeGen.EnumsOutputDir`）放宽为「不依赖 `<auto-generated>` 头壳」——旧版生成器产出的枚举（无头壳、命名空间停在旧 root，如 `使用方工程.Generated`）此前会被头壳判定漏清，现一律清理；其余子目录仍保守只看头壳、不碰手写文件。**分工**：用户截图里命名空间为 `使用方工程.Generated`、且无头壳的枚举位于宿主 `Assets/Scripts/...` 内，属宿主手写枚举而非框架 OutputDir 产物，按用户「宿主被污染代码自己改回」的分工，不归框架清理——框架只负责自身 OutputDir 下的生成物。
+
+- **「选择图标」窗口图标网格无滚动条 / 列宽不随窗口自适应（`Editor/DataEditor/ConfigIconPicker.cs`，ns `HYC.Framework.Config.Editor`）**：内置图标网格原来全部用绝对坐标 `new Rect(...)` 手动绘制，`BeginScrollView` 内没有任何 GUILayout 元素向滚动视图贡献内容高度——滚动条永远不出现，一屏放不下的图标被直接裁剪；且列数写死 6，窗口拉宽右侧大片空白、拉窄格子被压扁。修法分两层：① 网格改为「`GUILayout.Box(GUIContent.none, GUIStyle.none, Width, Height)` 占位 → `GetLastRect()` 取精确格区 → 手动绘制」——占位框向滚动视图贡献真实高度（滚动条恢复），格区尺寸不随布局拉伸；列数按窗口宽度实时分档（可用宽预留垂直滚动条位，列数 = `floor(可用宽/100)` 下限 2，**格子等分填满可用宽度**——整行无剩余空间，`GUIStyle.none` 的 `stretchWidth` 无处可拉伸，拉宽拉窄格子都保持精确）；② 布局改三段式——顶部搜索框 / 中部图标网格（`BeginScrollView` 占满剩余高度）/ **底部独立按钮栏**（`EditorStyles.helpBox` 分栏：「或选择项目内图标:」+「浏览项目图标…」+「清除」右对齐），替代原先挤在顶部的按钮行。顺手补悬停高亮（`EditorGUI.DrawRect` 半透明白，60+ 图标的网格无悬停反馈难定位）与图标名称格内居中（缓存 `MiddleCenter` 样式）。Unity 没有内置的编辑器图标选择器（`ShowObjectPicker` 只选项目资产、不列内置图标），故修自家窗口而非换通用窗口。
+
+- **「选择图标」窗口重复 Close 触发 `Destroying object multiple times`（`Editor/DataEditor/ConfigIconPicker.cs`，ns `HYC.Framework.Config.Editor`）**：在 ObjectPicker 里选中项目图标 / 点窗口 ✕ 关闭后，Unity 报 `Destroying object multiple times. Don't use DestroyImmediate on the same object in OnDisable or OnDestroy`（调用栈：`EditorWindow.Close` ← `SafeClose` ← `HandleObjectPickerClosed` ← `OnGUI` ← `ContainerWindow.InternalCloseWindow`）。根因两层：① `ObjectSelectorClosed` 事件在同一关闭周期内会被重复送达——OnGUI 处理选中并 `Close()`，Unity 随后的 `InternalCloseWindow` 关闭流程中又 pump 一次 OnGUI，事件二次送达导致二次 `Close()`（二次 `DestroyImmediate`）；② **Unity 自身发起的关闭**（点窗口 ✕）不经我们的代码，`mClosing` 标志无从置位——关闭流程内的 OnGUI pump 里积压的 picker 事件首次送达即调 `Close()`，打在正在销毁的对象上。修法三处：① picker 关闭事件只处理第一次（`mPickerHandled` 一次性标志，取消选择同样置位；每次 `PickCustom` 重开前重置，不影响再次浏览）；② 所有关闭入口（选中内置图标 / 选中项目图标 / 清除 / Escape）统一走 `SafeClose()`；③ `SafeClose` 不再同步 `Close()`，改为挂 `EditorApplication.delayCall` 推迟到关闭流程外执行，且执行时先过 Unity 伪 null 判空（窗口已销毁则跳过）——同步 Close 打在 Unity 关闭流程内必炸，推迟 + 判空两条一起才同时覆盖「事件重复送达」与「Unity 发起关闭」两种路径。
+
+- **配置模板图标「三处显示对不上」（数据树 / `.cs.meta` 类型图标 / Unity Project 窗口 session 图标，`Editor/DataEditor/ConfigTemplateEditor.cs` + `Editor/DataEditor/ConfigIconApplier.cs`，ns `HYC.Framework.Config.Editor`）**：同一模板的图标在数据编辑器数据树、Unity Project 窗口、配置资产（Boss/Flyer/Player/Walker…）三处互不一致——数据树里全是 bomb、Project 窗口模板多为默认蓝图标、角色配置资产却是宇航员图标。根因是三处读的是三个**不同步的数据源**且更新时机错位：① 数据树行图标读模板字段（`ConfigTemplateIcon.Resolve(tpl)`）；② 配置资产类型图标读 `.cs.meta` 的 `MonoImporter.icon`（与数据树类型图标同源）；③ Unity Project 窗口显示 `EditorGUIUtility.SetIconForObject` 的 **session** 图标（Unity 官方明确 won't persist，域重载 / 重启即丢）。旧实现里：picker 回调只写内存字段、不调 `ApplyForTemplate`（数据树与 Project 窗口都不刷新，且自定义纹理永不落地 meta）；`PersistForTemplate`（写 `.cs.meta`）只在「生成代码」时跑（meta 过期，数据树类型图标 vs Project 窗口 session 图标分裂）；`SaveInternal` 不刷 meta、不刷数据树。修复统一提交入口：① 新增 `CommitIconChange()`——picker 选中 / 清除共用，先把序列化属性落盘（`ApplyModifiedProperties` + `SetDirty` + `SaveAssetIfDirty`），再 `ApplyForTemplate` 即时应用三类对象 session 图标、`PersistIconDeferred` 经 `EditorApplication.delayCall` 推迟 `SaveAndReimport` 写 `.cs.meta`（推迟避开 picker 关闭 / 域重载打断当前交互）、`mWindow?.RefreshTree()` 立即刷新数据树行图标；② `SaveInternal` 在原本 `ApplyForTemplate` 之后补 `PersistIconDeferred(tpl)` + `RefreshTree()`；③ 自定义纹理分支额外清 `iconBuiltInName`、内置名分支清 `iconCustom`，避免双值歧义。现选图标 / 保存模板一次性把三处全部更新。注：怪物模板曾中途从 bomb 切到 Caveman 头像 + `AnimationClip Icon`，旧 `.cs.meta` 仍留过期 bomb 即「三处各显各的」的典型表现；刷新后 meta 与 session / 字段收敛一致。（用户原疑「sd 工程设置 icon 的代码」，已全工程 grep `SetIconForObject`/`MonoImporter`/`IconContent` 在宿主 `Assets` 下零命中——所有图标行为均来自本框架 `ConfigIconApplier`，问题在框架自身三数据源不同步，而非与 sd 实现对不上。）
+
+- **`SetIconForObject` 传 SO 实例 → 图标泄漏到整个类（「设置一个模板图标，所有模板 + ConfigBase 全变了」，`Editor/DataEditor/ConfigIconApplier.cs`，ns `HYC.Framework.Config.Editor`）**：给「角色」模板设置图标后，数据树里全部模板行与检查器「基类模板」字段（ConfigBase）一起变成该图标，只有该模板自己的配置资产显示正确；此前一轮「ConfigBase 变 bomb」实为同一泄漏（当时角色模板上选的是 bomb），并非数据被写坏——全部模板资产的 icon 字段磁盘取证为空，泄漏发生在显示层。根因（Unity 2022.3 官方文档实证）：`EditorGUIUtility.SetIconForObject(obj, icon)` 的 `obj` **只接受 GameObject 或 MonoScript**；传 ScriptableObject 实例时 Unity 把图标记到该实例的类 MonoScript 上，**同类全部资产共享**（论坛同款案例：「The icon is set on the MonoScript, so it's shared between all instances of the same class」）。旧实现「① 模板资产自身 `SetIfDifferent(tpl, tex)`」即触发此语义——模板资产全是 `ConfigTemplate` 一个类，任一模板设图标 = 整类设图标；「② 逐配置资产循环」与「③ MonoScript」实际是同一通道（实例调用也落到类上），纯冗余。修复：`ApplyCore` 只保留 MonoScript 一步（类级恰好就是「模板图标 → 该模板全部配置资产」的期望语义），删除 ①② 两步与 `syncAssets` 参数；`ApplyForAsset`（工厂创建 / 复制落地）改走同一 MonoScript 通道；模板资产自身的图标回归框架自绘界面（数据树行 / 缩略图读模板字段）。session 泄漏不跨域存活，本修复重编译（域重载）后 ConfigTemplate 类图标自动恢复默认，无需手动清理。
+
+- **框架/基类模板（`generateCode=false`）不参与图标传播（`Editor/DataEditor/ConfigIconApplier.cs`，ns `HYC.Framework.Config.Editor`）**：`ApplyCore` 入口按 `generateCode` 数据驱动跳过框架/基类模板（与 `WriteFile`、`Regenerate All` 的跳过规则同源），`Apply Template Icons` 菜单的命中计数同步排除，统计口径不失真。基类模板没有生成类型与配置资产，传播无意义；其 icon 字段在模板编辑器内仍可查看与修改（只影响数据树行 / 检查器缩略图自家显示）。
+
+- **配置资产「移出类型文件夹」守护静默失效（`Editor/DataEditor/ConfigAssetLayout.cs`，ns `HYC.Framework.Config.Editor`）**：`ConfigAssetMoveGuard.OnWillMoveAsset` 旧实现返回 `string` 的签名在 Unity 2022.3 已不被 `AssetModificationProcessor` 回调分发器识别，导致守护**既不拦截也不弹窗**（实测在自定义数据树拖拽移动到别的文件夹无任何提示）。改为官方 `AssetMoveResult` 枚举签名——返回 `FailedMove` 取消移动、`DidMove` 放行；判定逻辑收敛到新增 `ConfigAssetLayout.ShouldBlockMove`（Project 窗口 / 数据树两条路径共用，语义一致、无漂移）。  现在两条路径都会弹「不建议移动」对话框（含「仍然移动」覆盖选项）；数据树内改为由 `MoveAsset` 触发守护、用 `GuardPrompted` 标记避免重复弹窗，并移除原来会二次触发守护的 `AssetDatabase.ValidateMoveAsset` 预检。
+
+- **数据配置树「新建文件夹重命名后刷新还原 / 出现重复目录」（`Editor/DataEditor/ConfigDataTree.cs`，ns `HYC.Framework.Config.Editor`）**：在左侧列表对刚建的空文件夹（或任意文件/文件夹节点）重命名后，原目录残留、刷新后还原成旧名，甚至磁盘上出现新旧两个目录并存。根因分两层：① `AssetDatabase.RenameAsset` 文档明确只支持 **asset file**，对文件夹调用虽返回空（成功）但实际不做任何操作（实测）；② 之前用 `System.IO.Directory.Move` 虽能搬目录，但**不会移动文件夹的 `.meta` 文件**（GUID 真正来源），资产数据库因此损坏。修法：`ApplyRenameCore` 区分文件与文件夹——**文件**仍用官方 `AssetDatabase.RenameAsset(path, newName)`（自动处理 `.meta`）；**文件夹**改用 `UnityEditor.FileUtil.MoveFileOrDirectory(path, newPath)` 搬目录，并**再搬一次 `path + ".meta" -> newPath + ".meta"`**，GUID 保持不变。这是「搬家/改名」不是「新建+删除」，旧目录内容会完整搬到新目录。仍由 `EditorApplication.delayCall` 调度到 `RenameEnded` 回调外执行，成功后 `AssetDatabase.Refresh(ForceSynchronousImport)` + `Reload()` 重建树；保留 `SkipNextProjectChangedReload` 标记（`ConfigDataWindow.OnProjectChanged` 据此跳过一次自动 `Reload`，防刷新竞争读到中间态）。新增重命名前后诊断日志（GUID 映射 + 目录与 `.meta` 磁盘存在性），让行为可在 Unity 日志中一次性坐实。`RenameEnded` 用 `args.newName == item.displayName` 判定取消 / 无变化（此 Unity 2022.3 的 `RenameEndedArgs` 无 `accepted` 字段，Esc 取消时 newName 回退为原名，空名由 `ApplyRenameCore` 的 null/empty 守卫兜底）。`ConfigAssetMoveGuard` 不拦截此类改名：它只拦「已归置 `.asset` 被移出自身类型文件夹」，文件夹重命名与同目录文件改名（`ShouldBlockMove` 判定目标仍在类型文件夹内）均放行。
+
+- **数据配置树拖拽资产到文件夹无响应（`Editor/DataEditor/ConfigDataTree.cs`，ns `HYC.Framework.Config.Editor`）**：用户把 `[掉落]` 类型配置从 `道具` 文件夹拖到新建的 `掉落` 文件夹时，放下后资产没有移动。根因分三层：① `HandleDragAndDrop` 计算目标路径时用了 `Path.Combine(dropPath, Path.GetFileName(dragPath))` —— 在 Windows 上 `Path.Combine` 会插入反斜杠，产出 `Assets/ConfigData/掉落\Drop_Xxx.asset`；② 即便路径修成正斜杠，`AssetDatabase.MoveAsset` 在 TreeView 拖拽回调的事务内调用仍会**返回成功但不落盘**——这与 `RenameEnded` 回调内直接调用 `RenameAsset`/`MoveAsset` 的现象同根；③ 把 `MoveAsset` 推到 `EditorApplication.delayCall` 后仍然不落盘，说明此上下文/Unity 版本下 `AssetDatabase.MoveAsset` 对这批资产就是假成功。修法：① 目标路径改为 `dropPath + "/" + Path.GetFileName(dragPath).Replace("\\", "/")`；② 抽 `ApplyMoveCore`，把 `AssetDatabase.MoveAsset` 换成 **`FileUtil.MoveFileOrDirectory(dragPath, newPath)` + `FileUtil.MoveFileOrDirectory(dragPath + ".meta", newPath + ".meta")`** 做真文件系统搬家；③ 手动复现 `ConfigAssetLayout.ShouldBlockMove` 弹窗（FileUtil 不触发 `AssetModificationProcessor`，不会自动走 `ConfigAssetMoveGuard`），保持与 Project 窗口一致的「不建议移动」守护语义；④ 套 `SkipNextProjectChangedReload` 并调 `AssetDatabase.Refresh(ForceSynchronousImport)` + `Reload()`；⑤ 祖先循环里的 `Path.GetDirectoryName` 归一化为正斜杠。`ConfigAssetMoveGuard` 对此场景本就不拦截（资产原在 `道具`，不在其类型文件夹 `掉落` 内，移入 `掉落` 是归置而非移出）。
+
+**框架级 ECS 引导基类 `FrameworkBootstrapBase`（`Runtime/FrameworkBootstrapBase.cs`）**
+
+- 游戏写一个 `sealed class XxxBootstrap : FrameworkBootstrapBase` 即可获得「开箱即用」的框架世界，
+  无需自己拼组 / 挂 UIManager / 挂 player loop / 设步长。基类负责：跨端预取协程
+  （`StreamingAssets.PreloadAsync`）、建 World、**标准自动装配**（三大根组 + Begin/EndECB +
+  `UpdateWorldTimeSystem` + HYC 阶梯组 + 配置 Blob 系统自动 `OnCreate→Load` + `BTInterpreterSystem` +
+  所有未标 `[DisableAutoCreation]` 的系统）、创建并挂接 `UIManager`/`UIGroup`、固定步长
+  （`RateUtils.FixedRateCatchUpManager`）、UI 前置（EventSystem + 透视 UI 相机 + 默认 UI 导航热键资产）、
+  挂进 player loop。
+- 子类只实现 `RegisterSystems`（`[DisableAutoCreation]` 玩法系统 / 需配置的系统 / 桥接）、
+  `Configure`（一次性接线）、`OnWorldCreated`（物理层等世界定制）；策略可用
+  `WorldName` / `FixedStep` / `EnableUI` / `EnableBT` / `AutoAssembleDefaultSystems` 调整。
+- 自动装配即「配置系统自动化」来源：`XxxConfigBlobSystem` 无 `[DisableAutoCreation]`，
+  随标准 ECS 默认世界初始化一并创建并入组，宿主无需逐个 `GetOrCreateSystemManaged`。
+- `abstract` 基类不会被 Entities 的 `ICustomBootstrap` 自动发现（跳过 abstract），
+  不会与游戏自有 bootstrap 冲突；`UIManager` 的 `[DisableAutoCreation]` 手动创建问题由此收口
+  （`FrameworkModeBootstrap` 走 `GetAllSystems(Default)` 不含 `[DisableAutoCreation]` 系统）。
+
+**跨端数据加载契约（PC / iOS / Android / WebGL 一套代码）**
+
+- **`StreamingAssets` 平台抽象补全 Android**（`Runtime/Streaming/StreamingAssets.cs`）：
+  新增 `IsAndroid` 与 `NeedsPreload`（= `IsWebGL || IsAndroid`）。
+  Android 的 StreamingAssets 在 APK 压缩包内（`jar:file://`），`System.IO.File` 同样读不到——
+  与 WebGL 同属"必须走 UnityWebRequest + 内存缓存"这一类，此前只判 `IsWebGL` 是漏的。
+  `Config` / `BT` / `Loc` / `Audio` 的读取判据全部从 `IsWebGL` 切到 `NeedsPreload`。
+  新增 `IsPreloaded` 供引导时序判断。
+- **`BlobReader`（unsafe 收口）**（`Runtime/Streaming/BlobReader.cs`）：
+  `BlobReader.TryRead<T>(byte[], version, out BlobAssetReference<T>)` 把「`MemoryBinaryReader` + `fixed`」
+  这段 unsafe 解析关在框架 Runtime 程序集内（`allowUnsafeCode: true`）。生成的 `XxxBlobSystem` 与
+  `BTBlobLoader` 改为调用它——**宿主工程无需开启 Player Settings 的 "Allow unsafe code"**。
+- **异步引导入口**：`FrameworkBootstrap.InitializeAsync` 与
+  `FrameworkModeBootstrap.InitializeAsync`——先 `await StreamingAssets.PreloadAsync()`
+  再建 World，最后 `FrameworkLifecycle.EnsureBootDataLoaded()` 补加载入。
+  PC / iOS 上预取是 no-op，**游戏层全平台调同一个入口即可，无需写平台分支**。
+- **清单构建覆盖 Android**：`StreamingAssetsManifestBuilder` 由"仅 WebGL"扩为 WebGL / Android，
+  打包时把 StreamingAssets（除 `aa/` 与 `.meta`）列成 `hyc_streaming_manifest.txt`。
+- **本地化引导时序守卫**：`LocalizationBlobSystem` 的 `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]`
+  在 NeedsPreload 平台上若发现缓存未就绪会主动跳过并提示改用异步引导入口，
+  避免读出一堆空数据后业务侧难定位。
+- **`CfgAssetAttribute.Hide` + `CfgAssetAttribute.IsHidden(Type)`**：配置资产特性新增 hide 开关与静态判定。
+  框架基础设施类型（模板 / 生成配置的基类 / 音频总览）自标 `Hide = true`，「配置创建器」与
+  「配置引用」选择器据此过滤；用户创建的配置不填即默认显示。
+- **行为树资产创建工厂 `BTAssetFactory`（`Editor/BT/BTAssetFactory.cs`）**：行为树资产（`BTTreeAsset`）的统一程序化创建入口，与 `ConfigAssetFactory` 平行。强制 `TreeId` 由工厂扫描工程内现有 `BTTreeAsset.TreeId` 派发唯一值，取代 `DateTime.Now.Ticks % 100000` 与 `[CreateAssetMenu]` 默认 `TreeId=0` 的撞车隐患（子树引用靠 `TreeId` 选树）。`Create(name)` / `CreateMany(prefix, count)`，可选 `withRoot` 预置 Root 节点；图编辑器「新建行为树」与菜单 `HYC Framework/BT/New Tree`（pri 12）均已改走工厂。TreeId 改以**本机 MAC 派生**（高 48 位机器 + 低 15 位本机段序号），跨机不撞、无需局域网发号服；旧的小号 TreeId 由扫描兜底。节点 ID（`BTNodeData.NodeId`）同样收口到工厂 `NextNodeId(tree)`（树内最小未占用正整数，必然唯一），外部 / AI 不得手填，原 `Guid.NewGuid().GetHashCode()` 不校验的写法已删除。
+
+**复制资产自动重发号 `DuplicateIdGuard`（`Editor/DataEditor/DuplicateIdGuard.cs`）**：配置资产（`ConfigBase` 派生，走 `ConfigIdService`）与天赋树（`TalentTreeAsset.treeId`）在 Project 窗口 Duplicate / Ctrl+C-V / 跨文件夹拖复制后**自动重派发唯一 ID**，应用层无需记忆"别复制"。原理：借 `AssetModificationProcessor.OnWillCreateAsset` 捕获"新资产"路径（Unity 无 OnDuplicate 回调），导入完成后建一次「既有 ID 集」（排除本次新建的自己），新资产 ID 命中即**判定为复制→直接重派发**（O(1) 判定，不走全量查重），只动新资产、不误伤原件；工厂新建资产 ID 唯一不命中→跳过。另提供手动兜底菜单 `HYC Framework/Config/Reissue Duplicate IDs`（pri 3）与 `HYC Framework/Talent/Reissue Duplicate Tree IDs`（pri 51），复用 `FindIssues`/`Reissue` 同款查重逻辑修历史脏数据。
+
+### Changed
+
+- **`ConfigBase` 基类移入框架（`Runtime/ConfigBase.cs`，`abstract`）**：所有生成配置的默认基类（仅 `ID` / `GUID` 两个 `[ReadOnly]` 字段）随包预编译，不再由代码生成器往宿主工程吐出。`ConfigTemplate` 新增 `generateCode` 开关（默认 `true`）；框架模板 `FrameworkTemplates/ConfigBase.asset` 置 `false`，生成器 `WriteFile` 据此跳过该模板的主类代码产出（跳过逻辑数据驱动，不写死类名）。框架侧手写提供同名支撑类型：`ConfigBaseClient` / `ConfigBaseServer`（侧类型基类，承载 ID/GUID）与 `ConfigBaseExport`（导出管线基类）；派生配置的主类 / 侧类型 / 导出类分别继承三者，形成与配置链一致的三条继承链。宿主 `Assets/GeneratedConfigs/` 下旧 `ConfigBase*` 文件（含 `.meta`）应删除并在 Unity 重生成配置。
+- **配置侧类型恢复继承链（撤回扁平化）**：`GenerateSideType` 的 `baseSideName` 不再因 `generateCode=false` 置空——链上直接基类存在即继承（宿主生成基类 → 同命名空间短名；框架级基类 → `HYC.Framework.Config.{side}.{Base}{side}` 全限定名）。派生侧类型只声明自身字段，ID/GUID 等基类字段经继承获得；`From` 平铺赋值全部导出字段不变（继承字段经派生引用可直接访问）。修复扁平化期间 `From` 给未声明字段 `r.ID`/`r.GUID` 赋值导致宿主 CS1061 编译不过的问题。struct 模式（`SideTypeIsStruct=true`）保持平铺（结构体不能继承）。
+- **导出类改为薄子类，导出管线上收框架基类 `ConfigBaseExport`**：生成的 `XxxExport` 从 `static class`（约 126 行重复管线/类）改为 `ConfigBaseExport` 的非静态子类（约 55 行/类），只填类型相关钩子（`CheckData` / `CreateClientDto` / `CreateServerDto` / `ClientIsBlob` / `WriteClientBlob`）。基类负责：导出管线（检查→客户端→服务器→`AssetDatabase.Refresh`）、单实例/批量入口、JSON 落盘与目录规则、按 `ConfigType` 精确匹配的资产收集（派生类型的资产归它自己的导出类）。导出链与配置主类链一致（`XxxExport : [基类配置的导出类 :] ConfigBaseExport`）。`HYC.Framework.Editor.asmdef` 新增 `Newtonsoft.Json` 引用（基类用 `JsonConvert`）。
+- **`ConfigExportService` 改实例化调用**：生成的 `XxxExport` 不再提供静态 `Export`/`ExportAll` 入口，Service 用 `Activator.CreateInstance(exportType, configType)` 实例化后调 `ExportCore`/`ExportAllCore`。原因：继承链上同名静态方法会让 `GetMethod` 产生歧义（`AmbiguousMatchException`）。旧版静态类（IL 层面 abstract+sealed）由 `IsAbstract` 识别并提示重新生成。行为保持不变：单实例客户端/服务器各写 `{ClassName}.json`（单对象），批量客户端逐资产写 `{asset.name}.json`、批量服务器写一个列表 JSON。
+- **`XxxCheck` 改为只查自身字段**：基类字段由基类导出类的 `CheckData`（`base.CheckData` 向上链）负责，每层只查自己那层，避免分层继承后重复报错。`XxxCheck` 无其他调用方（仅 `XxxExport` 经 `CheckData` 使用）。
+- **配置 Blob 落点收口为单一真值**：`ConfigDataSettings.BlobLoadPath` 改为由
+  `BlobOutputDir` 派生（剥掉 `Assets/StreamingAssets/` 前缀），设置窗口的「运行时加载路径」
+  变为只读展示。导出的落点从 `ClientExportDir` 改为 `BlobOutputDir`，并加校验：
+  Blob 输出目录必须位于 `Assets/StreamingAssets` 内，否则导出直接报错返回。
+  一次性迁移：旧版改过 `BlobLoadPath` 的工程，首次读取时按旧值反推 `BlobOutputDir` 并落盘。
+- 生成的 `XxxBlobSystem` 不再输出 `using System.IO;` 与 `using Unity.Entities.Serialization;`
+  （加载走 `StreamingAssets.ReadBytes` + `BlobReader.TryRead` 两次安全调用，文件内无
+  `Path`/`File`/`MemoryBinaryReader` 用法，避免刷 CS8019）。
+- `BTBlobLoader` 的 WebGL / Android 分支由内联 unsafe 解析改为调用 `BlobReader.TryRead`，
+  框架内只保留一份 unsafe 实现。
+
+### Removed
+
+- **`StartupSetting` ScriptableObject（`Runtime/StartupSetting.cs`）**：原设计为
+  「AA 加载 → entity object singleton → `UIManager.OnCreate` 读取」的启动配置载体，
+  但生产端从未在框架/宿主接线，读取恒走 `catch` 兜底（配置静默失效）；且 10 个字段中
+  6 个（`HotkeyIcons` / `HotkeyHoldThreshold` / `HotkeyStyle1~5`）在 HYC 无消费方
+  （HotkeyManager 已重写，长按判定改注册时逐键 `holdTime`）。UI 适配 / 导航参数改由
+  `UIManager.Setting`（static，唯一真源，**默认值不变**）承载，宿主持家在
+  `FrameworkBootstrapBase.Configure` 钩子里改字段（static + 实时读，即时生效）；
+  输入资产绑定走既有的 `BindHotkeyAsset` 覆盖钩子。将来若需数据驱动，把这些字段搬进
+  `FrameworkSettings`（Resources 模式）即可，`UIManager.Setting` 作为真源不变。
+
+### Fixed
+
+- **「添加字段」复制上一行数据（配置模板编辑器，事故级 UX bug）**：`ConfigTemplateEditor` 的「+ 添加字段」用裸 `mFieldsProp.arraySize++`——Unity 对 `List<类>` 的 SerializedProperty 增容会**复制上一个元素**，新字段把上一行的类型 / 列表标志 / 读写标志 / 范围 / 三条检查规则 / 客户端与服务端导出设置（`mode`/`memberName`/`fixedStringSize`）全部带过来。事故形态：在 string 行后加字段，新字段直接就是 string；上一行若是 ToString / 资源导出模式，新加的 long 也被导出成 string，直接打包即错。现改为 `AddEmptyField()`：增容后把 16 个属性逐项写回 `ConfigTemplateField` 默认值（含两个嵌套导出设置子对象复位），名称默认 `newField`、与既有字段（含继承链）重名时递增后缀，避免生成即报「字段名重复」。Attr 属性目录 / 枚举值编辑器本就「插入后显式复位」，此为前提补齐。
+- **「添加条目」复制上一行（ComponentBinder 表编辑器）**：同类根因——`ComponentBinderTable.Item` 是类，`_items.arraySize++` 把上一行 Name/Target/Component/Desc 全复制过来，新行直接重名（生成 binder 报 CS0102）且串绑。现增容后显式复位四项为空（Name 留空由用户填，行绘制红色提示；填了 Node 后自动取 Node 名兜底）。
+
+- **`ConfigBase` 移入框架后的编译/编辑器收尾**：
+  - `ConfigTemplateCodeGen.WriteFile(template, out error)` 的 `generateCode=false` 提前返回分支漏赋 `error` 即 `return true`，报 **CS0177**（out 参数未赋值）。已补 `error = null;`。
+  - `IsGenerated` 仅查宿主 `.cs` 是否存在，会把框架级基类 `ConfigBase`（`generateCode=false`、宿主 `.cs` 已删）误判为「未生成代码」，在 `ConfigTemplateEditor`（基类链校验/红框）与 `ConfigDataTree`（" (未生成)" 后缀）误导用户去生成本就不该生成的基类。新增 `ConfigTemplateCodeGen.IsBaseReady(template)`：① 框架级模板（`generateCode=false`，随包预编译）恒就绪；② 宿主 `.cs` 已生成为就绪；③ 兜底反射——框架 Runtime 已编译出 `HYC.Framework.Config.{className}` 同名基类类型即就绪（即便 `baseTemplate` 误指向旧宿主副本也认定可用，让编辑器能「抓到」框架里的基类）。按类名在单域会话内缓存，避免重复扫程序集。上述基类检查点全部切换。
+- **「配置创建器」/「配置引用」选择器列出框架基础设施类型**：`ConfigCreateWindow` 的 `[CfgAsset]` 类型扫描原本只按类型黑名单排除 `ConfigEnumDefinition`，漏掉 `ConfigTemplate`（模板）、生成配置的基类 `ConfigBase`（代码生成器给框架级模板也吐了 `[CfgAsset]`）与 `AudioCatalog`（音频总览）——三者都有专用创建入口（数据树右键「创建配置模板」/ 代码生成 / Audio Manager「创建总览」），不该由用户在这些界面创建。现改为声明式：新增 `CfgAssetAttribute.Hide`，基础设施类型自标 `Hide = true`；两个界面统一按 `CfgAssetAttribute.IsHidden(type)` 过滤（只认类型自身直接标注，继承链不算——避免基类藏掉派生配置）。代码生成器对 `FrameworkTemplates` 下的框架级模板吐 `Hide = true`。
+- **生成的下发配置加载器要求宿主开 `/unsafe`（CS0227）**：跨端改造后生成的
+  `XxxBlobSystem.Load()` 内联了 `unsafe { fixed { new MemoryBinaryReader(...) } }`，
+  导致宿主工程（未开 "Allow unsafe code"）编译报 8 个 CS0227。现将 unsafe 收口至框架
+  `BlobReader`，生成体与 `BTBlobLoader` 均改为安全调用；已同步修正宿主既有生成产物。
+- `StreamingAssetsManifestBuilder` 缺 `using UnityEngine;` 导致 `Application` 报 CS0103。
 - **git URL 安装时缺依赖报 CS0234**：`package.json` 此前只声明了
   `com.unity.addressables` 与 `com.unity.nuget.newtonsoft-json`，
   以 git URL 方式安装到宿主工程时 UPM 不会拉取 DOTS 全家桶，
   所有 Runtime 脚本报 `error CS0234: "Entities" does not exist in the namespace "Unity"`。
-  现补齐 `dependencies`（版本与 SnowBros 宿主工程实测组合一致）：
+  现补齐 `dependencies`（版本与宿主工程实测组合一致）：
   `com.unity.entities 1.0.16` / `com.unity.burst 1.8.16` /
   `com.unity.collections 2.1.4` / `com.unity.mathematics 1.2.6` /
   `com.unity.inputsystem 1.7.0` / `com.unity.timeline 1.7.7` /
@@ -35,8 +173,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Wwise 后端 `WwiseAudio`**（`Runtime/Audio/WwiseAudio.cs`）：**类体全部用 `#if HYC_WWISE` 包裹**，
   没装 Wwise 时编译出空壳、不引用任何 Wwise 类型，框架包本身无需 Wwise 依赖即可编译。
   未定义宏时所有方法明确 `LogError` 而非静默失败。
-- **分组音量**（`AudioChannel`）：`Master` / `Music` / `Sfx` / `Voice` / `Ui`。
-  实际增益 = `Master × 组音量`。设置界面可分音乐/音效两档调。
+- **分组音量（数据驱动）**：原写死 `enum AudioChannel` 改为可配置 `FrameworkSettings.audioGroups`；
+  类型层用 `readonly struct AudioChannelId`（包一层 int，隐式转换兼容旧 catalog/Blob 的 0~4）
+  与 `class AudioGroupDef{int id; string displayName; float defaultVolume}`。`Master` / `Music` / `Sfx` / `Voice` / `Ui` 为默认 5 组（id 0~4）。
+  实际增益 = `Master × 组音量`。设置界面可分音乐/音效等任意组调。
 - **音频总览数据结构**（`Runtime/Audio/AudioCatalog.cs`）：
   `AudioCatalogAsset` 带 `[CfgAsset("音频/音频总览", 60, Unique=true)]`——
   与其他配置类型**完全同构**，出现在配置树里、可直接编辑。
@@ -56,6 +196,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     找不到时提示在 Wwise Authoring 勾选 *Generate JSON Metadata* 后重新 Generate，
     并提供手动指定文件路径的口子。
 - **`HYC Framework/Audio/Export Catalog Blob`**（priority 61）：导出 Blob 到 StreamingAssets。
+- **清单改为按「物理文件夹」一级分组**：可把 **AudioClip 文件或文件夹**直接拖进窗口虚线落区；
+  列表按每条目的 `sourceFolder`（物理文件夹）分组，每个文件夹是一行**可展开/折叠的实体节点**
+  （拖文件夹会递归扫描其内 clip、并**自动登记进 Addressables** 同名分组——folder entry，子资源自动纳入；
+  整棵子树登记为一个分组，避免根 + 子目录各建条目互相嵌套冲突）。
+  ★ 递归扫来的每个 clip **按自身的物理子目录归组**（如 `Assets/Audio/music`、`bgm`、`sfx` 各成一行），
+  而不是全挤在拖入的根目录下；零散拖入的 clip 同样归到其物理所在文件夹；扫描工程音频亦然。
+  音量组初值按资源路径推断（BGM/Music→音乐、UI→界面…），与「扫描工程音频」一致。
+  文件夹行带整组批量操作：**全启用 / 批量改音量组 / 登记 AA / 移除组**；展开态存 EditorPrefs。
+  另有**自愈**：导入时把 `sourceFolder` 重新对齐到 clip 当前的物理目录（修复早期误归到根目录的数据）。
+  原「分组」列改名「音量组」（= `AudioChannel` 音量路由），与物理文件夹分组是两个独立维度。
 
 **配置系统接入「框架/音频」字段类型**（`ConfigFieldType.AudioEvent`）
 
@@ -71,10 +221,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   **新版 Wwise Unity Integration 是 `.unitypackage`（无 package.json），versionDefines 侦测不到**，
   故窗口同时用 `AssetDatabase` 探测 `Assets/Wwise/Deployment` 并提示手动加宏。
 
+**设置窗口：两栏布局 + 配置式分组**（`HYC Framework/Settings/Project Settings`）
+
+- **窗口改为 Unity Preferences 式「左栏分组 / 右栏内容」**：左栏 200px 分组树（`/` 嵌套缩进一层）、
+  右栏显示选中分组的条目；选中态为**整行纯色高亮**（不加竖条），选中页存 `[SerializeField] _selectedPath`，域重载不丢。
+- **分组改为特性声明，窗口不再写死清单**：新增 `Editor/HYCSettingsGroupAttribute.cs` 与
+  `Editor/HYCSettingsRegistry.cs`。字段加 `[HYCSettingsGroup("General")]` → 自动出控件
+  （`bool`/`int`/`float`/`string`/枚举）并即时写 EditorPrefs；**无参 `void` 方法**加
+  `[HYCSettingsGroup("Audio/Backend")]` → 自己画复杂区块（按钮 / 下拉 / 提示框）。
+  路径 `/` 表示嵌套；可选 `Label` / `Order` / `Key`（显式指定可避免改名丢值）/ `Persist`。
+- **扫描范围**：只扫引用了 `HYC.Framework.Editor` 的程序集；静态成员任何工程可直接挂，
+  实例成员须 `HYCSettingsRegistry.RegisterHost()`（窗口已在 `OnEnable` 登记自身、`OnDisable` 注销）。
+- 现有分组：`General`（两个 bool 字段）/ `ID Server` / `Audio` / `Validation`（三者为绘制方法）。
+- 文档：新增 `Documentation~/91-设置窗口-配置式分组.md`（写法 / 嵌套 / 持久化键 / 10 条雷区），
+  `90-编辑器工具链` 与 `02-操作手册` 挂入口。
+
+**音频音量分组 / 通道推断可在 HYC Settings 配置（项目级，出包生效）**
+
+- **`Audio/Volumes`**：主音量 + 5 通道（Master / Music / Sfx / Voice / Ui）滑块 + 全局静音。
+  改动实时应用到音频门面（编辑器预览），并写入 `FrameworkSettings` 资产
+  （`Assets/Resources/FrameworkSettings.asset`）；运行时由 `Bootstrap` 在 `SetBackend` 之后应用，
+  **出包保留设定**（此前音量恒为代码默认 1.0、完全不可配）。
+- **`Audio/Inference`**：可编辑「关键词 → 通道」推断规则表。扫描音频时按资源路径/名称
+  包含关键词匹配自动归类（靠上规则先匹配，首命中优先，空关键词忽略，无命中回退 Sfx）。
+  `AudioScanner.InferChannel` 由硬编码（BGM/Music→Music、UI→Ui、Voice/Dialog→Voice）
+  改为读取 `FrameworkSettings.audioChannelRules`，使用方可在设置里自定归类。
+- **`Audio/Groups`（数据驱动分组）**：音量分组集合本身从写死 `enum AudioChannel` 改为可配置表
+  `FrameworkSettings.audioGroups`（id 0 = Master 固定全局总音量、锁定不可删；其余分组可在本页增/删/改名）。
+  `AudioChannel` 枚举替换为类型安全的 `readonly struct AudioChannelId`（包一层 int，隐式转换兼容旧 catalog/Blob 的 0~4）
+  与 `class AudioGroupDef{int id; string displayName; float defaultVolume}`。扫描 / 推断 / 总览里的分组下拉全部改读该表，
+  增删改名后即时同步（路由看 id 不看显示名）。
+- **后端选择补持久化**：顺带把 `DrawAudioBackendSection` 也写 `FrameworkSettings.audioBackend` 资产，
+  使「项目级后端」真正出包生效（此前仅写 EditorPrefs，Bootstrap 读的资产始终为默认值）。
+
 ### Notes
 
 - 主菜单路径**全英文**约定：`HYC Framework/Audio/Export Catalog Blob`（原写成中文被 `verify-gate.sh` 拦下）。
-- 索引更新至 **223 文件 / 383 类型 / 18 分组**（新增 `Runtime/Audio/` 与 `Editor/Audio/`）。
+- 索引更新至 **226 文件 / 392 类型 / 18 分组**（新增 `Editor/HYCSettingsGroupAttribute.cs`、
+  `Editor/HYCSettingsRegistry.cs`、`Editor/DataEditor/ConfigAssetFactory.cs`；数字由 `Tests/Editor/FileIndexAuditTests.cs` 守护）。
 
 ### 勘误：音频模块首轮编译的 16 处错误（2026-10-08 实测发现，已修）
 
@@ -460,10 +644,10 @@ declaration type. It is only valid on 'class' declarations.`
 ### Fixed（2026-10-07 框架审计）
 > 本轮全框架审计发现的修复项，按严重度排序（🔴 为数据丢失/内存泄漏级）。
 
-- **🔴 实体销毁时 BT 原生内存泄漏（审计未捕获，由核实 SnowBros 实体销毁路径时发现）**。
+- **🔴 实体销毁时 BT 原生内存泄漏（审计未捕获，由核实实体销毁路径时发现）**。
   `BTManager._nodeStates` 里每个 `(实体, 树ID)` 持一份 `Allocator.Persistent` 的 `NativeArray`，
   原本**唯一**的释放路径是「树跑完（结果 != Running）时调 `ClearNodeStates`」。
-  但实体可能在树仍 Running 时被销毁——SnowBros 的"敌人冻成雪球 = 销毁旧实体 + 新建球形实体"
+  但实体可能在树仍 Running 时被销毁——典型如「旧实体被销毁并由新实体取代」
   正是这种情形：`RunningBT` 组件随实体消失 → Query 不再返回它 → 那条释放路径**永不执行** →
   每死一个敌人漏一份 Persistent 分配；实体私有黑板（10 个 Native 容器）同理。
   修法：`BTInterpreterSystem` 用两份 `NativeHashSet<Entity>` 交替记住「上一帧 / 本帧」活跃实体，
@@ -612,7 +796,7 @@ declaration type. It is only valid on 'class' declarations.`
 
 - **🔴 示例会把宿主工程的本地化表整张洗掉（`HYCSimple` 示例侧安全加固）**。
   `LocalizationManager` 是**进程级静态单例**，而 `Reload(folder)` 的第一步是把旧状态全部清空
-  （`mIDs/mLangs/mTexts/mLang2Index/mKey2Index = null`）再按目标目录重填。宿主工程（如 SnowBros）
+  （`mIDs/mLangs/mTexts/mLang2Index/mKey2Index = null`）再按目标目录重填。宿主工程
   通常在 `[RuntimeInitializeOnLoadMethod]` 阶段已从 `StreamingAssets/Localization` 加载了自己的 key 表，
   而 `HYCSimpleLocDemoSystem` 作为普通 `SystemBase` 会被自动拉进 World，第一次 `OnUpdate` 就
   `Reload` 到示例自己的 3 条数据 —— 宿主整张表当场丢失，现象是**主菜单全线 `未找到Key : xxx`**，
@@ -721,7 +905,7 @@ declaration type. It is only valid on 'class' declarations.`
   - `Editor/BT/BTBlobExporter.cs`：新增 `ExportFolder(folder)`（递归该目录下全部 `BTTreeAsset`，先存盘再导出）与 `ExportTrees(trees)`（只覆盖这批 blob，不清空目录，导出后 `SyncManifest` 重建清单）；`TreeTypeFilter` 由 private 改 public。
   - `Editor/BT/BTGraphIMGUI.cs`：BT 编辑器 File 菜单新增「全量清理后全量导出」，单棵树 / 文件夹右键新增「保存并导出」。
 - **文档：补齐枚举配置（此前该能力无文档）**：新增 `Documentation~/13-枚举配置.md`——枚举定义资产 → 生成 C# 枚举类 → 配置字段引用的完整机制、`ValueOf` 的 **1 基**（`index+1`）与 Flags（`1<<index`）数值约定、**配置类字段是枚举类型而 Blob 字段是 `int`** 这一最易误判点、校验规则与 9 条踩坑（含从 0 基手写枚举迁移要 `+1`、脚本化 `EnsureEnumDefs()` 必须排在 OutputDir 清理之后）。`11-字段类型与导出设置` 的 `Enum` 行、`Documentation~/README.md` 索引、`90-编辑器工具链` 同步更新。
-- **文档：新增 `Documentation~/02-操作手册-按任务.md`（处方型，补齐「读完知道怎么做」的缺口）**：现有各篇都是「机制说明」（有什么、是什么），缺「要完成 X 按顺序做这些」。02 篇按任务组织——新增配置表（**脚本驱动 / 编辑器驱动两条路**，此前只讲了编辑器一条，而 SnowBros / TD 都是脚本驱动）、字段类型与导出模式决策表、枚举字段步骤、运行期读配置、行为树从零到跑通（含 `BTInterpreterSystem` 是 struct、须用 `GetOrCreateSystem<T>()`）、新增 UI 窗口、**基类 / 接口一览表**、「改完必须重跑什么」清单、菜单路径速查。另含两条易漏铁律：UI 类必须写 `partial`、引用 `UpdateGroup_*` 必须 `using HYC.Framework.Dots;`。
+- **文档：新增 `Documentation~/02-操作手册-按任务.md`（处方型，补齐「读完知道怎么做」的缺口）**：现有各篇都是「机制说明」（有什么、是什么），缺「要完成 X 按顺序做这些」。02 篇按任务组织——新增配置表（**脚本驱动 / 编辑器驱动两条路**，此前只讲了编辑器一条，而多数使用方工程都是脚本驱动）、字段类型与导出模式决策表、枚举字段步骤、运行期读配置、行为树从零到跑通（含 `BTInterpreterSystem` 是 struct、须用 `GetOrCreateSystem<T>()`）、新增 UI 窗口、**基类 / 接口一览表**、「改完必须重跑什么」清单、菜单路径速查。另含两条易漏铁律：UI 类必须写 `partial`、引用 `UpdateGroup_*` 必须 `using HYC.Framework.Dots;`。
 - **文档订正（菜单路径此前写错，会直接误导 AI）**：行为树编辑器实际是 `HYC Framework/BT/BT Editor`，`01` / `90` 两篇误写为 `Tools/HYC/BT Editor`（已订正）；`01` 篇列出的 `HYC Framework/Config/Generate Config` **并不存在**（已移除）；`90` 篇补上遗漏的 `HYC Framework/Localization/Editors/Scan Key Usage` 与两个 UI Binder 生成变体。全部菜单路径已逐条比对源码 `[MenuItem]`。
 
 ### Changed

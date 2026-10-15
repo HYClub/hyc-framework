@@ -172,10 +172,10 @@ HYC.Framework.BT.Editor.BTBlobExporter.ExportAll("自定义目录"); // 打包�
 ### 运行时加载（Runtime）
 
 ```csharp
-// 引导期（数据阶段，早于任何实体 Tick）
+// 引导期（数据阶段，早于任何实体 Tick）——全平台同一套代码，零平台分支
 BTBlobLoader.LoadAll();                       // 按 manifest 逐棵注册
 BTBlobLoader.Load(21001);                     // 只加载某一棵
-BTBlobLoader.LoadAll(myFolder);               // 指定目录（如已拷贝到 persistentDataPath）
+BTBlobLoader.LoadAll(myFolder);               // 指定目录（相对 StreamingAssets 根或绝对路径均可）
 ```
 
 内部即 `BlobAssetReference<BTRootBlob>.TryRead(path, version, out blob)` → `BTManager.Register(treeId, blob)`。
@@ -187,10 +187,13 @@ BTBlobLoader.LoadAll(myFolder);               // 指定目录（如已拷贝到 
 - 文件缺失 → `LogWarning`“重新导出”；读取失败 → `LogError`（多半是版本不一致或文件损坏）。
 - ⚠️ **改完树必须重新导出**，否则真机跑的是旧版本（编辑器里看不出来，因为编辑器走自动注册）。
   建议把 `BTBlobExporter.ExportAll()` 挂进构建前流程。
-- ⚠️ **Android**：`Application.streamingAssetsPath` 在 APK 内（`jar:file://`），`File.Exists` / `TryRead` 读不到
-  （配置管线同样受此限制）。真机要么先把文件拷到 `persistentDataPath` 再把该目录传给 `LoadAll`，
-  要么用 `UnityWebRequest` 读字节后 `BlobAssetReference<BTRootBlob>.Create(byte[])` + `Register`。
-  `BTBlobLoader` 检测到 `jar:` 路径会直接报错说明，不会静默变成「树全没加载但游戏照跑」。
+- ⚠️ **WebGL / Android（`StreamingAssets.NeedsPreload`）**：`Application.streamingAssetsPath` 在 WebGL 无文件系统、
+  Android 在 APK 内（`jar:file://`），`File.*` 在两者上都读不到。**但 `BTBlobLoader` 内部已按平台分流**：
+  预取平台走 `StreamingAssets.ReadBytes(相对路径)` + `MemoryBinaryReader` 内存解析后 Register，
+  调用方（游戏层）不需要拷 persistentDataPath、不需要自己 UnityWebRequest、不需要 `#if`。
+  唯一硬性要求：引导入口用 `await FrameworkBootstrap.InitializeAsync("World")`
+  （内部先 `await StreamingAssets.PreloadAsync()` 再建 World），否则预取缓存为空、加载全部 miss。
+  非预取平台若手工传入 `jar:` / `http` 路径，`BTBlobLoader` 会直接报错说明，不会静默变成「树全没加载但游戏照跑」。
 
 ---
 

@@ -118,6 +118,50 @@ BlobAssetReference<CfgLocalization>.TryRead(reader, 3, out var blob);
 
 ---
 
+## 五·补、跨端数据加载契约（PC / iOS / Android / WebGL 一套代码）
+
+**目标：游戏层不为切平台写任何不同代码。** 平台差异全部收在 `HYC.Framework.IO.StreamingAssets` 里。
+
+### 平台分两类
+
+| 类别 | 平台 | 读取方式 |
+|---|---|---|
+| 可直接读文件 | PC / macOS / Linux / iOS | `File.ReadAllBytes`（同步） |
+| **`NeedsPreload`** | WebGL（无文件系统）、Android（文件在 APK 压缩包 `jar:file://` 内） | 构建时列清单 → 启动时 `PreloadAsync` HTTP 进内存缓存 → 之后同步读缓存 |
+
+判据是 `StreamingAssets.NeedsPreload`（= `IsWebGL || IsAndroid`），**不是** `IsWebGL`——Android 与 WebGL 同属"不能裸读文件"，早年只判 WebGL 是个坑。
+
+### 游戏层要做的只有一件事
+
+```csharp
+// 全平台统一调异步引导入口；PC / iOS 上 PreloadAsync 是 no-op，等价于旧同步入口
+await new FrameworkBootstrap().InitializeAsync("Game World");
+```
+
+`FrameworkBootstrap.InitializeAsync` / `FrameworkModeBootstrap.InitializeAsync` 内部顺序：
+`await StreamingAssets.PreloadAsync()` → 建 World（各 `System.OnCreate` 读 Blob）→ `FrameworkLifecycle.EnsureBootDataLoaded()` 补加载入。
+
+> 本地化的 `LocalizationBlobSystem` 挂了 `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]，
+> 在 NeedsPreload 平台上若发现缓存未就绪会**主动跳过**（并打日志提示改用异步引导入口），
+> 不会读出一堆空数据——这就是为什么必须走 `InitializeAsync`。
+
+### 构建侧
+
+`StreamingAssetsManifestBuilder`（`IPreprocessBuildWithReport`）在 **WebGL / Android** 构建时，
+把 StreamingAssets 下除 `aa/`（Addressables 自管）与 `.meta` 外的所有文件列成
+`hyc_streaming_manifest.txt`。缺这份清单 = 预取不到 = 配置静默全空，报错信息会直指这一点。
+
+### 配置 Blob 的落点只有一个真值
+
+`ConfigDataSettings.BlobOutputDir`（默认 `Assets/StreamingAssets/ConfigBlob`）是**唯一**设置项：
+- 导出（`XxxConfigExport`）写它；
+- 运行期读取路径 `BlobLoadPath` **由它派生**（剥掉 `Assets/StreamingAssets/` 前缀），生成代码里写死的就是这个派生值；
+- 设置窗口的「运行时加载路径」是**只读展示**；选 Blob 格式而输出目录不在 StreamingAssets 内，保存与导出都会被拦下。
+
+这样「导出于读取永远是同一处」，从结构上消除两边各配一个路径的坑。
+
+---
+
 ## 六、Data-Oriented 辅助
 
 ### BakerGlue（authoring → entity 样板削减）
@@ -146,7 +190,7 @@ BakerGlue.AddIfPresent<MyComp>(baker, entity, value, present);  // present 才 A
 | 特性 | 位置 | 作用 |
 | --- | --- | --- |
 | `[BlobGenerate(string sheetName)]` | `Runtime/Attributes.cs` | 标记结构为配置行（生成 + 烘焙），缺它会让 `ConfigValidator` 报 Error |
-| `[CfgAsset(Name, Order, Unique, ParentAsset)]` | `Runtime/CfgAssetAttribute.cs` | 标记 ScriptableObject 为数据编辑器可见的配置资产；`Name` 支持 `分类/名称`，`Unique` 限单实例，可 `AllowMultiple` |
+| `[CfgAsset(Name, Order, Unique, ParentAsset, Hide)]` | `Runtime/CfgAssetAttribute.cs` | 标记 ScriptableObject 为数据编辑器可见的配置资产；`Name` 支持 `分类/名称`，`Unique` 限单实例，`Hide` 标记框架基础设施类型（模板/基类/音频总览）不进「配置创建器」/「配置引用」选择器（只认自身直接标注，`CfgAssetAttribute.IsHidden` 判定） |
 | `[LocKey]` | `Runtime/LocKeyAttribute.cs` | 标记配置 `string` 字段为本地化 key（属 `HYC.Framework.Config`，不依赖 loc 包） |
 | `[AddressableField]` / `[BehaviourTreeField]` | `Runtime` | 配置字段里引用 Addressable key / 行为树资产 |
 

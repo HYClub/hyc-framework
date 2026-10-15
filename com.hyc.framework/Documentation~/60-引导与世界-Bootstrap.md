@@ -10,6 +10,49 @@
 
 ---
 
+## 跨端数据加载契约（PC / iOS / Android / WebGL 一套代码）⚠️ 先读这段
+
+**打包发布时必须用异步引导入口。** 三种引导方式各自都有 `Initialize` / `InitializeAsync` 一对：
+
+| 入口 | 用法 |
+| --- | --- |
+| `FrameworkBootstrap.InitializeAsync(name)` | `await` 版，**推荐，全平台统一用这个** |
+| `FrameworkModeBootstrap.InitializeAsync(name)` | 按模式扫系统 + `await` 版 |
+| `FrameworkBootstrap.Initialize(name)` / `FrameworkModeBootstrap.Initialize(name)` | 同步版，仅 PC / macOS / Linux / iOS |
+
+`InitializeAsync` 内部顺序：
+
+```
+await StreamingAssets.PreloadAsync()      // WebGL/Android：HTTP 预取进内存缓存；PC/iOS：no-op
+  ↓
+建 World + 装系统                          // 各 System.OnCreate 在这里读 Blob
+  ↓
+FrameworkLifecycle.EnsureBootDataLoaded()  // 补加载入（本地化在 BeforeSceneLoad 可能主动跳过）
+```
+
+**为什么必须这样**：WebGL 没有文件系统、Android 的 StreamingAssets 在 APK 压缩包内
+（`jar:file://`），这两类平台**不能直接用 `System.IO.File` 读**，必须先把数据 HTTP 进内存缓存。
+而读取都发生在建 World 时的 `System.OnCreate`，所以预取必须先于建 World 完成。
+判据是 `StreamingAssets.NeedsPreload`（= `IsWebGL || IsAndroid`）。
+
+**宿主代码因此零平台分支**：
+
+```csharp
+public sealed class GameBootstrap : MonoBehaviour
+{
+    private async void Start()
+    {
+        await new FrameworkBootstrap().InitializeAsync("Game World");
+        // 之后照常：装 UI、进主菜单……
+    }
+}
+```
+
+> 用老的同步 `Initialize` 在 WebGL / Android 上会打明确日志提示改用 `InitializeAsync`，
+> 不会静默失败。详见 [99-Blob 与数据约定 · 五·补](./99-Blob-与数据约定.md)。
+
+---
+
 ## 更新阶梯（UpdateGroups）
 
 `HYC.Framework.Dots` 定义了一套固定顺序的 `ComponentSystemGroup`，**全部挂在 `SimulationSystemGroup` 下的 `UpdateGroup_Root` 下**：
@@ -46,13 +89,18 @@ host.Dispose();
 - `Install` 里：`GetOrCreateSystemManaged<UpdateGroup_Root>()`，依次跑每个 `IFrameworkInstaller.Install(world)`，最后 `SimulationBootstrap.Mode = mode`。
 - **手动驱动**：`Update()` 调 `_rootGroup.Update()`（没有 `_rootGroup` 就 `_world.Update()`）。宿主要在自己的 `MonoBehaviour` 里每帧调。
 - `IFrameworkInstaller`：`void Install(World world)` 一个方法，宿主把"装输入系统/装 UI 管理器/注册配置表"之类拆成 installer。
+- **跨端**：这条路径没有现成的 `InitializeAsync`（World 由宿主自己 new）。宿主必须在
+  `new FrameworkWorld(...)` **之前**先 `await HYC.Framework.IO.StreamingAssets.PreloadAsync()`
+  （PC / iOS 上是 no-op），否则 WebGL / Android 上建 World 时读不到配置。
 
 ### 2. FrameworkModeBootstrap（按模式扫系统）
 
 ```csharp
 var boot = new FrameworkModeBootstrap();
-boot.Initialize("Framework World");   // 内部 new World(..., Game) + AppendWorldToCurrentPlayerLoop
+await boot.InitializeAsync("Framework World");   // 内部 new World(..., Game) + AppendWorldToCurrentPlayerLoop
 ```
+
+> 同步版 `boot.Initialize(...)` 仍可用，但**仅限 PC / macOS / Linux / iOS**（WebGL / Android 读不到数据）。
 
 `InstallSystems(world, mode)` 流程：
 
@@ -78,6 +126,11 @@ AddSystemsToRootLevelSystemGroups(world, systemIndexs)
 - 在自己 `ICustomBootstrap.Initialize` 里 `new FrameworkWorld(...)` / `FrameworkModeBootstrap().Initialize(...)`；或
 - 用 `FrameworkBootstrap.Initialize(defaultWorldName)`（静态 `Installers` 列表 + `BootMode`）。
 
+⚠️ **`ICustomBootstrap.Initialize` 是同步签名，无法 `await`**——所以要走框架的 World 装配，请在
+`ICustomBootstrap` 里只做「标记 + 转发」，把真正的引导放到一个 `async void Start()` 的
+MonoBehaviour 里 `await ...InitializeAsync(...)`（见上文「跨端数据加载契约」的示例）。
+Unity 的 `ICustomBootstrap` 在 WebGL 上无法等待预取，这是它本身的限制，不是框架能绕过的。
+
 ---
 
 ## 模式
@@ -102,21 +155,36 @@ static class SimulationBootstrap
 
 ---
 
-## 启动级配置（StartupSetting）
+## UI 适配与导航参数（`UIManager.Setting`）
 
-`[CreateAssetMenu(menuName = "HYC Framework/Startup Setting")]`：
+`UIManager.Setting`（static，`UIManagerSetting`）是 UI 适配 / 导航参数的**唯一真源**：
 
-| 字段 | 默认 | 落到哪 |
+| 参数 | 默认 | 落到哪 |
 | --- | --- | --- |
-| `InputActionAsset` | — | 传给 `HotkeyManager.BindAsset`（**必须先设**，否则 UI 热键全失败） |
-| `NavigationKeyDeathArea` | 0.6 | `UIManager` 摇杆死区 |
+| `ReferenceResolution` | 1920×1080 | UI 适配参考分辨率（`ResetUIFitData` / `ResetWindowFit` 实时读） |
+| `MaximumResolution` | 3440×1440 | 最大分辨率（与参考取 `Vector2.Max`） |
+| `NavigationKeyDeathArea` | 0.6 | 摇杆死区（`AbsUISystem.UpdateByFocusManager` 实时读） |
 | `NavigationKeyDelayTime` | 0.5 | 同方向连发延迟 |
-| `NavigationKeyRepeateCount` | 10 | 每秒重复次数 |
-| `ReferenceResolution` | 1920×1080 | UI 适配参考分辨率 |
-| `MaximumResolution` | 3440×1440 | UI 适配最大分辨率 |
-| `HotkeyIcons` | — | `SpriteAtlas`，按键提示图标 |
-| `HotkeyHoldThreshold` | 0.2 | 长按阈值 |
-| `HotkeyStyle1~5` | — | 5 套 `BaseHotkeyElement` 提示样式预制体 |
+| `NavigationKeyRepeateCount` | 10 | 每秒重复次数（间隔 `1f / count`） |
+
+宿主持家在引导期定制——`FrameworkBootstrapBase` 子类的 `Configure` 钩子里改字段
+（彼时 `WireUI` 已建好 `UIManager`，`Setting` 必非空；static + 实时读，赋值即时生效）：
+
+```csharp
+protected override void Configure(World world)
+{
+    // UI 不是按 1920×1080 设计时才需要：
+    UIManager.Setting.ReferenceResolution = new Vector2(2560, 1080);
+}
+```
+
+输入资产不走这里：覆盖 `FrameworkBootstrapBase.BindHotkeyAsset` 绑定自有
+`InputActionAsset`（默认生成 WASD/方向键 + Enter/Space/Esc 的运行时资产，已绑则幂等跳过）。
+
+> 历史：曾有一个 `StartupSetting` ScriptableObject（AA 加载 → entity object singleton →
+> `UIManager.OnCreate` 读取）作为这套参数的远程赋值源，因 10 个字段中 6 个无消费方、
+> 生产端从未接线而已移除（见 CHANGELOG）。将来若需数据驱动，把这些字段搬进
+> `FrameworkSettings`（Resources 模式）即可，`UIManager.Setting` 作为真源不变。
 
 ---
 
@@ -164,4 +232,5 @@ settings.ApplyCommandLine(args);     // 解析 --framerate=120 / --language=Engl
 4. **模式单例只盖一个**：`Sim` 模式盖章 `FrameworkMode_Sim`，否则 `FrameworkMode_Live`。`Live` 是默认兜底（包括 `Sim` 之外的任何 mode 值）。
 5. **`FrameworkBootstrap.BootMode` 默认 `SimulationBootstrap.Live`**（`= 1`）——没改的话即使你以为在 sim 也是 live。
 6. **`IFrameworkInstaller` 列表是静态的**（`FrameworkBootstrap.Installers`），多次 `Initialize` 会重复装，注意只在启动时调一次。
-7. **`BakerGlue` 是 authoring→entity 的辅助**（非引导核心）：`AddItems<TBuffer>` 批量加 buffer，`AddIfPresent` 条件加组件。写在 Baker 里省样板。
+7. **`BakerGlue` 是 authoring→entity 的辅助**（非引导核心）：`AddItems<TBuffer>` 批量加 buffer、`AddIfPresent` 条件加组件。写在 Baker 里省样板。
+8. **WebGL / Android 上不要用 `System.IO` 读 StreamingAssets**（`File` / `Directory.Exists` / `Directory.GetFiles`）：浏览器无文件系统、Android 文件在 APK 压缩包内，都读不到。判存在性用 `StreamingAssets.Exists(相对路径)`，列目录用 `StreamingAssets.GetKeysUnder(相对目录)`；引导用 `InitializeAsync`。平台判据是 `NeedsPreload` 而不是 `IsWebGL`。

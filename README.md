@@ -341,7 +341,7 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 
 ## 📚 完整文档
 
-框架包内的 [`com.hyc.framework/Documentation~/`](./com.hyc.framework/Documentation~) 提供 **28 篇** 中文深度文档（架构 / 配置管线 / 多语言 / ECS UI / 输入 / 过场 / 消息 / 行为树 / Blob 约定 / 文件与类索引），每篇 = 架构 + 关键类 + 用法 + 坑。
+框架包内的 [`com.hyc.framework/Documentation~/`](./com.hyc.framework/Documentation~) 提供 **29 篇** 中文深度文档（架构 / 配置管线 / 多语言 / ECS UI / 输入 / 过场 / 消息 / 行为树 / Blob 约定 / 文件与类索引），每篇 = 架构 + 关键类 + 用法 + 坑。
 
 > 🤖 这套文档专门做了「AI 友好」处理：结构固定、基于源码实测、关键信息内联。
 > 把 `com.hyc.framework/Documentation~/` 提供给 AI 助手（Copilot / WorkBuddy / Cursor 等），它就能在不通读源码的情况下准确理解并修改本框架。
@@ -354,7 +354,7 @@ ctx.GameHandler = (ref HYC.Framework.BT.BTContext c, ref HYC.Framework.BT.BTNode
 hyc-framework/                     ← 仓库根
 ├── README.md                      ← 本文件（GitHub 主页）
 └── com.hyc.framework/             ← Unity 包（package.json 在此）
-    ├── Documentation~/            ← 完整文档（28 篇，AI 友好），PM「查看文档」可打开
+    ├── Documentation~/            ← 完整文档（29 篇，AI 友好），PM「查看文档」可打开
     ├── package.json / LICENSE / CHANGELOG.md / README.md
     ├── Runtime/                   # 运行时（HYC.Framework.Runtime.asmdef）
     │   ├── 引导与生命周期：Bootstrap / BootstrapSystems / UpdateGroups / Simulation / Settings / StartupSetting / GameCommandArgs

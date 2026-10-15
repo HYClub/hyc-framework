@@ -152,7 +152,7 @@ UIManager.CloseHudNotice(window);     // HUDNotice 专用
 - `ResetGUIInput()`：从 `Mask` 往下扫到 `HUD`，遇到第一个 `Focusable` 的就 `HotkeyManager.SetNavigateMode(true)`，否则 `false`。
 - 手柄/键盘导航由 `AbsUISystem.UpdateByFocusManager()` 驱动，只在 `Focused && HotkeyManager.IsNavigateMode` 时跑。
 
-**导航参数**（来自 `StartupSetting`，缺省值在 `UIManagerSetting`）：
+**导航参数**（`UIManager.Setting`，默认值如下；宿主持家在引导期改字段，见 [60 引导与世界](./60-引导与世界-Bootstrap.md)）：
 
 | 参数 | 默认 | 作用 |
 | --- | --- | --- |
