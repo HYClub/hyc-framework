@@ -6,6 +6,7 @@
 // ============================================================
 
 using System.IO;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -39,6 +40,10 @@ namespace HYC.Framework.BT.Editor
                 : _kind == BTCustomNodeKind.Action ? "动作: 执行一个行为"
                 : "组合: 有子节点, 动态端口",
                 MessageType.Info);
+
+            // 目标命名空间恒定展示（只换文案）——由 HYC Settings → CodeGen 的 root 派生
+            EditorGUILayout.LabelField(
+                $"生成命名空间：{HYCSettings.BTNodesCodeNamespace}", EditorStyles.miniLabel);
 
             EditorGUILayout.Space();
             EditorGUILayout.BeginHorizontal();
@@ -117,7 +122,8 @@ namespace HYC.Framework.BT.Editor
             sb.AppendLine("using HYC.Framework.BT;");
             sb.AppendLine("using Unity.Entities;");
             sb.AppendLine();
-            sb.AppendLine("namespace GameBT.Nodes");
+            // 命名空间由「生成代码命名空间 root」派生（HYC Settings → CodeGen，留空=项目公司名→Default）
+            sb.AppendLine($"namespace {HYCSettings.BTNodesCodeNamespace}");
             sb.AppendLine("{");
             sb.AppendLine($"    /// <summary>{nodeName} (子类型 #{subType}, {treeStr}树)</summary>");
             sb.AppendLine($"    public class {className} : BTCustomNode");

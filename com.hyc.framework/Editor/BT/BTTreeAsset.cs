@@ -13,7 +13,6 @@ using UnityEngine;
 
 namespace HYC.Framework.BT.Editor
 {
-    [CreateAssetMenu(fileName = "BTTree", menuName = "HYC/BT/Tree")]
     public class BTTreeAsset : ScriptableObject
     {
         [Header("标识")]
@@ -47,19 +46,12 @@ namespace HYC.Framework.BT.Editor
             if (root != null) return root;
             root = new BTNodeData
             {
-                NodeId = NewNodeId(),
+                NodeId = BTAssetFactory.NextNodeId(this),
                 Type = BTNodeType.Root,
                 Position = new Vector2(40f, 200f),   // 与 ConvertToSubTree 预置 Root 同位
             };
             Nodes.Add(root);
             return root;
-        }
-
-        /// <summary>与 BTGraphIMGUI.NewNodeId 同规则：GUID 正整数, 不为 0。</summary>
-        private static long NewNodeId()
-        {
-            var id = Guid.NewGuid().GetHashCode() & 0x7fffffff;
-            return id == 0 ? 1 : id;
         }
 
         /// <summary>列出项目内所有行为树资产(名称 + TreeId), 供节点里的"子树"下拉选择。</summary>

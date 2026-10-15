@@ -459,10 +459,9 @@ namespace HYC.Framework.BT.Editor
         //      local L 的屏幕位置    = M(rect.min + L) - scrollOffset
         //  要同时满足"裁剪区恒等于 _canvasRect" 与 "内容随 Pan 平移", 必须靠 scrollOffset 打破耦合,
         //  而 scrollOffset 按屏幕像素还是局部单位解释, 各 Unity 版本不一致(差一个 zoom 倍率)。
-        //  实测: 把 pan 编码进 rect.min 会让内容被钉死(Pan 被 rect.min 正好抵消) —— 就是上一版的 bug。
-        //
-        //  改为: 不做 GUIClip 裁剪, 靠绘制顺序保证越界内容不可见 ——
-        //  画布最先画, 工具栏 / 左右面板 / 底栏 / minimap 全部在它之后, 正好铺满画布之外的所有区域。
+        //  约束：pan 绝不能编码进 rect.min——会被自身的平移正好抵消，导致内容被钉死在画布原点。
+        //  因此不做 GUIClip 裁剪，靠绘制顺序保证越界内容不可见：
+        //  画布最先画，工具栏 / 左右面板 / 底栏 / minimap 全部在其之后，正好铺满画布之外的所有区域。
         //  与 NodeCanvas 顺序一致: DrawMinimap → StartBreadCrumbNavigation → ShowToolbar → ShowPanels。
         // ================================================================
         private Matrix4x4 BeginCanvasTransform()
@@ -2007,20 +2006,14 @@ namespace HYC.Framework.BT.Editor
 
         private void CreateTreeIn(string dir)
         {
-            EnsureBTRoot();
             if (!AssetDatabase.IsValidFolder(dir)) dir = BT_ROOT;
-            var tree = ScriptableObject.CreateInstance<BTTreeAsset>();
-            tree.TreeId = DateTime.Now.Ticks % 100000;
-            tree.name = "NewTree";
-            // 不预置 Root: 新树从空画布引导态开始(见 DrawEmptyCanvasHint)
-            var path = AssetDatabase.GenerateUniqueAssetPath(dir + "/NewTree.asset");
-            AssetDatabase.CreateAsset(tree, path);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
+            BTTreeAsset tree;
+            try { tree = BTAssetFactory.Create("NewTree", dir); }
+            catch (Exception e) { Debug.LogError("[BT] 新建行为树失败: " + e.Message); return; }
             _collapsed.Remove("dir:" + dir);
-            _selAssetPath = path;
+            _selAssetPath = AssetDatabase.GetAssetPath(tree);
             OnRequestOpenTree?.Invoke(tree);
-            BeginRename(path);                       // Windows: 新建后立刻进入改名
+            BeginRename(_selAssetPath);                       // Windows: 新建后立刻进入改名
         }
 
         private void CreateFolderIn(string dir)
@@ -2469,12 +2462,6 @@ namespace HYC.Framework.BT.Editor
         //  数据操作(直接改写 BTTreeAsset, 与 GraphView 版等价)
         // ================================================================
 
-        private static long NewNodeId()
-        {
-            var id = Guid.NewGuid().GetHashCode() & 0x7fffffff;
-            return id == 0 ? 1 : id;
-        }
-
         private void MarkDirty(bool save)
         {
             _graphDirty = true;   // 图已变更, 下次 DrawGUI 重算校验(见 DrawGUI 缓存逻辑)
@@ -2510,7 +2497,7 @@ namespace HYC.Framework.BT.Editor
         private void AddNode(BTNodeType type, Vector2 pos)
         {
             RecordUndo("BT: 新增节点");
-            var data = new BTNodeData { NodeId = NewNodeId(), Type = type, Position = pos };
+            var data = new BTNodeData { NodeId = BTAssetFactory.NextNodeId(_asset), Type = type, Position = pos };
             _asset.Nodes.Add(data);
             _selectedIds.Clear(); _selectedIds.Add(data.NodeId);
             MarkDirty(true);
@@ -2519,7 +2506,7 @@ namespace HYC.Framework.BT.Editor
         private void AddCustomNode(System.Type type, long subType, Vector2 pos)
         {
             RecordUndo("BT: 新增自定义节点");
-            var data = new BTNodeData { NodeId = NewNodeId(), Type = BTNodeType.GameCustom, Position = pos };
+            var data = new BTNodeData { NodeId = BTAssetFactory.NextNodeId(_asset), Type = BTNodeType.GameCustom, Position = pos };
             data.LongParams.Add(subType);
             _asset.Nodes.Add(data);
             _selectedIds.Clear(); _selectedIds.Add(data.NodeId);
@@ -2531,7 +2518,7 @@ namespace HYC.Framework.BT.Editor
             RecordUndo("BT: 从节点库添加节点");
             if (p.IsCustom)
             {
-                var data = new BTNodeData { NodeId = NewNodeId(), Type = BTNodeType.GameCustom, Position = pos };
+                var data = new BTNodeData { NodeId = BTAssetFactory.NextNodeId(_asset), Type = BTNodeType.GameCustom, Position = pos };
                 data.LongParams.Add(p.SubType);
                 _asset.Nodes.Add(data);
                 _selectedIds.Clear(); _selectedIds.Add(data.NodeId);
@@ -2627,7 +2614,13 @@ namespace HYC.Framework.BT.Editor
             RecordUndo("BT: 复制分支");
             var ids = CollectBranch(nodeId);
             var map = new Dictionary<long, long>();
-            foreach (var id in ids) map[id] = NewNodeId();
+            var reserved = new HashSet<long>();
+            foreach (var id in ids)
+            {
+                var nid = BTAssetFactory.NextNodeId(_asset, reserved);
+                map[id] = nid;
+                reserved.Add(nid);
+            }
             foreach (var id in ids)
             {
                 var src = FindNode(id);
@@ -2660,7 +2653,7 @@ namespace HYC.Framework.BT.Editor
             if (node == null || node.Type == BTNodeType.Root) return;
             var deco = new BTNodeData
             {
-                NodeId = NewNodeId(),
+                NodeId = BTAssetFactory.NextNodeId(_asset),
                 Type = decoType,
             };
             // 垂直流: 装饰节点作为父节点, 置于被装饰节点正上方(而非左侧)
@@ -2686,15 +2679,22 @@ namespace HYC.Framework.BT.Editor
             var ids = CollectBranch(nodeId);
 
             var sub = ScriptableObject.CreateInstance<BTTreeAsset>();
-            sub.TreeId = DateTime.Now.Ticks % 100000;
+            sub.TreeId = BTAssetFactory.NextTreeId();
             sub.name = "SubTree_" + sub.TreeId;
             sub.Kind = _asset.Kind;
 
-            long rootId = NewNodeId();
+            var reserved = new HashSet<long>();
+            long rootId = BTAssetFactory.NextNodeId(sub, reserved);
+            reserved.Add(rootId);
             sub.Nodes.Add(new BTNodeData { NodeId = rootId, Type = BTNodeType.Root, Position = new Vector2(40, 200) });
 
             var map = new Dictionary<long, long>();
-            foreach (var id in ids) map[id] = NewNodeId();
+            foreach (var id in ids)
+            {
+                var nid = BTAssetFactory.NextNodeId(sub, reserved);
+                map[id] = nid;
+                reserved.Add(nid);
+            }
             foreach (var id in ids)
             {
                 var src = FindNode(id);
@@ -2717,7 +2717,7 @@ namespace HYC.Framework.BT.Editor
 
             var subNode = new BTNodeData
             {
-                NodeId = NewNodeId(),
+                NodeId = BTAssetFactory.NextNodeId(_asset),
                 Type = BTNodeType.SubTree,
                 Position = node.Position,
             };
@@ -2748,7 +2748,7 @@ namespace HYC.Framework.BT.Editor
             var offset = new Vector2(30, 30);
             foreach (var src in _clipboard)
             {
-                var data = CloneNodeData(src, NewNodeId(), offset);
+                var data = CloneNodeData(src, BTAssetFactory.NextNodeId(_asset), offset);
                 _asset.Nodes.Add(data);
                 _selectedIds.Add(data.NodeId);
             }

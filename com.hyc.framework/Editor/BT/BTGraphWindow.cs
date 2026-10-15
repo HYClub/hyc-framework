@@ -122,7 +122,7 @@ namespace HYC.Framework.BT.Editor
         {
             var tree = CreateInstance<BTTreeAsset>();
             // TreeId 不能为 0：运行期按 TreeId 注册/查找(0 = 未设置, 导出与配置引用都会跳过它)
-            tree.TreeId = System.DateTime.Now.Ticks % 100000 + 1;
+            tree.TreeId = BTAssetFactory.NextTreeId();
             tree.name = "NewTree";
             // 故意不预置 Root: 零资产的初始态是"干净的空画布 + 中央引导文案"(见 DrawEmptyCanvasHint),
             // 不是"一个孤零零的入口节点 + 一条 Root 未连线报错"。
@@ -141,15 +141,7 @@ namespace HYC.Framework.BT.Editor
         /// <summary>新建行为树资产(由 IMGUI 工具栏 File 菜单调用)。</summary>
         private void CreateNewTree()
         {
-            var tree = CreateInstance<BTTreeAsset>();
-            // TreeId 不能为 0：运行期按 TreeId 注册/查找(0 = 未设置, 导出与配置引用都会跳过它)
-            tree.TreeId = System.DateTime.Now.Ticks % 100000 + 1;
-            tree.name = "NewTree";
-            // 不预置 Root: 新树从空画布引导态开始(见 DrawEmptyCanvasHint), 放了节点后校验才介入。
-            if (!AssetDatabase.IsValidFolder("Assets/BTTrees"))
-                AssetDatabase.CreateFolder("Assets", "BTTrees");
-            AssetDatabase.CreateAsset(tree, $"Assets/BTTrees/NewTree_{tree.TreeId}.asset");
-            AssetDatabase.SaveAssets();
+            var tree = BTAssetFactory.Create("NewTree", "Assets/BTTrees");
             OpenTree(tree);
         }
 
