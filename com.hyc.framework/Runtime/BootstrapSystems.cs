@@ -63,6 +63,21 @@ namespace HYC.Framework.Runtime
         }
 
         /// <summary>
+        /// 跨平台引导入口（推荐）：先完成 StreamingAssets 预取，再建 World 并安装系统。
+        ///
+        /// <para>PC / macOS / Linux / iOS 上 <c>PreloadAsync</c> 是 no-op，与 <see cref="Initialize"/> 等价；
+        /// WebGL / Android 上必须走这里——否则建 World 时（<c>System.OnCreate</c>）读不到配置数据。</para>
+        /// <para><b>游戏层全平台统一调这个方法即可，无需写任何平台分支。</b></para>
+        /// </summary>
+        public async System.Threading.Tasks.Task<bool> InitializeAsync(string defaultWorldName)
+        {
+            await HYC.Framework.IO.StreamingAssets.PreloadAsync();
+            var ok = Initialize(defaultWorldName);
+            HYC.Framework.FrameworkLifecycle.EnsureBootDataLoaded();
+            return ok;
+        }
+
+        /// <summary>
         /// Installs all default systems that are not excluded by the current mode,
         /// then stamps the matching mode singleton.
         /// </summary>

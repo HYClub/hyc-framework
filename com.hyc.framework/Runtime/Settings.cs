@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using HYC.Framework.Audio;
 
 namespace HYC.Framework.Runtime
 {
@@ -16,6 +18,47 @@ namespace HYC.Framework.Runtime
         public bool vSync = true;
         public int remoteLogLevel = 2;
 
+        /// <summary>项目级音频后端。编辑器在 HYC Settings 里设定并持久化到 Resources 资产，运行时由 bootstrap 应用。</summary>
+        public AudioBackend audioBackend = AudioBackend.Default;
+
+        // ---- 音频分组（数据驱动，项目级，出包生效；在 HYC Settings 的 Audio 配置）----
+        /// <summary>
+        /// 音量分组表。原本写死的 Master/Music/Sfx/Voice/Ui 枚举改为可配置：
+        /// 分组集合与每组的默认音量都存这里，HYC Settings 的 Audio/Groups 可增删改名，
+        /// Audio/Volumes 改每组默认音量。id 0 = Master 固定为全局总音量（作用于所有组，不可删），
+        /// 其余分组 id 由配置决定。旧 catalog / Blob 里存的 0~4 整数仍对应默认 5 组（id 不变）。
+        /// </summary>
+        public List<AudioGroupDef> audioGroups = new List<AudioGroupDef>
+        {
+            new AudioGroupDef { id = 0, displayName = "主音量", defaultVolume = 1f },
+            new AudioGroupDef { id = 1, displayName = "音乐",   defaultVolume = 1f },
+            new AudioGroupDef { id = 2, displayName = "音效",   defaultVolume = 1f },
+            new AudioGroupDef { id = 3, displayName = "语音",   defaultVolume = 1f },
+            new AudioGroupDef { id = 4, displayName = "界面",   defaultVolume = 1f },
+        };
+        /// <summary>全局静音（各分组设定保留，取消静音后恢复）。</summary>
+        public bool audioMuted = false;
+
+        /// <summary>通道推断规则表：扫描 AudioClip 时按资源路径/名称里的关键词匹配分组。首命中优先，无命中回退 Sfx（id 2）。在 HYC Settings 的 Audio/Inference 编辑。</summary>
+        public List<AudioChannelRule> audioChannelRules = new List<AudioChannelRule>
+        {
+            new AudioChannelRule { keyword = "bgm", channel = AudioChannelId.Music },
+            new AudioChannelRule { keyword = "music", channel = AudioChannelId.Music },
+            new AudioChannelRule { keyword = "ui", channel = AudioChannelId.Ui },
+            new AudioChannelRule { keyword = "voice", channel = AudioChannelId.Voice },
+            new AudioChannelRule { keyword = "dialog", channel = AudioChannelId.Voice },
+        };
+
+        /// <summary>嵌套可序列化结构：一条「关键词 → 分组」推断规则，编辑器扫描音频时自动归类用。</summary>
+        [Serializable]
+        public class AudioChannelRule
+        {
+            /// <summary>资源路径/名称里需包含的关键词（大小写不敏感）。</summary>
+            public string keyword = "";
+            /// <summary>命中后归到的音量分组 id（见 <see cref="audioGroups"/>，0 = Master）。</summary>
+            public int channel = AudioChannelId.Sfx;
+        }
+
         private static FrameworkSettings _instance;
 
         public static FrameworkSettings Instance
@@ -24,16 +67,13 @@ namespace HYC.Framework.Runtime
             {
                 if (_instance == null)
                 {
-                    _instance = ScriptableObject.CreateInstance<FrameworkSettings>();
-                    LoadDefaults(_instance);
+                    // 优先读 Resources 里编辑器写出的持久化资产；没有则用代码默认值（框架默认后端）。
+                    _instance = Resources.Load<FrameworkSettings>("FrameworkSettings");
+                    if (_instance == null)
+                        _instance = ScriptableObject.CreateInstance<FrameworkSettings>();
                 }
                 return _instance;
             }
-        }
-
-        private static void LoadDefaults(FrameworkSettings s)
-        {
-            // optionally load from Resources on the real project
         }
 
         /// <summary>Parses command-line switches like <c>--framerate=120</c> / <c>--language=English</c>.</summary>

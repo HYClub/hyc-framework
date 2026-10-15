@@ -53,7 +53,7 @@ namespace HYC.Framework.BT
         /// 为什么要自己盯：<c>BTManager</c> 的 per-node 执行态是 <c>Allocator.Persistent</c> 的
         /// <c>NativeArray</c>，原本唯一的释放路径是「树跑完（结果 != Running）时调
         /// <c>ClearNodeStates</c>」。但实体可能在树还 Running 时就被销毁——典型是
-        /// SnowBros 的"敌人冻成雪球 = 销毁旧实体 + 新建球形实体"。组件随实体一起消失，
+        /// 「旧实体被销毁并由新实体取代」（例如敌人被替换为新形态实体）。组件随实体一起消失，
         /// Query 不再返回它，那条释放路径<b>永远不会执行</b>，
         /// Persistent 分配就泄漏了（每死一个敌人漏一份，直到进 Play 退出才被
         /// <c>BTManager.DisposeAll</c> 兜住）。同理还有该实体的子树态与黑板。

@@ -5,6 +5,7 @@ using System.Linq;
 using Unity.Entities;
 using Unity.Entities.Serialization;
 using UnityEngine;
+using HYC.Framework.IO;
 
 namespace HYC.Framework.Loc
 {
@@ -138,7 +139,7 @@ namespace HYC.Framework.Loc
         /// </summary>
         public static void Reload(string folder)
         {
-            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            if (string.IsNullOrEmpty(folder) || (!StreamingAssets.NeedsPreload && !Directory.Exists(folder)))
             {
                 Debug.LogError($"[Localization] Reload 失败：目录不存在或路径为空（{folder ?? "<null>"}）。" +
                                "已保留现有本地化数据。");
@@ -156,7 +157,8 @@ namespace HYC.Framework.Loc
 
             try
             {
-                foreach (var file in Directory.GetFiles(folder))
+                var files = StreamingAssets.NeedsPreload ? ListCachedFiles(folder) : Directory.GetFiles(folder);
+                foreach (var file in files)
                 {
                     var name = Path.GetFileName(file);
                     switch (name)
@@ -225,11 +227,30 @@ namespace HYC.Framework.Loc
         }
 
         private static string ReadLang(string path, string def)
-            => File.Exists(path) ? File.ReadAllText(path) : def;
+            => ReadAllTextSafe(path) ?? def;
+
+        private static byte[] ReadAllBytesSafe(string path)
+            => StreamingAssets.NeedsPreload ? StreamingAssets.ReadBytes(path) : File.ReadAllBytes(path);
+
+        private static string ReadAllTextSafe(string path)
+            => StreamingAssets.NeedsPreload ? StreamingAssets.ReadText(path) : (File.Exists(path) ? File.ReadAllText(path) : null);
+
+        /// <summary>NeedsPreload 平台（WebGL / Android）不能列目录，改为从预取缓存里按相对目录前缀枚举键。</summary>
+        private static string[] ListCachedFiles(string folder)
+        {
+            var rel = folder;
+            if (rel.StartsWith(Application.streamingAssetsPath))
+                rel = rel.Substring(Application.streamingAssetsPath.Length).TrimStart('/');
+            var keys = new List<string>();
+            foreach (var k in StreamingAssets.GetKeysUnder(rel))
+                keys.Add(k);
+            return keys.ToArray();
+        }
 
         private static int[] ReadInts(string path)
         {
-            var bytes = File.ReadAllBytes(path);
+            var bytes = ReadAllBytesSafe(path);
+            if (bytes == null) return EmptyInts;
             var result = new List<int>();
             unsafe
             {
@@ -248,7 +269,8 @@ namespace HYC.Framework.Loc
 
         private static string[] ReadStrings(string path)
         {
-            var bytes = File.ReadAllBytes(path);
+            var bytes = ReadAllBytesSafe(path);
+            if (bytes == null) return EmptyString;
             var result = new List<string>();
             unsafe
             {

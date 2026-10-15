@@ -37,6 +37,9 @@ namespace HYC.Framework.UI
         /// <summary>Last rendered screen size.</summary>
         private static Vector2Int mLastRenderScreenSize;
 
+        /// <summary>One-shot diagnostic: whether OnUpdate ever ticks.</summary>
+        private static bool mLoggedFirstUpdate;
+
         /// <summary>Root node.</summary>
         public static GameObject RootNode { get; private set; }
 
@@ -109,27 +112,12 @@ namespace HYC.Framework.UI
         /// <summary>Create.</summary>
         protected override void OnCreate()
         {
+            // Setting 是 UI 适配 / 导航参数的唯一真源，默认值即下表默认。宿主持家在引导期
+            // 定制（如 UI 非按 1920×1080 设计）——在 FrameworkBootstrapBase 子类的 Configure
+            // 钩子里改字段即可（彼时 WireUI 已建好本系统，Setting 必非空）：
+            //     UIManager.Setting.ReferenceResolution = new Vector2(2560, 1080);
+            // Setting 是 static，拟合 / 导航代码每帧实时读，创建后赋值即时生效。
             Setting = new UIManagerSetting();
-
-            try
-            {
-                var setting = World.EntityManager.CreateEntityQuery(typeof(StartupSetting)).GetSingleton<StartupSetting>();
-                if (setting != null)
-                {
-                    Setting = new UIManagerSetting()
-                    {
-                        ReferenceResolution = setting.ReferenceResolution,
-                        MaximumResolution = setting.MaximumResolution,
-                        NavigationKeyDeathArea = setting.NavigationKeyDeathArea,
-                        NavigationKeyDelayTime = setting.NavigationKeyDelayTime,
-                        NavigationKeyRepeateCount = setting.NavigationKeyRepeateCount,
-                    };
-                }
-            }
-            catch
-            {
-                // No StartupSetting entity — keep the default settings.
-            }
 
             InitUIManager();
         }
@@ -156,7 +144,19 @@ namespace HYC.Framework.UI
         /// <summary>Update.</summary>
         protected override void OnUpdate()
         {
-            if (mLastRenderScreenSize.x != Screen.width || mLastRenderScreenSize.y != Screen.height)
+            // 一次性诊断：若下次 Play 看不到这行日志，说明 UIManager 根本没被 tick（宿主世界/组装配问题）。
+            if (!mLoggedFirstUpdate)
+            {
+                mLoggedFirstUpdate = true;
+                var cam = ResolveUICamera();
+                Debug.Log($"[UIManager] 首次 OnUpdate tick：UICamera={(cam != null ? cam.name : "null")}，Screen={Screen.width}x{Screen.height}");
+            }
+
+            // ScaleFactor<=0 ⇒ m_UIFitData 还是 struct 全零（ResetUIFitData 从未成功跑过，
+            // 典型原因：宿主在首帧后才赋 UICamera，导致首屏那次 bails out 且屏幕尺寸被缓存、永不重试）。
+            // 加此条件让拟合初始化失败时逐帧重试，直到相机就绪算出有效值为止。
+            if (mLastRenderScreenSize.x != Screen.width || mLastRenderScreenSize.y != Screen.height
+                || m_UIFitData.ScaleFactor <= 0f)
             {
                 mLastRenderScreenSize = new Vector2Int(Screen.width, Screen.height);
                 ResetScreenData(mLastRenderScreenSize);
@@ -206,7 +206,8 @@ namespace HYC.Framework.UI
         /// <summary>Build the root node hierarchy.</summary>
         private void InitUIManager()
         {
-            RootNode = new GameObject(GetType().Name);
+            // 命名用 UIRoot 而非 GetType().Name：与 ECS 系统 UIManager 同名会在 Hierarchy 里混淆。
+            RootNode = new GameObject("UIRoot");
             GameObject.DontDestroyOnLoad(RootNode);
 
             IdleNode = new GameObject("IdleNode").transform;
@@ -554,6 +555,9 @@ namespace HYC.Framework.UI
             state.View = state.ViewLoadOperation.Result;
             state.View.name = state.View.name.Replace("(Clone)", "");
             state.View.transform.SetParent(state.Canvas.transform);
+            // View 整棵子树设为 UI 层：UICamera 的 cullingMask 通常只含 UI 层，
+            // 只设 Canvas 节点的话，预制体里 Default 层的 Graphic 会被相机整体剔除（相机有画面但 UI 不可见）。
+            SetLayerRecursive(state.View, LayerMask.NameToLayer("UI"));
 
             var hook = state.View.GetComponent<UIAnimationHook>();
             if (hook != null)
@@ -565,11 +569,29 @@ namespace HYC.Framework.UI
             window.Enabled = true;
             window.OnViewOpen(args);
 
+            // m_UIFitData 全零 = OnUpdate 的屏幕尺寸检测还没成功跑过（宿主首帧后才设相机、或宿主世界尚未 tick）。
+            // 开窗现场立即补算，避免窗口以 z=0/尺寸0/缩放0 的拟合数据打开（表现为 UI 全屏不可见）。
+            if (m_UIFitData.ScaleFactor <= 0f)
+            {
+                ResetScreenData(new Vector2(Screen.width, Screen.height));
+                ResetUIFitData();
+            }
+
             ResetWindowOrder();
             ResetWindowFocus();
             ResetWindowFit();
             ResetGUIInput();
             ResetHudVisible();
+        }
+
+        /// <summary>Recursively set the layer of a transform subtree.</summary>
+        private static void SetLayerRecursive(GameObject root, int layer)
+        {
+            if (root == null || layer < 0) return;
+            var t = root.transform;
+            for (var i = 0; i < t.childCount; i++)
+                SetLayerRecursive(t.GetChild(i).gameObject, layer);
+            root.layer = layer;
         }
 
         private static bool IsHideAllUI = false;

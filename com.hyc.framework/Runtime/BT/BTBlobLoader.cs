@@ -10,10 +10,12 @@
 //       真机必须走「导出文件 → 读回」这条路。
 // ============================================================
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Unity.Entities;
 using UnityEngine;
+using HYC.Framework.IO;
 
 namespace HYC.Framework.BT
 {
@@ -60,31 +62,59 @@ namespace HYC.Framework.BT
         /// <param name="treeId">树 ID（与 <c>BTTreeAsset.TreeId</c> 一致）。</param>
         /// <param name="folder">目录，null = <see cref="DefaultFolder"/>。</param>
         /// <param name="version">文件格式版本，默认 <see cref="FileVersion"/>。</param>
+        /// <summary>把绝对/URL 文件夹路径转换为相对 StreamingAssets 根的相对路径（'/' 分隔）。</summary>
+        private static string ToRelative(string folder)
+        {
+            var rel = folder ?? string.Empty;
+            if (rel.StartsWith(Application.streamingAssetsPath, StringComparison.OrdinalIgnoreCase))
+                rel = rel.Substring(Application.streamingAssetsPath.Length);
+            return rel.Replace('\\', '/').TrimStart('/');
+        }
+
         public static bool Load(long treeId, string folder = null, int version = FileVersion)
         {
             var dir = folder ?? DefaultFolder;
-            var path = PathFor(dir, treeId);
 
-            if (!IsReadablePath(dir, out var reason))
+            if (!StreamingAssets.NeedsPreload)
             {
-                Debug.LogError($"[BT] 无法加载树 {treeId}：{reason}\n  目录：{dir}");
+                if (!IsReadablePath(dir, out var reason))
+                {
+                    Debug.LogError($"[BT] 无法加载树 {treeId}：{reason}\n  目录：{dir}");
+                    return false;
+                }
+                var path = PathFor(dir, treeId);
+                if (!File.Exists(path))
+                {
+                    Debug.LogWarning($"[BT] Blob 文件不存在: {path}（菜单 HYC Framework/BT/导出 Blob(打包用) 重新导出）");
+                    return false;
+                }
+                if (BlobAssetReference<BTRootBlob>.TryRead(path, version, out var blob))
+                {
+                    BTManager.Register(treeId, blob);
+                    return true;
+                }
+                Debug.LogError($"[BT] Blob 读取失败: {path}（文件损坏，或格式版本不一致：期望 {version}。" +
+                               "请重新执行 菜单 HYC Framework/BT/导出 Blob(打包用)）");
                 return false;
             }
 
-            if (!File.Exists(path))
+            // WebGL / Android：不能直接读文件，从预取缓存按相对路径读取字节后内存解析。
+            // 解析（MemoryBinaryReader + fixed）的 unsafe 代码收在框架 BlobReader 内，本类无需 unsafe 上下文。
+            var rel = ToRelative(dir) + "/" + treeId + FileExtension;
+            var bytes = StreamingAssets.ReadBytes(rel);
+            if (bytes == null)
             {
-                Debug.LogWarning($"[BT] Blob 文件不存在: {path}（菜单 HYC Framework/BT/导出 Blob(打包用) 重新导出）");
+                Debug.LogWarning($"[BT] Blob 文件不存在: {rel}（菜单 HYC Framework/BT/导出 Blob(打包用) 重新导出）");
                 return false;
             }
-
-            if (BlobAssetReference<BTRootBlob>.TryRead(path, version, out var blob))
+            // 注意：BlobReader.TryRead 的 T 只出现在 out 参数上（out 不参与类型推断），必须显式指定；
+            // 变量名用 parsed 避开与上面文件路径分支的 blob 同名（同一方法作用域，CS0136）。
+            if (BlobReader.TryRead<BTRootBlob>(bytes, version, out var parsed))
             {
-                BTManager.Register(treeId, blob);
+                BTManager.Register(treeId, parsed);
                 return true;
             }
-
-            Debug.LogError($"[BT] Blob 读取失败: {path}（文件损坏，或格式版本不一致：期望 {version}。" +
-                           "请重新执行 菜单 HYC Framework/BT/导出 Blob(打包用)）");
+            Debug.LogError($"[BT] Blob 读取失败: {rel}（文件损坏，或格式版本不一致：期望 {version}）");
             return false;
         }
 
@@ -96,7 +126,7 @@ namespace HYC.Framework.BT
         {
             var dir = folder ?? DefaultFolder;
 
-            if (!IsReadablePath(dir, out var reason))
+            if (!StreamingAssets.NeedsPreload && !IsReadablePath(dir, out var reason))
             {
                 Debug.LogWarning($"[BT] 跳过行为树加载：{reason}\n  目录：{dir}" +
                                  "（编辑器里由 BTAutoRegisterOnPlay 自动注册，真机需先导出）");
@@ -124,31 +154,51 @@ namespace HYC.Framework.BT
         public static bool TryReadManifest(string folder, out List<long> ids)
         {
             ids = new List<long>();
-            var path = Path.Combine(folder ?? DefaultFolder, ManifestFileName);
-            if (!File.Exists(path))
-                return false;
-
-            foreach (var raw in File.ReadAllLines(path))
+            string text;
+            if (StreamingAssets.NeedsPreload)
+                text = StreamingAssets.ReadText(ToRelative(folder) + "/" + ManifestFileName);
+            else
             {
-                var line = raw?.Trim();
+                var path = Path.Combine(folder ?? DefaultFolder, ManifestFileName);
+                text = File.Exists(path) ? File.ReadAllText(path) : null;
+            }
+            if (string.IsNullOrEmpty(text)) return false;
+            ParseManifest(text, ids);
+            return ids.Count > 0;
+        }
+
+        private static void ParseManifest(string text, List<long> ids)
+        {
+            foreach (var raw in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var line = raw.Trim();
                 if (string.IsNullOrEmpty(line) || line.StartsWith("#"))
                     continue;
-
                 var sep = line.IndexOf('|');
                 var idPart = sep >= 0 ? line.Substring(0, sep) : line;
                 if (long.TryParse(idPart.Trim(), out var id) && id != 0)
                     ids.Add(id);
             }
-            return ids.Count > 0;
         }
 
         /// <summary>兜底：扫描目录下所有 <c>*.blob</c>，文件名（不含扩展名）即 TreeId。</summary>
         private static void ScanBlobFiles(string folder, out List<long> ids)
         {
             ids = new List<long>();
-            if (!Directory.Exists(folder))
+            if (StreamingAssets.NeedsPreload)
+            {
+                var prefix = ToRelative(folder).TrimEnd('/');
+                foreach (var k in StreamingAssets.GetKeysUnder(prefix))
+                {
+                    var name = k.Substring(k.LastIndexOf('/') + 1);
+                    if (name.EndsWith(FileExtension))
+                        name = name.Substring(0, name.Length - FileExtension.Length);
+                    if (long.TryParse(name, out var id) && id != 0)
+                        ids.Add(id);
+                }
                 return;
-
+            }
+            if (!Directory.Exists(folder)) return;
             foreach (var file in Directory.GetFiles(folder, "*" + FileExtension))
             {
                 var name = Path.GetFileNameWithoutExtension(file);
@@ -158,12 +208,10 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// 判断目录是否可直接用文件 IO 读取。
-        /// Android 的 <c>streamingAssetsPath</c> 指向 APK 内部（<c>jar:file://</c>），
-        /// <c>File.Exists</c> / <c>TryRead</c> 在那里读不到——配置管线同样受此限制。
-        /// 真机上要么把文件先拷到 <c>persistentDataPath</c>，要么改用 UnityWebRequest/AA 读取后
-        /// 再把字节交给 <c>BlobAssetReference&lt;BTRootBlob&gt;.Create(byte[])</c> 并 Register。
-        /// 这里给出明确报错，避免静默变成「树全部加载失败但游戏照跑」。
+        /// 判断目录是否可直接用文件 IO 读取（仅在非 <see cref="StreamingAssets.NeedsPreload"/> 平台走到——
+        /// WebGL / Android 已由上面的预取缓存分支接管）。
+        /// 保留 <c>jar:</c> / <c>http</c> 前缀的显式报错，是为了兜住「宿主手工传了 APK 内或远程目录」
+        /// 的情况：那种路径 <c>File.Exists</c> 必然读不到，明确报错好过静默失败。
         /// </summary>
         private static bool IsReadablePath(string folder, out string reason)
         {

@@ -23,6 +23,7 @@
 using HYC.Framework.BT;
 using HYC.Framework.Config;
 using HYC.Framework.Dots;
+using HYC.Framework.Loc;
 using Unity.Entities;
 using UnityEngine;
 
@@ -51,6 +52,22 @@ namespace HYC.Framework
             // 有意**不**清 LocalizationManager：它持有的是「本地化文本数据」而非原生资源，
             // 且已经自带「Reload 失败保留原数据」的保护。World 销毁后数据仍在，
             // 宿主重建 World 时可直接复用；真要重载请显式调 LocalizationManager.Reload()。
+        }
+
+        /// <summary>
+        /// 引导期数据补加载入：在 <c>StreamingAssets.PreloadAsync()</c> 完成之后调用一次。
+        ///
+        /// <para>本地化的 <see cref="LocalizationBlobSystem"/> 挂了
+        /// [RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]，在 NeedsPreload 平台
+        /// （WebGL / Android）上可能早于预取完成就触发而主动跳过；这里补一次，
+        /// 保证本地化就绪，且<b>宿主不需要为平台写不同代码</b>。</para>
+        ///
+        /// 幂等：已加载过（IDs 非空）则不重复读。
+        /// </summary>
+        public static void EnsureBootDataLoaded()
+        {
+            if (LocalizationManager.IDs == null || LocalizationManager.IDs.Length == 0)
+                LocalizationBlobSystem.Load();
         }
 
         /// <summary>

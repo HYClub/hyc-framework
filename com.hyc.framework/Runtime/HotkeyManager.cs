@@ -15,7 +15,7 @@ namespace HYC.Framework.Input
     /// <summary>
     /// Registry + dispatcher for action-name to callback hotkey bindings. A
     /// decoupled re-implementation of the source HotkeyManager that drops the
-    /// game InputManager/StartupSetting dependencies: the owning host assigns
+    /// game InputManager dependencies: the owning host assigns
     /// <see cref="InputAsset"/> once, and callbacks are resolved by action name
     /// instead of a generated enum.
     /// </summary>

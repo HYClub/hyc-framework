@@ -7,8 +7,9 @@ namespace HYC.Framework.Input
     /// <summary>
     /// Abstract UI element that renders a hotkey binding. Combines a uGUI
     /// Button with pointer hooks and the <see cref="IHotkeyElement"/> contract;
-    /// concrete subclasses define the visual layout. Games instantiate the
-    /// supplied prefab styles from StartupSetting or roll their own subclass.
+    /// concrete subclasses define the visual layout. Games roll their own
+    /// subclass and wire their own icon presentation (no framework-supplied
+    /// style prefabs).
     /// </summary>
     [RequireComponent(typeof(Button))]
     public abstract class BaseHotkeyElement : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IHotkeyElement

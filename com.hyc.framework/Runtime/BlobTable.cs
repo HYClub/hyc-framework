@@ -85,6 +85,20 @@ namespace HYC.Framework.Config
             return false;
         }
 
+        /// <summary>
+        /// 按 id 取行序（走 Id 索引，不拷行）。供 <see cref="ConfigManager"/> 的 ref 访问与存在性判断使用。
+        /// 找不到 / 越界返回 false（<paramref name="index"/> = -1）。
+        /// </summary>
+        public bool TryGetIndex(long id, out int index)
+        {
+            index = -1;
+            if (!_ref.IsCreated) return false;
+            if (!_index.TryGetValue(id, out var idx)) return false;
+            if ((uint)idx >= (uint)_ref.Value.Rows.Length) return false;
+            index = idx;
+            return true;
+        }
+
         public TRow Get(long id)
         {
             TryGet(id, out TRow value);
