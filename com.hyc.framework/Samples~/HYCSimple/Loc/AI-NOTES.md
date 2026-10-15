@@ -13,6 +13,8 @@
   - `lang`：纯文本，默认语言码（如 `cn` / `en`）。
   - `{lang}.lang`（如 `cn.lang` / `en.lang`）：每语言一个 `CfgLocalization` blob，文本顺序与 `id` 对齐。
   - `filter`：（可选）敏感词列表。
+  - 🔴 跨端：目录判断/枚举走 `StreamingAssets.Exists("Localization")` / `GetKeysUnder(...)`，
+    **不要**用 `Directory.Exists(Application.streamingAssetsPath + …)`（WebGL / Android 无效，见雷区 6）。
 - **运行期**：`LocalizationManager.GetText(key)` / `GetText(key, args)` / `SetLanguage(Locale)` / `HasKey(key)`。
   - 切换语言触发 `onLanguageChanged`，挂了 `LocalizedTMP` / `LocalizedBase` 的组件自动刷新。
 
@@ -21,7 +23,11 @@
 ## 二、端到端步骤（照做即可）
 
 1. **产出数据**：用 Loc 数据编辑器（Excel → `id` / `lang` / `*.lang` 等 blob）导出到 `StreamingAssets/Localization/`。
-2. **加载**：框架的 `LocalizationBlobSystem` 在 `BeforeSceneLoad` 已自动 `Reload(streamingAssetsPath + "/Localization")`；
+2. **加载（跨端注意）**：框架的 `LocalizationBlobSystem` 在 `BeforeSceneLoad` 自动加载 `StreamingAssets/Localization`
+   （内部走 `StreamingAssets` 抽象，不写平台分支）。但 **WebGL / Android 上** StreamingAssets 不能直接读文件，
+   自动加载可能早于预取完成而跳过——所以出包到这两个平台的引导入口必须是
+   `await FrameworkBootstrap.InitializeAsync("World")`（先 `await StreamingAssets.PreloadAsync()` 再建 World，
+   预取完成后自动补加载入，见 `FrameworkLifecycle.EnsureBootDataLoaded`）。PC / iOS 上同步/异步入口等价。
    也可手动 `LocalizationManager.Reload(folder)` 重新加载（如热更后）。
 3. **代码取文本**：
    ```csharp
@@ -50,26 +56,29 @@
 4. **找不到 key**：`GetText` 返回 `"未找到Key : {key}"`；`HasKey` 可预先判断。
 5. **`Locale` / `LocaleUtil`**：`Locale.Chinese` → 码 `"cn"`（不是 `"zh"`）；`en`/`jp`/`kr` 同理。
    `FromCode` 兼容 `zh`/`chs` 等别名，但文件命名请用规范码。
-6. **`Reload(folder)` 不校验目录存在**：目录不存在时 `Directory.GetFiles` 会抛异常，
-   调用前自行 `Directory.Exists` 守护（见 Scene 示例）。
+6. **`Reload(folder)` 跨端语义**：内部已按 `StreamingAssets.NeedsPreload` 分流——PC/iOS 走 `Directory.*` /
+   `File.*`，WebGL/Android 从预取缓存枚举读取（`GetKeysUnder` + `ReadBytes`），**调用方不需要写平台分支**。
+   目录不存在/为空时**只报错并保留现有数据**（原子替换语义，不会洗掉宿主的表）；但注意
+   WebGL/Android 上缓存里没有对应前缀同样读空，先确认引导走过 `PreloadAsync`。
+   另：`folder` 传绝对路径（`Application.streamingAssetsPath + "/Localization"`）或相对 StreamingAssets 根的路径均可，
+   内部会归一化。
 7. **命名须框架中立**：示例使用 `ui/start` / `ui/welcome` / `item/name` 这类通用 key；
    真实项目按自己命名规范，但**框架样例不写使用方具体玩法文案**。
-8. 🔴 **`Reload` 是「先清空、再重填」，会把宿主的表整艘端走**（本 Sample 最惨的一次事故，务必记住）：
-   `LocalizationManager` 是**进程级静态单例**，`Reload(folder)` 开头就是
-   ```csharp
-   mIDs = null; mLangs = null; mTexts = null; mLang2Index = null; mKey2Index = null;
-   ```
-   宿主工程通常在 `[RuntimeInitializeOnLoadMethod]` 阶段已从 StreamingAssets 加载了自己的 key 表；
-   此时任何代码（**包括示例**）再 `Reload` 到别的目录，宿主的表就**全部丢失**，
-   现象是：宿主 UI 全线变成 `未找到Key : xxx`，唯独 `LocalizedBase.Key` 为空的组件（走
-   `if (!string.IsNullOrEmpty(Key))` 守卫跳过刷新）保留原文本 —— 这个「只有某几个按钮正常」
-   的特征很容易被误判成「那条数据缺失」，其实整张表都没了。
+8. 🔴 **`Reload` 是「整表替换」，会把宿主的表整艘端走**（本 Sample 最惨的一次事故，务必记住）：
+   `LocalizationManager` 是**进程级静态单例**，`Reload(folder)` 一旦**成功读到一份有效数据**
+   （目录存在且 `id` 非空），就把 `mIDs/mLangs/mTexts/mLang2Index/mKey2Index` **整张换成新目录的**——
+   旧实现是「先清空再读盘」，读盘失败（最常见是路径写错）会把宿主表洗成空，且毫无日志线索；
+   现已改为**原子替换**（先读进局部变量、全部成功才一次性提交，失败只报错并保留原数据）。
+   但「成功读到错目录」仍然会端走宿主整张表，现象是宿主 UI 全线 `未找到Key : xxx`，
+   唯独 `LocalizedBase.Key` 为空的组件（走 `if (!string.IsNullOrEmpty(Key))` 守卫跳过刷新）保留原文本——
+   这个「只有某几个按钮正常」的特征很容易被误判成「那条数据缺失」，其实整张表都被换了。
    而且若 `Reload` 由某个每帧兜底的 System 触发，宿主**无论重导多少次本地化都会被下一帧洗掉**。
    因此本 Sample 立了两条规矩：
    - 示例 System 加 `[DisableAutoCreation]`，只在 `HYCSimpleSceneBootstrap` 里被显式 Update；
    - `HYCSimpleLocSampleData.EnsureLoaded()` 先过 `CanTakeOver()`：全局表非空且不含示例 key →
      **跳过 Reload** 并打警告，`EnsureLoaded` 返回 false，调用方据此不得调用 `SetLanguage`。
-   写宿主代码时同理：**不要在生产路径里无条件 `Reload` 全局本地化表**。
+   写宿主代码时同理：**不要在生产路径里无条件 `Reload` 全局本地化表**；确需热更重载时，
+   先确认目标目录就是当前工程自己的数据目录。
 
 ---
 

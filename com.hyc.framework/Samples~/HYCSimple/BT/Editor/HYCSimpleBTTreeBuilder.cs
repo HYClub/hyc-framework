@@ -35,15 +35,21 @@ namespace HYC.Simple.Editor
         /// <summary>程序化建示例树资产 → 导出 Blob（菜单与统一「创建全部示例资产」共用）。</summary>
         public static void CreateSampleTree()
         {
-            // 节点编号（唯一）
-            const long root = 1, sel = 2, seq = 3, cond = 4, atk = 5, patrol = 6;
-
             if (!AssetDatabase.IsValidFolder(AssetDir))
                 AssetDatabase.CreateFolder("Assets", "HYCSampleTrees");
 
             var tree = ScriptableObject.CreateInstance<BTTreeAsset>();
+            // 示例 TreeId 固定（稳定导出路径 <treeId>.blob）；节点 ID 由工厂 BTAssetFactory.NextNodeId 统管派发，外部不手填。
             tree.TreeId = SampleTreeId;
             tree.Kind = BTTreeKind.Other;
+
+            // 节点 ID：工厂统管（树内最小空闲，必然唯一）。示例树为空，确定性派发为 1..6。
+            long root   = BTAssetFactory.NextNodeId(tree);
+            long sel    = BTAssetFactory.NextNodeId(tree);
+            long seq    = BTAssetFactory.NextNodeId(tree);
+            long cond   = BTAssetFactory.NextNodeId(tree);
+            long atk    = BTAssetFactory.NextNodeId(tree);
+            long patrol = BTAssetFactory.NextNodeId(tree);
 
             // —— 节点：内置复合/装饰 + 三个 GameCustom（叶子，代表真实行为）——
             tree.Nodes.Add(new BTNodeData { NodeId = root,   Type = BTNodeType.Root,     Position = new Vector2(40, 280) });

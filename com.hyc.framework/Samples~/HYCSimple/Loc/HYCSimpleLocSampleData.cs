@@ -12,13 +12,12 @@
 //  仅在你的 Unity 版本极老、内置 AllocateString 仍按「长度×2+1」截断时，才需要改用
 //  HYC.Framework 编辑器里的自定义 unsafe 写入（见 LocalizedExcelReader.AllocateString）。
 //
-//  ⚠️⚠️ 宿主安全守卫（血泪教训，勿删这段逻辑）：
+//  ⚠️⚠️ 宿主安全守卫（请勿删除这段逻辑）：
 //  LocalizationManager 是**进程级静态单例**，而 Reload() 的第一步是把旧状态全部清空：
 //      mIDs = null; mLangs = null; mTexts = null; mLang2Index = null; mKey2Index = null;
-//  再按 folder 重填。宿主工程（如 SnowBros）通常在 [RuntimeInitializeOnLoadMethod]
+//  再按 folder 重填。宿主工程通常在 [RuntimeInitializeOnLoadMethod]
 //  阶段已从 StreamingAssets 加载了自己的本地化表；示例若在这里无脑 Reload 到自己的
-//  3 条数据，宿主整张表当场蒸发，表现为「主菜单全线『未找到Key : xxx』，唯独 key 传
-//  null 的按钮正常」，而且因为示例每帧兜底，宿主怎么重导表都会被下一帧洗掉，极难定位。
+//  数据，会把宿主整张表洗掉（表现为「未找到Key」，且因每帧兜底导致宿主难以重导恢复）。
 //  因此本类**只在确认全局表里没有宿主数据时才接管**（见 CanTakeOver），
 //  EnsureLoaded() 返回是否接管，调用方须据此决定能不能改全局语言。
 // =============================================================================

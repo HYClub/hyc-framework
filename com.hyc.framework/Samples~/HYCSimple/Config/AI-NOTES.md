@@ -20,13 +20,21 @@
 
 ---
 
-## 二、端到端步骤（脚本驱动，与 SnowBros/TD 同构）
+## 二、端到端步骤（脚本驱动，与使用方工程同构）
 
 1. **建模板**：编辑器里定义 `ConfigTemplate`（加字段，枚举字段引用 `ConfigEnumDefinition`）。
-2. **生成代码**：菜单 `SnowBros/配置/1-生成配置模板与代码`（或等价菜单）→ 生成 `CfgXxx` + `XxxBlobSystem` + 枚举。
+2. **生成代码**：菜单 `HYC Framework/Config/1-生成配置模板与代码`（或等价菜单）→ 生成 `CfgXxx` + `XxxBlobSystem` + 枚举。
 3. **填数据 + 导出 Blob**：菜单 `.../2-导出Blob` → 把行烘焙成 `Assets/StreamingAssets/ConfigBlob/*.blob`。
+   🔴 **导出落点只有一个真源**：`ConfigDataSettings.BlobOutputDir`（默认
+   `Assets/StreamingAssets/ConfigBlob`，**必须位于 `Assets/StreamingAssets` 内**——运行期只能从
+   StreamingAssets 读）。运行期读取路径 `BlobLoadPath` 由它**派生**（剥掉 `Assets/StreamingAssets/`
+   前缀），不要手写两份路径；选了「客户端格式」但输出目录不在 StreamingAssets 内时，
+   导出会直接报错（生成代码里有守卫），别靠改加载路径绕过。
 4. **引导期注册**：生成的 `XxxBlobSystem`（挂在 A1 数据阶段）`BlobAssetReference<BlobRoot<CfgXxx>>.TryRead` →
    `ConfigBlobTable<CfgXxx>.FromBlob(blob, r => r.Id)` → `ConfigManager.Register(table)`。
+   ⚠️ 读取发生在 `System.OnCreate`（**建 World 时**）：WebGL / Android 上 StreamingAssets 不能直接读文件，
+   预取必须在建 World 前完成——引导入口用 `await FrameworkBootstrap.InitializeAsync("World")`
+   （内部先 `await StreamingAssets.PreloadAsync()`）。PC / iOS 上同步/异步入口等价，同一套代码。
 5. **运行期读**：`ConfigManager.TryGet<CfgXxx>(id, out var cfg)`。
 
 > 本 Sample 的 `HYCSimpleConfigDemoSystem` 把「第 4 步建表+注册」**从数据文件加载**了：
@@ -50,6 +58,12 @@
    但**框架样例里不要写使用方具体玩法**（如某游戏的 `ItemKind`/`WavePointStrategy`）。
 7. **外部数据也要 blittable**：从 CSV/Excel 读到的字段，最终必须映射成纯标量 `TRow`（见第 1 点）。
    本例 CSV 里的 `Name` 只给人看，行内不存文本（避免非 blittable）；需要文本就走生成器的 `BlobString`。
+8. 🔴 **跨端加载契约（出 WebGL / Android 必读）**：生成的 `XxxBlobSystem` 读的是
+   `StreamingAssets/{BlobLoadPath}/*.blob`，PC/iOS 直读文件；WebGL（无文件系统）/ Android（APK 压缩包内）
+   必须由引导先 `await StreamingAssets.PreloadAsync()`（框架 `FrameworkBootstrap.InitializeAsync` 已内置）。
+   **游戏层不写平台分支**；自己手写加载逻辑时，读字节一律走 `StreamingAssets.ReadBytes(相对路径)`，
+   禁止 `File.ReadAllBytes(Application.streamingAssetsPath + …)`。详见
+   `Documentation~/99-Blob-与数据约定.md`「五·补 · 跨端数据加载契约」。
 
 ---
 

@@ -11,12 +11,23 @@
 //  曾造成「宿主主菜单全线『未找到Key : xxx』且怎么重导本地化都会被下一帧洗掉」的事故。
 //  正确姿势就是本类的做法：**用户显式把本脚本挂到一个空场景的 GameObject 上**，
 //  由它按正确的顺序手动 Update 一遍，示例才运行。宿主工程什么都不挂，就完全零副作用。
+//
+//  ⚠️⚠️ 跨端铁律（真实项目务必照做，勿照抄本类的简化写法）：
+//  本类是「示例」，为了自包含用了 Directory.Exists 判断本地化目录。**真实项目不要这么写**——
+//  WebGL 没有文件系统、Android 的 StreamingAssets 在 APK 压缩包内，System.IO 在两者上都读不到。
+//  正确做法（全平台同一套代码、零 #if 分支）：
+//    1) 引导用框架异步入口：await new FrameworkBootstrap().InitializeAsync("World");
+//       它内部先 await StreamingAssets.PreloadAsync() 再建 World，PC/iOS 上是 no-op。
+//    2) 判存在用 StreamingAssets.Exists(相对路径)，列目录用 StreamingAssets.GetKeysUnder(相对目录)。
+//    3) 平台判据是 StreamingAssets.NeedsPreload（= IsWebGL || IsAndroid），不是 IsWebGL。
+//  详见 Documentation~/99-Blob-与数据约定.md「五·补 · 跨端数据加载契约」。
 // =============================================================================
 using System;
 using System.IO;
 using Unity.Entities;
 using UnityEngine;
 using HYC.Framework.BT;
+using HYC.Framework.IO;
 using HYC.Framework.Loc;
 
 namespace HYC.Simple
@@ -37,8 +48,12 @@ namespace HYC.Simple
         private void Start()
         {
             // —— 数据阶段（对应更新阶梯 A1）——
-            // 1) 本地化：真实项目从 StreamingAssets 重载；本例用自包含示例数据
-            if (!string.IsNullOrEmpty(localizationFolder) && Directory.Exists(localizationFolder))
+            // 1) 本地化：真实项目从 StreamingAssets 重载；本例用自包含示例数据。
+            //    ⚠️ 简化写法：示例为了自包含用 Directory.Exists 判目录。真实项目请改成
+            //       StreamingAssets.Exists("Localization")，且引导要走 FrameworkBootstrap.InitializeAsync
+            //       （先 await PreloadAsync）——见文件头「跨端铁律」。
+            var canReadFolder = !StreamingAssets.NeedsPreload && Directory.Exists(localizationFolder);
+            if (!string.IsNullOrEmpty(localizationFolder) && canReadFolder)
                 LocalizationManager.Reload(localizationFolder);
             else
                 HYCSimpleLocSampleData.EnsureLoaded();

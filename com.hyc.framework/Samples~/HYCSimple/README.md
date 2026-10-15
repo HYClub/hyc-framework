@@ -15,10 +15,11 @@
 > 所有 `*DemoSystem` 都标了 `[DisableAutoCreation]` —— Unity **不会**自动把它们拉进 World。
 > 原因：框架的 Manager（Localization / Config / BT）是**进程级静态单例**，示例 System 一旦偷偷自启，
 > 就会在宿主工程毫无察觉的情况下改写它们。真实事故一次：
-> 宿主（SnowBros）已在 `[RuntimeInitializeOnLoadMethod]` 阶段从 StreamingAssets 加载了自己的 18 条本地化 key，
-> 示例却在第一次 `OnUpdate` 里执行 `LocalizationManager.Reload(示例目录)` —— 而 `Reload` 的第一步是
-> **清空** `mIDs/mLangs/mTexts/…` 再重填，宿主整张表当场蒸发，主菜单全线 `未找到Key : xxx`，
-> 且因为示例每帧兜底，宿主怎么重导本地化都会被下一帧洗掉，极难定位。
+> 宿主工程已在 `[RuntimeInitializeOnLoadMethod]` 阶段从 StreamingAssets 加载了自己的 18 条本地化 key，
+> 示例却在第一次 `OnUpdate` 里执行 `LocalizationManager.Reload(示例目录)` —— 宿主张表当场蒸发，
+> 主菜单全线 `未找到Key : xxx`，且因为示例每帧兜底，宿主怎么重导本地化都会被下一帧洗掉，极难定位。
+> （当时 `Reload` 的旧实现是「先清空再读盘」，读盘即洗表；现已改为**原子替换**——失败只报错并保留原数据，
+> 但**成功读到另一份目录仍会整表替换**，所以下面的规矩依然有效。）
 > 由此定下三条硬规矩：
 > 1. 示例 System 一律 `[DisableAutoCreation]`，由 **`HYCSimpleSceneBootstrap`**（MonoBehaviour）显式手动 Update。
 > 2. 示例**不得抢占**宿主已加载的全局单例：`HYCSimpleLocSampleData.CanTakeOver` 会在

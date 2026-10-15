@@ -60,6 +60,10 @@
 - **真机打包**：`BTTreeAsset` / `BTBlobBuilder` 在 **Editor 程序集，打包后不存在**，`BTAutoRegisterOnPlay` 也不执行 →
   **真机一棵树都拿不到**。必须走「导出 Blob → `BTBlobLoader.LoadAll()` 读回」这条路。
 - ⚠️ **改完树一定要重新导出**：否则真机跑的是旧版本（编辑器走自动注册，看不出来）。
+- ⚠️ **跨端（WebGL / Android）打包**：除上面两条外，引导入口还必须走
+  `await FrameworkBootstrap.InitializeAsync("World")`（内部先 `await StreamingAssets.PreloadAsync()`
+  再建 World）——`LoadAll` 时读取已由框架分流到预取缓存，游戏层依旧零平台代码。
+  PC / iOS 上同步入口即可，`PreloadAsync` 是 no-op。
 
 ---
 
@@ -71,9 +75,14 @@
    导出时据此构造 children 顺序；漏连或 PortIndex 重复会导致导出失败（`BTBlobBuilder` 会校验并报错）。
 3. **`RunningBT.RunState`** 是 `BTRunState`（跨帧状态），用 `default` 即可；`TickInterval=0` 每帧，`>0` 按秒节流。
 4. **`BTManager.Register` 重复覆盖**：同 TreeId 再次注册会释放旧 blob；编辑器自动注册 + 运行期 LoadAll 都注册同 Id，无害。
-5. **`BTBlobLoader` 路径限制**：`Application.streamingAssetsPath` 在 **Android 是 APK 内（jar:）**，文件 IO 读不到
-   （配置管线同受限）→ 真机先把 blob 拷到 `persistentDataPath` 再传目录，或用 `UnityWebRequest` 读字节后
-   `BlobAssetReference<BTRootBlob>.Create(byte[])` 自行 `Register`。
+5. **`BTBlobLoader` 已跨端，游戏层零平台代码**：`Application.streamingAssetsPath` 在 **Android 是 APK 内（jar:）**、
+   **WebGL 无文件系统**，文件 IO 在两者上都读不到——但 `BTBlobLoader.LoadAll()` / `Load(treeId)` 内部已按
+   `StreamingAssets.NeedsPreload` 分流：PC/iOS 走 `File` + `TryRead(path)`；WebGL/Android 从预取缓存
+   `StreamingAssets.ReadBytes` 拿字节、`MemoryBinaryReader` 内存解析后 Register。
+   **你只管照常 `BTBlobLoader.LoadAll()`**，不需要拷 persistentDataPath、不需要自己 UnityWebRequest、
+   不需要写 `#if UNITY_WEBGL`。唯一硬性要求：引导入口用
+   `await FrameworkBootstrap.InitializeAsync("World")`（先 `await StreamingAssets.PreloadAsync()` 再建 World），
+   否则缓存是空的，加载会全部 miss。
 6. **GameCustom 节点** = 框架留给游戏层的「自定义行为」口子：`LongParams[0]` 是子类型 subType，运行期
    `BTNodeRuntimeRegistry` 反射扫描程序集、把 `BTCustomNode` 子类按 (TreeKind, subType) 自动注册并分发执行
    （无需手动注册）。本示例 `HYCSimpleEnemyBTNodes.cs` 就是三个 GameCustom 叶子（条件/攻击/巡逻），进 Play 会被真正执行。
