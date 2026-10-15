@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -216,7 +217,6 @@ namespace HYC.Framework.UI.Editor
 
             var sb = new StringBuilder();
             sb.AppendLine(GeneratedFileMarker);
-            sb.AppendLine("// AUTO-GENERATED. Do not edit.");
             sb.AppendLine("// Prefab: " + AssetDatabase.GetAssetPath(component));
             sb.AppendLine("// Hierarchy: /" + GetHierarchy(component.gameObject));
 
@@ -298,8 +298,10 @@ namespace HYC.Framework.UI.Editor
             if (!string.IsNullOrEmpty(packName)) sb.AppendLine("}");
 
             var saveFolder = ResolveSaveFolder(setting);
-            File.WriteAllText(Path.Combine(saveFolder, className + ".cs"), sb.ToString());
-            AssetDatabase.ImportAsset(ToAssetPath(saveFolder, className + ".cs"));
+            // 走统一写盘入口：内容未变不重写 + 自动套「自动生成」壳（原 ad-hoc 头已移除，禁改声明由壳承担）
+            if (GeneratedCodeFile.WriteIfChanged(Path.Combine(saveFolder, className + ".cs"),
+                    GeneratedCodeFile.WithHeader(sb.ToString())))
+                AssetDatabase.ImportAsset(ToAssetPath(saveFolder, className + ".cs"));
         }
 
         private static string ResolveClassName(ComponentBinderSetting setting, ComponentBinderTable component)
@@ -397,7 +399,11 @@ namespace HYC.Framework.UI.Editor
             {
                 try
                 {
-                    if (File.ReadAllText(file).StartsWith(GeneratedFileMarker)) File.Delete(file);
+                    // 新格式：统一「自动生成」壳在最前；旧格式（套壳前生成的文件）：以 // ComponentBinder 开头。
+                    // 过渡期两种都认，否则换头后 CleanFolder 认不出自家产物、过期文件清不掉。
+                    var text = File.ReadAllText(file);
+                    if (text.StartsWith(GeneratedCodeFile.Header) || text.StartsWith(GeneratedFileMarker))
+                        File.Delete(file);
                 }
                 catch { /* ignore locked */ }
             }

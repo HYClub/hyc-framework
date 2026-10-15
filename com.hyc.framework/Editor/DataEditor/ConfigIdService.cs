@@ -269,26 +269,39 @@ namespace HYC.Framework.Config.Editor
             return choice == 2; // 仍然导出（用户坚持）
         }
 
-        // ---------- 右下角状态点 ----------
+        // ---------- 状态点纹理与绘制 ----------
 
         private static Texture2D sDotGreen;
         private static Texture2D sDotYellow;
         private static Texture2D sDotRed;
 
-        /// <summary>在窗口右下角绘制 ID 构造器状态点（绿/黄/红）+ 悬停提示。</summary>
-        public static void DrawStatusDot(Rect rect)
+        /// <summary>取当前状态对应的圆点纹理（12x12，绿/黄/红）。状态变化时才换，缓存复用。</summary>
+        public static Texture2D GetStatusTexture()
         {
-            var tex = State == ConfigIdState.Connected
-                ? (sDotGreen ?? (sDotGreen = MakeDotTexture(Color.green)))
-                : State == ConfigIdState.Connecting
-                    ? (sDotYellow ?? (sDotYellow = MakeDotTexture(Color.yellow)))
-                    : (sDotRed ?? (sDotRed = MakeDotTexture(Color.red)));
-
-            var stateText = State == ConfigIdState.Connected
-                ? "已连接"
-                : State == ConfigIdState.Connecting ? "连接中" : "不可用";
-            GUI.Label(rect, new GUIContent(tex, $"{ServerInfo} - {stateText}（点击设置可切换/检测）"));
+            var s = State;
+            if (s == ConfigIdState.Connected)
+                return sDotGreen ?? (sDotGreen = MakeDotTexture(Color.green));
+            if (s == ConfigIdState.Connecting)
+                return sDotYellow ?? (sDotYellow = MakeDotTexture(Color.yellow));
+            return sDotRed ?? (sDotRed = MakeDotTexture(Color.red));
         }
+
+        /// <summary>状态中文文本（绿=已连接 / 黄=连接中 / 红=不可用）。</summary>
+        public static string StateText
+        {
+            get
+            {
+                switch (State)
+                {
+                    case ConfigIdState.Connected: return "已连接";
+                    case ConfigIdState.Connecting: return "连接中";
+                    default: return "不可用";
+                }
+            }
+        }
+
+        /// <summary>状态点悬停提示文本：服务器信息 + 状态。</summary>
+        public static string StatusTooltip => $"{ServerInfo} - {StateText}";
 
         private static Texture2D MakeDotTexture(Color color)
         {

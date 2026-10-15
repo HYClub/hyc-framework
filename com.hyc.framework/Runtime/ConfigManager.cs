@@ -45,8 +45,25 @@ namespace HYC.Framework.Config
             return row;
         }
 
+        /// <summary>
+        /// 按 id 取一行，返回指向 Blob 内该行的 <c>ref readonly</c>（零拷贝，不复制行结构体）。
+        /// 未命中抛 <see cref="KeyNotFoundException"/>——需区分"没这条"时先调
+        /// <see cref="Contains{TRow}(long)"/>。返回的 ref 在表注册期间（至 <see cref="Clear"/> 前）有效，
+        /// 直接指向 Blob 资产内存（由 <see cref="ConfigBlobTable{TRow}"/> 持有生命周期）。
+        /// </summary>
+        public static ref readonly TRow GetRef<TRow>(long id) where TRow : unmanaged
+        {
+            if (_tables.TryGetValue(typeof(TRow), out var obj) && obj is ConfigBlobTable<TRow> table && table.TryGetIndex(id, out var idx))
+                return ref table.Rows[idx];
+            throw new KeyNotFoundException($"[ConfigManager] 未找到 {typeof(TRow).Name} 的行 id={id}");
+        }
+
         public static bool Contains<TRow>(long id) where TRow : unmanaged
-            => TryGet(id, out TRow _);
+        {
+            if (_tables.TryGetValue(typeof(TRow), out var obj) && obj is ConfigBlobTable<TRow> table)
+                return table.TryGetIndex(id, out _);
+            return false;
+        }
 
         /// <summary>获取某张表的全部行（BlobArray 引用）。表未注册时返回空。</summary>
         public static Unity.Entities.BlobArray<TRow> GetAllRows<TRow>() where TRow : unmanaged

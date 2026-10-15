@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using HYC.Framework.Audio;
 
 namespace HYC.Framework.Config.Editor
 {
@@ -74,13 +75,21 @@ namespace HYC.Framework.Config.Editor
         {
             if (field.HideInInspector)
                 return false;
-            if (field.Visible == null)
-                return true;
+            if (field.Visible != null && !CheckVisibleMembers(target, field.Visible))
+                return false;
+            if (field.VisibleWhen != null && field.VisibleWhen.Length > 0
+                && !CheckVisibleWhen(target, field.VisibleWhen))
+                return false;
+            return true;
+        }
 
-            var and = field.Visible.Logic == VisibleAttribute.LogicType.And;
+        /// <summary>[Visible] 成员求值（原 CheckVisible 内联逻辑抽出，行为不变）。</summary>
+        private static bool CheckVisibleMembers(object target, VisibleAttribute visible)
+        {
+            var and = visible.Logic == VisibleAttribute.LogicType.And;
             var show = and;
 
-            foreach (var memberName in field.Visible.Methods)
+            foreach (var memberName in visible.Methods)
             {
                 if (string.IsNullOrEmpty(memberName))
                     continue;
@@ -130,6 +139,40 @@ namespace HYC.Framework.Config.Editor
             return show;
         }
 
+        /// <summary>
+        /// [CfgVisibleWhen] 条件求值（AND）：目标字段缺失或类型不符<b>视为满足</b>（保持显示）——
+        /// 配置面板不能因为目标字段被改名/删除就把字段吞掉。仅影响数据编辑器面板。
+        /// 反射读目标对象当前值：SerializedProperty 改值经 ApplyModifiedProperties 生效后，
+        /// 下一轮 Layout+Repaint 即反映到面板，不存在同帧布局不一致。
+        /// </summary>
+        private static bool CheckVisibleWhen(object target, CfgVisibleWhenAttribute[] conditions)
+        {
+            foreach (var cond in conditions)
+            {
+                if (cond == null || string.IsNullOrEmpty(cond.FieldName))
+                    continue;
+
+                var fieldMember = target.GetType().GetField(cond.FieldName,
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (fieldMember == null)
+                    continue; // 目标字段丢失（改名/删除后未重新生成）→ 视为满足
+
+                var value = fieldMember.GetValue(target);
+                if (fieldMember.FieldType == typeof(bool))
+                {
+                    if (!(value is bool b) || b != cond.BoolValue)
+                        return false;
+                }
+                else if (fieldMember.FieldType.IsEnum)
+                {
+                    if (!cond.MatchesEnum(value == null ? "" : value.ToString()))
+                        return false;
+                }
+                // 其它类型（List&lt;T&gt; 等）→ 视为满足
+            }
+            return true;
+        }
+
         private static bool CheckVisible(object target, string memberName)
         {
             if (string.IsNullOrEmpty(memberName))
@@ -170,6 +213,24 @@ namespace HYC.Framework.Config.Editor
             if (field.ReadOnly)
                 GUI.enabled = false;
 
+            // [Header] Unity 只在默认 PropertyField 流程里画；走自定义绘制分支时这里补画。
+            // ⚠️ 下面的条件必须与紧随其后的 if/else-if 链一一对应 —— 少一条 ⇒ 该字段的 Header 丢失，
+            //    多一条 ⇒ Header 画两遍。新增自定义分支时两处一起改。
+            var isCustomBranch = (field.IsAddressable && prop.propertyType == SerializedPropertyType.String)
+                                 || (field.IsBehaviourTree && prop.propertyType == SerializedPropertyType.Integer)
+                                 || (field.Multiple && field.Type == typeof(string))
+                                 || (field.IsLocKey && prop.propertyType == SerializedPropertyType.String)
+                                 || (field.IsAudioField && prop.propertyType == SerializedPropertyType.String);
+            if (isCustomBranch && !string.IsNullOrEmpty(field.Header))
+            {
+                // 缩进 16px：与 Unity 自己画的 [Header] 对齐（它默认带 label 缩进），
+                // 否则自定义字段的标题会顶格、比其它字段的标题左移一截（用户截图指出的现象）。
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                EditorGUILayout.LabelField(field.Header, EditorStyles.boldLabel);
+                EditorGUILayout.EndHorizontal();
+            }
+
             if (field.IsAddressable && prop.propertyType == SerializedPropertyType.String)
             {
                 DrawAddressableField(prop, field);
@@ -190,6 +251,10 @@ namespace HYC.Framework.Config.Editor
             else if (field.IsLocKey && prop.propertyType == SerializedPropertyType.String)
             {
                 DrawLocKeyField(prop, field);
+            }
+            else if (field.IsAudioField && prop.propertyType == SerializedPropertyType.String)
+            {
+                DrawAudioField(prop, field);
             }
             else
             {
@@ -349,17 +414,88 @@ namespace HYC.Framework.Config.Editor
                 EditorGUILayout.LabelField("地址: " + current, EditorStyles.miniLabel);
         }
 
-        /// <summary>取资源的 Addressable 地址(从 AA 设置查)。未注册返回 null。</summary>
+        /// <summary>取资源的 Addressable 地址(从 AA 设置查)。未注册返回 null。
+        /// 用 <c>includeImplicit</c>：支持把整个文件夹加进 AA 后的子资源（folder entry 的 sub-entry）也能解析到地址。</summary>
         public static string GetAddressableAddress(UnityEngine.Object obj)
         {
             var guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(obj));
             var settings = UnityEditor.AddressableAssets.AddressableAssetSettingsDefaultObject.Settings;
             if (settings != null)
             {
-                var entry = settings.FindAssetEntry(guid);
+                var entry = settings.FindAssetEntry(guid, true);
                 if (entry != null) return entry.address;
             }
             return null;
+        }
+
+        /// <summary>
+        /// 框架音频字段（<c>[AudioField]</c>）：<b>单行下拉</b>，选项来自音频总览条目。
+        /// 写入带前缀的字符串 key（<c>clip:&lt;AA地址&gt;</c> / <c>wwise:&lt;事件名&gt;</c>），
+        /// 前缀决定路由到哪个后端；存字符串而非对象引用才能换后端不改表、且能直接进 Blob。
+        ///
+        /// ⚠️ 不要改用 <c>ObjectField(typeof(AudioClip))</c>：那是"Unity 原生 AudioClip 字段"的控件，
+        /// 空值时 Unity 会显示固定文案 "None (Audio Clip)"，让人误以为本字段存对象引用。
+        /// 本字段显示的是总览条目名，与 AudioClip 对象无关。
+        /// </summary>
+        private static void DrawAudioField(SerializedProperty prop, GUITypeField field)
+        {
+            var catalog = AudioCatalogAssetLocator.Load();
+            var entries = catalog != null ? catalog.entries : null;
+            var isEmpty = entries == null || entries.Count == 0;
+
+            var current = prop.stringValue ?? "";
+
+            // 单行下拉：选项来自音频总览条目。显示「分组 | 条目名」，写入带前缀的字符串 key。
+            // 刻意不用 ObjectField(AudioClip) —— 那是"Unity 原生 AudioClip 字段"的控件，
+            // 会在空值时显示 Unity 固定文案 "None (Audio Clip)"，让人误以为本字段存对象引用。
+            // 本字段（框架/音频）存的是 key，显示的是条目名，两者不该混淆。
+            var labels = new System.Collections.Generic.List<string>();
+            var values = new System.Collections.Generic.List<string>();
+            // 空总览时把提示塞进下拉本身（不另起 HelpBox），保证控件严格只有一行。
+            labels.Add(isEmpty ? "(总览暂无条目，请先在 Audio Manager 添加)" : "(未选择)");
+            values.Add("");
+            if (!isEmpty)
+            {
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    var wantWwise = pass == 1;
+                    for (int e = 0; e < entries.Count; e++)
+                    {
+                        var entry = entries[e];
+                        if (entry == null) continue;
+                        var target = wantWwise ? entry.wwiseEvent : entry.addressableKey;
+                        if (string.IsNullOrEmpty(target)) continue;
+                        var name = string.IsNullOrEmpty(entry.displayName) ? target : entry.displayName;
+                        // 名字可被用户改名，含半角 '/' 时 EditorGUILayout.Popup 会把它当子菜单分隔符 → 显示成两级。用全角斜杠规避。
+                        labels.Add($"{(wantWwise ? "Wwise" : "Clip")} | {entry.channel} | {name.Replace('/', '／')}");
+                        values.Add(AudioRefPrefix.Wrap(target, wantWwise));
+                    }
+                }
+            }
+
+            var cur = values.IndexOf(current);
+            if (cur < 0)
+            {
+                // 当前值不在总览里（手填或条目被删）：补占位项，绝不静默显示成第一项。
+                // 地址本身含 '/'（Assets/... 路径），同样要规避 Popup 的子菜单分隔。
+                labels.Add($"⚠ 未登记 | {current.Replace('/', '／')}");
+                values.Add(current);
+                cur = values.Count - 1;
+            }
+
+            // 与其它字段统一布局：16px 缩进 + 200px 标签列 → label 列与输入框两列都对齐。
+            // 普通字段走 DrawFieldGUI 的 else 分支；Addressable / BehaviourTree 也各自套了这层。
+            // 之前这里直接 Popup(field.Label,...) → label 顶格、下拉起点也不对，故与上方错开。
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(16);
+            var oldLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = 200;
+            var picked = EditorGUILayout.Popup(field.Label, cur, labels.ToArray());
+            EditorGUIUtility.labelWidth = oldLabelWidth;
+            EditorGUILayout.EndHorizontal();
+
+            if (picked >= 0 && picked < values.Count && values[picked] != prop.stringValue)
+                prop.stringValue = values[picked];
         }
 
         /// <summary>行为树字段：列出项目内所有 BTTreeAsset, 选择后写入 TreeId。</summary>

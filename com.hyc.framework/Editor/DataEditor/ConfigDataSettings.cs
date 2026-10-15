@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using HYC.Framework.Editor;
 using UnityEditor;
 
 namespace HYC.Framework.Config.Editor
@@ -7,180 +8,150 @@ namespace HYC.Framework.Config.Editor
     /// <summary>
     /// Project-level configuration for the HYC data editor: the asset root
     /// folder scanned by <see cref="ConfigDataTree"/> and a local ID generator
-    /// (no server round-trip, unlike the source StarDeep client).
+    /// (no server round-trip, unlike a server-backed client).
+    ///
+    /// <para>值统一存于 <see cref="HYCSettings"/> 资产（<c>Assets/HYC/HYCSettings.asset</c>）：
+    /// 随工程进版本控制，多人协作共享同一份设定。本类只做委托 + 助手方法，
+    /// 存储语义（默认值 / 钳制 / 空值回落）见 <see cref="HYCSettings"/> 各属性。</para>
     /// </summary>
     public static class ConfigDataSettings
     {
-        private const string PrefRootFolder = "HYC.Framework.Config.DataEditor.RootFolder";
-        private static readonly string DefaultRootFolder = "Assets/ConfigData";
+        /// <summary>StreamingAssets 的工程相对根目录。运行期唯一可读位置。</summary>
+        public const string StreamingAssetsRoot = "Assets/StreamingAssets";
 
-        private const string PrefOutputDir = "HYC.Framework.Config.DataEditor.OutputDir";
-        private static readonly string DefaultOutputDir = "Assets/GeneratedConfigs";
-
-        private const string PrefNamespace = "HYC.Framework.Config.DataEditor.Namespace";
-        private static readonly string DefaultNamespace = "HYC.Sample.Generated";
-
-        private const string PrefEditorDir = "HYC.Framework.Config.DataEditor.EditorDir";
-        private static readonly string DefaultEditorDir = "Assets/GeneratedConfigs/Editor";
-
-        private const string PrefClientExportDir = "HYC.Framework.Config.DataEditor.ClientExportDir";
-        private static readonly string DefaultClientExportDir = "Exports/Client";
-
-        private const string PrefServerExportDir = "HYC.Framework.Config.DataEditor.ServerExportDir";
-        private static readonly string DefaultServerExportDir = "Exports/Server";
-
-        private const string PrefSideTypeIsStruct = "HYC.Framework.Config.DataEditor.SideTypeIsStruct";
-
-        private const string PrefClientFormat = "HYC.Framework.Config.DataEditor.ClientFormat";
-        private const string PrefServerFormat = "HYC.Framework.Config.DataEditor.ServerFormat";
-
-        private const string PrefBlobOutputDir = "HYC.Framework.Config.DataEditor.BlobOutputDir";
-        private static readonly string DefaultBlobOutputDir = "Assets/StreamingAssets/ConfigBlob";
-
-        private const string PrefBlobLoadPath = "HYC.Framework.Config.DataEditor.BlobLoadPath";
         private static readonly string DefaultBlobLoadPath = "ConfigBlob";
-
-        private const string PrefIdProviderType = "HYC.Framework.Config.DataEditor.IdProviderType";
-        private const string PrefIdServerIp = "HYC.Framework.Config.DataEditor.IdServerIp";
-        private const string PrefIdServerPort = "HYC.Framework.Config.DataEditor.IdServerPort";
 
         /// <summary>ID 构造器类型：0=本地，1=局域网。</summary>
         public static int IdProviderType
         {
-            get => EditorPrefs.GetInt(PrefIdProviderType, 0);
-            set => EditorPrefs.SetInt(PrefIdProviderType, value);
+            get => HYCSettings.Instance.IdProviderType;
+            set => HYCSettings.Instance.IdProviderType = value;
         }
 
         /// <summary>局域网 ID 服务器 IP。</summary>
         public static string IdServerIp
         {
-            get
-            {
-                var ip = EditorPrefs.GetString(PrefIdServerIp, "127.0.0.1");
-                return string.IsNullOrEmpty(ip) ? "127.0.0.1" : ip;
-            }
-            set => EditorPrefs.SetString(PrefIdServerIp, value);
+            get => HYCSettings.Instance.IdServerIp;
+            set => HYCSettings.Instance.IdServerIp = value;
         }
 
         /// <summary>局域网 ID 服务器端口。</summary>
         public static int IdServerPort
         {
-            get
-            {
-                var p = EditorPrefs.GetInt(PrefIdServerPort, 8920);
-                return p < 1 || p > 65535 ? 8920 : p;
-            }
-            set => EditorPrefs.SetInt(PrefIdServerPort, value);
+            get => HYCSettings.Instance.IdServerPort;
+            set => HYCSettings.Instance.IdServerPort = value;
         }
 
         /// <summary>客户端导出格式：0=JSON, 1=Blob。</summary>
         public static int ClientFormat
         {
-            get => EditorPrefs.GetInt(PrefClientFormat, 0);
-            set => EditorPrefs.SetInt(PrefClientFormat, value);
+            get => HYCSettings.Instance.ClientFormat;
+            set => HYCSettings.Instance.ClientFormat = value;
         }
 
         /// <summary>服务器导出格式：0=JSON。</summary>
         public static int ServerFormat
         {
-            get => EditorPrefs.GetInt(PrefServerFormat, 0);
-            set => EditorPrefs.SetInt(PrefServerFormat, value);
+            get => HYCSettings.Instance.ServerFormat;
+            set => HYCSettings.Instance.ServerFormat = value;
         }
 
-        /// <summary>Blob 文件输出目录（编辑器导出位置，StreamingAssets 内以便打包）。</summary>
+        /// <summary>
+        /// Blob 文件输出目录（编辑器导出位置）。<b>这是唯一的真值</b>：
+        /// 必须位于 <see cref="StreamingAssetsRoot"/> 内——运行期只能从 StreamingAssets 读
+        /// （PC / iOS 直接读文件，WebGL / Android 走预取缓存），导出前会校验这一条。
+        /// </summary>
         public static string BlobOutputDir
         {
-            get
-            {
-                var dir = EditorPrefs.GetString(PrefBlobOutputDir, DefaultBlobOutputDir);
-                return string.IsNullOrEmpty(dir) ? DefaultBlobOutputDir : dir;
-            }
-            set => EditorPrefs.SetString(PrefBlobOutputDir, value);
+            get => HYCSettings.Instance.BlobOutputDir;
+            set => HYCSettings.Instance.BlobOutputDir = value;
         }
 
-        /// <summary>Blob 文件运行时加载子路径（相对 StreamingAssets）。</summary>
-        public static string BlobLoadPath
+        /// <summary>
+        /// Blob 文件运行时加载子路径（相对 StreamingAssets 根）。
+        /// <para><b>由 <see cref="BlobOutputDir"/> 派生</b>——「导出落点」与「运行期读取点」
+        /// 因此永远是同一处，从结构上消除两边各配一个路径、改一边忘另一边的坑。
+        /// 要改加载路径，请改 <see cref="BlobOutputDir"/>（设置窗口的「Blob 输出目录」）。</para>
+        /// </summary>
+        public static string BlobLoadPath => ToStreamingAssetsRelative(BlobOutputDir);
+
+        /// <summary>
+        /// <see cref="BlobOutputDir"/> 是否位于 <see cref="StreamingAssetsRoot"/> 内。
+        /// Blob 格式导出前必须为 true，否则文件打不进包 / 运行期读不到。
+        /// </summary>
+        public static bool IsBlobOutputDirUnderStreamingAssets => IsUnderStreamingAssets(BlobOutputDir);
+
+        /// <summary>判断工程相对目录是否位于 <see cref="StreamingAssetsRoot"/> 内。</summary>
+        public static bool IsUnderStreamingAssets(string projectRelativeDir)
+            => NormalizeDir(projectRelativeDir).StartsWith(StreamingAssetsRoot + "/", StringComparison.OrdinalIgnoreCase);
+
+        private static string NormalizeDir(string dir) => (dir ?? string.Empty).Replace('\\', '/').Trim('/');
+
+        /// <summary>把工程相对目录转成相对 StreamingAssets 根的路径；不在其下则回退默认加载路径。</summary>
+        public static string ToStreamingAssetsRelative(string dir)
         {
-            get
+            var prefix = StreamingAssetsRoot + "/";
+            var d = NormalizeDir(dir);
+            if (d.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
-                var p = EditorPrefs.GetString(PrefBlobLoadPath, DefaultBlobLoadPath);
-                return string.IsNullOrEmpty(p) ? DefaultBlobLoadPath : p;
+                var rel = d.Substring(prefix.Length);
+                if (rel.Length > 0) return rel;
             }
-            set => EditorPrefs.SetString(PrefBlobLoadPath, value);
+            return DefaultBlobLoadPath;
         }
 
         /// <summary>自定义配置编辑器（XxxConfigEditor.cs）的生成目录。</summary>
         public static string EditorDir
         {
-            get
-            {
-                var dir = EditorPrefs.GetString(PrefEditorDir, DefaultEditorDir);
-                return string.IsNullOrEmpty(dir) ? DefaultEditorDir : dir;
-            }
-            set => EditorPrefs.SetString(PrefEditorDir, value);
+            get => HYCSettings.Instance.EditorDir;
+            set => HYCSettings.Instance.EditorDir = value;
         }
 
         /// <summary>客户端导出目录（绝对路径或项目相对路径）。</summary>
         public static string ClientExportDir
         {
-            get
-            {
-                var dir = EditorPrefs.GetString(PrefClientExportDir, DefaultClientExportDir);
-                return string.IsNullOrEmpty(dir) ? DefaultClientExportDir : dir;
-            }
-            set => EditorPrefs.SetString(PrefClientExportDir, value);
+            get => HYCSettings.Instance.ClientExportDir;
+            set => HYCSettings.Instance.ClientExportDir = value;
         }
 
         /// <summary>服务器导出目录（绝对路径或项目相对路径）。</summary>
         public static string ServerExportDir
         {
-            get
-            {
-                var dir = EditorPrefs.GetString(PrefServerExportDir, DefaultServerExportDir);
-                return string.IsNullOrEmpty(dir) ? DefaultServerExportDir : dir;
-            }
-            set => EditorPrefs.SetString(PrefServerExportDir, value);
+            get => HYCSettings.Instance.ServerExportDir;
+            set => HYCSettings.Instance.ServerExportDir = value;
         }
 
         /// <summary>客户端/服务器导出类型：true = struct（字段平铺），false = class（保持继承链）。</summary>
         public static bool SideTypeIsStruct
         {
-            get => EditorPrefs.GetBool(PrefSideTypeIsStruct, false);
-            set => EditorPrefs.SetBool(PrefSideTypeIsStruct, value);
+            get => HYCSettings.Instance.SideTypeIsStruct;
+            set => HYCSettings.Instance.SideTypeIsStruct = value;
         }
 
         /// <summary>Root folder (project-relative, e.g. Assets/ConfigData) scanned by the data editor tree.</summary>
         public static string RootFolder
         {
-            get
-            {
-                var folder = EditorPrefs.GetString(PrefRootFolder, DefaultRootFolder);
-                return string.IsNullOrEmpty(folder) ? DefaultRootFolder : folder;
-            }
-            set => EditorPrefs.SetString(PrefRootFolder, value);
+            get => HYCSettings.Instance.RootFolder;
+            set => HYCSettings.Instance.RootFolder = value;
         }
 
         /// <summary>Output folder for generated config classes.</summary>
         public static string OutputDir
         {
-            get
-            {
-                var dir = EditorPrefs.GetString(PrefOutputDir, DefaultOutputDir);
-                return string.IsNullOrEmpty(dir) ? DefaultOutputDir : dir;
-            }
-            set => EditorPrefs.SetString(PrefOutputDir, value);
+            get => HYCSettings.Instance.OutputDir;
+            set => HYCSettings.Instance.OutputDir = value;
         }
 
-        /// <summary>Namespace used by generated config classes.</summary>
-        public static string Namespace
-        {
-            get
-            {
-                var ns = EditorPrefs.GetString(PrefNamespace, DefaultNamespace);
-                return string.IsNullOrEmpty(ns) ? DefaultNamespace : ns;
-            }
-            set => EditorPrefs.SetString(PrefNamespace, value);
-        }
+        /// <summary>
+        /// 生成配置类的命名空间：由「生成代码命名空间 root」派生（<c>{root}.config</c>），不再单独配置。
+        /// root 在 HYC Settings 窗口的 CodeGen 分组（或 <see cref="HYCSettings"/> 资产）里配；
+        /// 留空 = 项目公司名，公司名不可用回落 <c>Default</c>。
+        /// 改 root 后必须重新生成配置代码——资产过滤器与导出类查找都按这个命名空间走。
+        /// </summary>
+        public static string Namespace => HYCSettings.ConfigCodeNamespace;
+
+        /// <summary>生成的枚举命名空间（<c>{root}.Enum</c>），与 <see cref="Namespace"/>（<c>{root}.config</c>）平级。</summary>
+        public static string EnumNamespace => HYCSettings.ConfigEnumNamespace;
 
         /// <summary>Creates the root folder (and missing parents) on disk, then refreshes the asset database.</summary>
         public static void EnsureRootFolder()

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.IO;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -90,8 +91,8 @@ namespace HYC.Framework.Config.Editor
             if (!AssetDatabase.IsValidFolder(folder))
                 AssetDatabase.CreateFolder("Assets", "GeneratedConfig");
             var path = folder + "/" + ConfigGenerator.ToTitle(sheetName) + "Config.cs";
-            File.WriteAllText(path, code);
-            AssetDatabase.ImportAsset(path);
+            // 走统一写盘入口：自动套「自动生成」壳 + 内容未变不重写
+            GeneratedCodeFile.WriteAndImport(path, code);
             _status = "OK: wrote " + path;
         }
     }

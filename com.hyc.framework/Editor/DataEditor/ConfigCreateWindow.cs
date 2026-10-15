@@ -95,12 +95,16 @@ namespace HYC.Framework.Config.Editor
 
             var types = TypeCache.GetTypesWithAttribute<CfgAssetAttribute>()
                 .Where(r => !r.IsAbstract && typeof(ScriptableObject).IsAssignableFrom(r))
-                .Where(r => r != typeof(ConfigEnumDefinition)) // 枚举定义在数据树右键创建，不走配置创建器
+                .Where(r => !CfgAssetAttribute.IsHidden(r)) // Hide=true：模板/基类/音频总览等框架基础设施，用户不在此处创建
                 .ToList();
 
             foreach (var type in types)
             {
-                var attr = type.GetCustomAttributes(typeof(CfgAssetAttribute), true).FirstOrDefault() as CfgAssetAttribute;
+                // 自身直接标注的特性优先；无自身特性（纯继承）时才回退继承链
+                var attr = type.GetCustomAttributes(typeof(CfgAssetAttribute), false)
+                        .OfType<CfgAssetAttribute>().FirstOrDefault()
+                    ?? type.GetCustomAttributes(typeof(CfgAssetAttribute), true)
+                        .OfType<CfgAssetAttribute>().FirstOrDefault();
                 if (attr == null)
                     continue;
 
@@ -226,6 +230,7 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true));
 
             mCreateModeIndex = EditorGUILayout.Popup(new GUIContent("创建模式"), mCreateModeIndex, mCreateMode);
+            EditorGUILayout.LabelField("创建位置", CurrentDestinationFolder());
             if (mCreateModeIndex == 0)
             {
                 mFileNameForSingle = EditorGUILayout.TextField("文件名称", mFileNameForSingle);
@@ -268,6 +273,20 @@ namespace HYC.Framework.Config.Editor
                 Close();
                 Event.current.Use();
             }
+        }
+
+        /// <summary>
+        /// 当前选中类型的创建位置（纯计算，不建目录）：类型文件夹（根目录/类型短名）优先；
+        /// 类型没有对应类型文件夹时回退到打开窗口时的目标位置 / 配置根目录。
+        /// </summary>
+        private string CurrentDestinationFolder()
+        {
+            var folder = mSelectedItem?.Type != null
+                ? ConfigAssetLayout.TypeFolderPath(mSelectedItem.Type)
+                : null;
+            if (!string.IsNullOrEmpty(folder))
+                return folder;
+            return string.IsNullOrEmpty(mTargetCreateFolder) ? ConfigDataSettings.RootFolder : mTargetCreateFolder;
         }
 
         private void DrawLine(Rect rect)
@@ -421,6 +440,11 @@ namespace HYC.Framework.Config.Editor
 
             if (string.IsNullOrEmpty(mTargetCreateFolder))
                 mTargetCreateFolder = ConfigDataSettings.RootFolder;
+
+            // 创建位置一律自动归置到「类型文件夹」（根目录/类型短名，没有则自动创建）；
+            // 用户自建子文件夹与手动拖拽归置不受影响（见 ConfigAssetLayout / ConfigAssetMoveGuard）。
+            // 仅当类型没有对应类型文件夹时，才回退到打开窗口时的目标位置 / 根目录。
+            mTargetCreateFolder = ConfigAssetLayout.EnsureTypeFolder(item.Type) ?? mTargetCreateFolder;
 
             ConfigDataSettings.EnsureRootFolder();
 

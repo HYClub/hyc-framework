@@ -47,9 +47,17 @@ namespace HYC.Framework.Config.Editor
             var tplNow = mTarget.targetObject as ConfigTemplate;
             var classValid = true;
 
-            // 页签切换
+            // 页签切换（「字段」页签 tooltip 承载字段类型 / 导出 / 检查说明）
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            mActiveTab = GUILayout.Toolbar(mActiveTab, new[] { "基础", "字段", "字段检查配置", "导出" }, EditorStyles.toolbarButton);
+            mActiveTab = GUILayout.Toolbar(mActiveTab, new[]
+            {
+                new GUIContent("基础", "显示名 / 类名（改名）/ 基类 / 图标。"),
+                new GUIContent("字段",
+                    "字段类型选“配置引用…”可从所有已注册配置类型中选择，生成资产引用字段。\n" +
+                    "字段“导出”决定客户端/服务器类型包含的字段；“检查”配置在字段检查配置页。"),
+                new GUIContent("字段检查配置"),
+                new GUIContent("导出")
+            }, EditorStyles.toolbarButton);
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(4);
@@ -106,7 +114,7 @@ namespace HYC.Framework.Config.Editor
                     ConfigTemplateCodeGen.TryBuildInheritanceChain(tplNow, chainNow, out _);
                     foreach (var c in chainNow)
                     {
-                        if (!ConfigTemplateCodeGen.IsGenerated(c))
+                        if (!ConfigTemplateCodeGen.IsBaseReady(c))
                             tplErrors.Add($"基类 {c.className} 未生成代码，请先生成基类");
                     }
                 }
@@ -137,14 +145,19 @@ namespace HYC.Framework.Config.Editor
                 }
             }
 
+            // 导出可行性错误（硬错误，与生成校验一致；不阻断保存，只在此处红字提示）
+            if (tplNow != null)
+                foreach (var fe in ConfigTemplateCodeGen.CollectExportFeasibilityErrors(tplNow))
+                    tplErrors.Add(fe);
+
             foreach (var e in tplErrors)
                 EditorGUILayout.HelpBox(e, MessageType.Error);
 
+            // 关联参数条件警告（不阻断生成：无效条件不发射、求值时视为满足）
+            foreach (var w in ConfigTemplateCodeGen.CollectVisibilityWarnings(tplNow))
+                EditorGUILayout.HelpBox(w, MessageType.Warning);
+
             EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(
-                "字段类型选\u201c配置引用…\u201d可从所有已注册配置类型中选择，生成资产引用字段。\n" +
-                "字段\u201c导出\u201d决定客户端/服务器类型包含的字段；\u201c检查\u201d配置在字段检查配置页。",
-                MessageType.Info);
 
             // 右下角：生成代码 + 保存模板（最底部）
             GUILayout.FlexibleSpace();
@@ -163,14 +176,26 @@ namespace HYC.Framework.Config.Editor
 
         private int mActiveTab;
 
-        /// <summary>基础页：显示名/类名（改名）/基类/图标。</summary>
+        /// <summary>基础页：左侧 88×88 可点击图标 + 右侧显示名/类名（改名）/基类。</summary>
         private void DrawBasicTab()
         {
             var tpl = mTarget.targetObject as ConfigTemplate;
             if (tpl == null)
                 return;
 
-            EditorGUILayout.LabelField("配置模板", EditorStyles.boldLabel);
+            EditorGUILayout.BeginHorizontal();
+
+            // 左：图标列。GUIStyle.none 占位取精确 88×88 rect 后手动绘制——GetRect 系列元素与
+            // 带 stretch 的样式在滚动视图内会被拉离固定尺寸，手动 rect 不受布局系统影响
+            GUILayout.Box(GUIContent.none, GUIStyle.none, GUILayout.Width(88), GUILayout.Height(88));
+            var iconRect = GUILayoutUtility.GetLastRect();
+            DrawIconSwatch(iconRect, tpl);
+
+            // 右：字段（标签列收窄，给左列让宽度）
+            EditorGUILayout.BeginVertical();
+
+            var oldLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = 112;
 
             // displayName
             var displayProp = mTarget.FindProperty("displayName");
@@ -212,13 +237,10 @@ namespace HYC.Framework.Config.Editor
             GUI.backgroundColor = oldBg;
             GUI.contentColor = oldContent;
 
-            EditorGUILayout.Space(4);
-
-            // 基类
-            EditorGUILayout.LabelField("基类", EditorStyles.boldLabel);
+            // 基类（tooltip 说明保护逻辑）
             var baseProp = mTarget.FindProperty("baseTemplate");
             var baseObj = baseProp.objectReferenceValue as ConfigTemplate;
-            var baseUngenerated = baseObj != null && !ConfigTemplateCodeGen.IsGenerated(baseObj);
+            var baseUngenerated = baseObj != null && !ConfigTemplateCodeGen.IsBaseReady(baseObj);
             var baseOldBg = GUI.backgroundColor;
             var baseOldContent = GUI.contentColor;
             if (baseUngenerated)
@@ -227,7 +249,8 @@ namespace HYC.Framework.Config.Editor
                 GUI.contentColor = new Color(1f, 0.55f, 0.55f);
             }
             EditorGUI.BeginChangeCheck();
-            EditorGUILayout.PropertyField(baseProp, new GUIContent("基类模板"));
+            EditorGUILayout.PropertyField(baseProp, new GUIContent("基类模板",
+                "清空时自动回归 ConfigBase；基类未生成代码时红底提示。"));
             if (EditorGUI.EndChangeCheck())
             {
                 mTarget.ApplyModifiedProperties();
@@ -245,10 +268,11 @@ namespace HYC.Framework.Config.Editor
             GUI.backgroundColor = baseOldBg;
             GUI.contentColor = baseOldContent;
 
-            // 图标
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("图标", EditorStyles.boldLabel);
-            DrawIconField();
+            EditorGUIUtility.labelWidth = oldLabelWidth;
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>字段页：字段列表（含导出目标 + 范围）。</summary>
@@ -391,11 +415,26 @@ namespace HYC.Framework.Config.Editor
                 // 导出目标：客户端 0 / 服务器 1 / 两者 2
                 var clientEnabled = f.exportTarget != ConfigExportTarget.Server;
                 var serverEnabled = f.exportTarget != ConfigExportTarget.Client;
-                DrawSideExportPopup(prop, f, true, new Rect(clientX, row.y, colW - 2, row.height), clientEnabled);
-                DrawSideExportPopup(prop, f, false, new Rect(clientX + colW, row.y, colW - 2, row.height), serverEnabled);
+                var feas = ConfigTemplateCodeGen.GetExportFeasibility(f);
+                DrawSideExportPopup(prop, f, true, new Rect(clientX, row.y, colW - 2, row.height), clientEnabled, feas.ClientBroken);
+                DrawSideExportPopup(prop, f, false, new Rect(clientX + colW, row.y, colW - 2, row.height), serverEnabled, feas.ServerBroken);
             }
 
-            EditorGUILayout.Space(4);
+                EditorGUILayout.Space(4);
+
+            // 导出可行性红字汇总（与生成校验一致）：哪些字段“直接导出”不可导，指出是哪一侧 + 建议
+            for (var i = 0; i < mFieldsProp.arraySize; i++)
+            {
+                if (tpl.fields == null || i >= tpl.fields.Count)
+                    continue;
+                var f = tpl.fields[i];
+                if (f == null)
+                    continue;
+                var msg = ConfigTemplateCodeGen.ExportFeasibilityMessage(f);
+                if (msg != null)
+                    EditorGUILayout.HelpBox(msg, MessageType.Error);
+            }
+
             EditorGUILayout.HelpBox(
                 "每一侧可选：直接导出（默认） / 转字符串 / string 的 BlobString 或 FixedString 容量 / " +
                 "配置引用取成员(ID/GUID/标量字段) / 资源对象导出 名字、路径、Addressable 地址。\n" +
@@ -405,13 +444,22 @@ namespace HYC.Framework.Config.Editor
                 "资源/Prefab 字段（Object 等）：只能导出 名字 / 路径 / AA地址，不能直接把对象序列化进 Blob。" +
                 "选「AA地址」时请确保该资源已在 Addressables 标记，否则导出空串（运行时才报错）。",
                 MessageType.Warning);
+            EditorGUILayout.HelpBox(
+                "音频字段（框架/音频）导出的是带前缀的字符串 key：clip:<Addressables地址> 走框架默认后端、" +
+                "wwise:<事件名> 走 Wwise。运行时由 Audio.Play(ref) 按前缀路由，再交给 Addressables 加载，" +
+                "所以这里填的是 key 而不是 clip 名；默认 BlobString（变长、不截断）。",
+                MessageType.Info);
         }
 
-        private void DrawSideExportPopup(SerializedProperty fieldProp, ConfigTemplateField f, bool client, Rect rect, bool enabled)
+        private void DrawSideExportPopup(SerializedProperty fieldProp, ConfigTemplateField f, bool client, Rect rect, bool enabled, bool broken)
         {
             var oldEnabled = GUI.enabled;
             if (!enabled)
                 GUI.enabled = false;
+
+            // 该侧当前选择“直接导出”但不可导 → 红底高亮，引导用户改模式
+            if (broken)
+                EditorGUI.DrawRect(rect, new Color(0.85f, 0.15f, 0.15f, 0.20f));
 
             var setProp = fieldProp.FindPropertyRelative(client ? "clientExport" : "serverExport");
             var modeProp = setProp.FindPropertyRelative("mode");
@@ -482,12 +530,25 @@ namespace HYC.Framework.Config.Editor
                     list.Add(new ExportOption("FixedString512Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size512));
                     list.Add(new ExportOption("FixedString4096Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size4096));
                     break;
+                case ConfigFieldType.AudioEvent:
+                    // 音频 key 存带前缀的字符串（clip:<AA地址> / wwise:<事件名>），运行时按前缀路由。
+                    // BlobString 排第一并作为新建时的默认：变长存储无容量上限，而 key 长度不可预知，
+                    // 定长档位静默截断的风险不对等。「直接导出」与之等价（Blob 侧 IsStringLike
+                    // 会兜成 BlobString），保留是为了兼容已保存的旧设置。
+                    list.Add(new ExportOption("BlobString", ConfigFieldExportMode.BlobString));
+                    list.Add(new ExportOption("直接导出(string)", ConfigFieldExportMode.Direct));
+                    list.Add(new ExportOption("FixedString64Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size64));
+                    list.Add(new ExportOption("FixedString128Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size128));
+                    list.Add(new ExportOption("FixedString512Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size512));
+                    break;
                 default:
                 {
                     if (IsAssetExportType(f.type))
                     {
                         list.Add(new ExportOption("名字", ConfigFieldExportMode.AssetName));
-                        list.Add(new ExportOption("路径(Assets/...)", ConfigFieldExportMode.AssetPath));
+                        // ★ 标签里不能出现半角 '/'：EditorGUI.Popup 会把 '/' 当作**子菜单分隔符**，
+                        //   之前写成 "路径(Assets/...)" 时被拆成「路径(Assets ▸ …)」两级。改用全角斜杠规避。
+                        list.Add(new ExportOption("路径(Assets／...)", ConfigFieldExportMode.AssetPath));
                         list.Add(new ExportOption("AA地址", ConfigFieldExportMode.AssetAddressable));
                         break;
                     }
@@ -590,79 +651,94 @@ namespace HYC.Framework.Config.Editor
                 levelProp.enumValueIndex = idx;
         }
 
-        /// <summary>图标字段绘制：当前图标预览 + 选择内置 / 浏览自定义。</summary>
-        private void DrawIconField()
+        /// <summary>
+        /// 图标缩略图绘制（rect 来自上方 GUILayout.Box(GUIStyle.none) 占位的 GetLastRect，精确 88×88）：
+        /// 框 + 纹理（8px 内边距 ScaleToFit）+ 居中「无图标」文案 + 整块可点击开选择窗口。
+        /// 点击即打开「选择图标」窗口（内置网格 / 项目图标浏览 / 清除均在窗口内，面上零按钮）。
+        /// </summary>
+        private void DrawIconSwatch(Rect rect, ConfigTemplate tpl)
+        {
+            var tex = ConfigTemplateIcon.Resolve(tpl);
+
+            GUI.Box(rect, GUIContent.none);
+            if (tex != null)
+            {
+                const float pad = 8f;
+                GUI.DrawTexture(
+                    new Rect(rect.x + pad, rect.y + pad, rect.width - pad * 2f, rect.height - pad * 2f),
+                    tex, ScaleMode.ScaleToFit);
+            }
+
+            // 控件每帧恒定绘制，仅按有无图标切换内容（IMGUI 控件集合一致性）；centeredGreyMiniLabel 居中
+            GUI.Label(rect, tex != null ? GUIContent.none : new GUIContent("无图标"), EditorStyles.centeredGreyMiniLabel);
+
+            if (GUI.Button(rect, new GUIContent(string.Empty, "点击选择图标（内置图标 / 项目图标 / 清除）"), GUIStyle.none))
+                OpenIconPicker();
+        }
+
+        /// <summary>打开图标选择窗口；选中 / 清除回调统一写回序列化属性并即时提交传播。</summary>
+        private void OpenIconPicker()
+        {
+            var builtInProp = mTarget.FindProperty("iconBuiltInName");
+            var customProp = mTarget.FindProperty("iconCustom");
+            ConfigIconPicker.Open(
+                name =>
+                {
+                    builtInProp.stringValue = name;
+                    customProp.objectReferenceValue = null;
+                    mTarget.ApplyModifiedProperties();
+                    CommitIconChange();
+                },
+                tex2d =>
+                {
+                    // 与 iconBuiltInName 二选一：选自定义纹理时清掉内置名，避免双值歧义
+                    customProp.objectReferenceValue = tex2d;
+                    builtInProp.stringValue = "";
+                    mTarget.ApplyModifiedProperties();
+                    CommitIconChange();
+                },
+                () =>
+                {
+                    builtInProp.stringValue = "";
+                    customProp.objectReferenceValue = null;
+                    mTarget.ApplyModifiedProperties();
+                    CommitIconChange();
+                });
+        }
+
+        /// <summary>
+        /// 图标变更即时提交（picker 选中 / 清除共用）：字段落盘 + 三类对象 session 图标
+        /// 立即应用 + 数据树刷新。只写内存字段不传播会让三处显示分裂——数据树读模板字段 /
+        /// 配置资产的 meta 类型图标，Unity Project 窗口读 session 图标，任选其一不更新
+        /// 都会出现「树里一个图标、Unity 里另一个图标」。
+        /// </summary>
+        private void CommitIconChange()
         {
             var tpl = mTarget.targetObject as ConfigTemplate;
             if (tpl == null)
                 return;
 
-            var builtInProp = mTarget.FindProperty("iconBuiltInName");
-            var customProp = mTarget.FindProperty("iconCustom");
+            EditorUtility.SetDirty(tpl);
+            AssetDatabase.SaveAssetIfDirty(tpl);
 
-            EditorGUILayout.BeginHorizontal();
+            ConfigIconApplier.ApplyForTemplate(tpl);
+            PersistIconDeferred(tpl);
+            mWindow?.RefreshTree();
+        }
 
-            // 当前图标预览
-            var tex = ConfigTemplateIcon.Resolve(tpl);
-            var previewRect = GUILayoutUtility.GetRect(32, 32, GUILayout.Width(32), GUILayout.Height(32));
-            if (tex != null)
-                GUI.DrawTexture(previewRect, tex);
-            else
-                GUI.Box(previewRect, GUIContent.none);
-
-            EditorGUILayout.BeginVertical();
-
-            // 内置图标选择
-            var builtInLabel = string.IsNullOrEmpty(builtInProp.stringValue)
-                ? "选择内置图标…"
-                : $"内置: {builtInProp.stringValue}";
-            if (GUILayout.Button(builtInLabel, GUILayout.Height(22)))
+        /// <summary>
+        /// 自定义纹理持久化进 .cs.meta（数据树与 Unity 类型图标读 meta，不落 meta 会与
+        /// session 图标分裂）。SaveAndReimport 会触发域重载，经 delayCall 推迟到当前
+        /// GUI 周期（picker 关闭流程）外执行。
+        /// </summary>
+        private static void PersistIconDeferred(ConfigTemplate tpl)
+        {
+            EditorApplication.delayCall += () =>
             {
-                ConfigIconPicker.Open(name =>
-                {
-                    builtInProp.stringValue = name;
-                    customProp.objectReferenceValue = null;
-                    mTarget.ApplyModifiedProperties();
-                }, tex2d =>
-                {
-                    customProp.objectReferenceValue = tex2d;
-                    mTarget.ApplyModifiedProperties();
-                });
-            }
-
-            // 自定义图标 + 清除
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("浏览项目图标…", GUILayout.Height(20)))
-            {
-                ConfigIconPicker.Open(name =>
-                {
-                    builtInProp.stringValue = name;
-                    customProp.objectReferenceValue = null;
-                    mTarget.ApplyModifiedProperties();
-                }, tex2d =>
-                {
-                    customProp.objectReferenceValue = tex2d;
-                    mTarget.ApplyModifiedProperties();
-                });
-            }
-            if (GUILayout.Button("清除", GUILayout.Width(50), GUILayout.Height(20)))
-            {
-                builtInProp.stringValue = "";
-                customProp.objectReferenceValue = null;
-                mTarget.ApplyModifiedProperties();
-            }
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.EndHorizontal();
-
-            // 当前选中显示
-            if (customProp.objectReferenceValue != null)
-                EditorGUILayout.LabelField("当前: 自定义图标", EditorStyles.miniLabel);
-            else if (!string.IsNullOrEmpty(builtInProp.stringValue))
-                EditorGUILayout.LabelField($"当前: 内置图标 ({builtInProp.stringValue})", EditorStyles.miniLabel);
-            else
-                EditorGUILayout.LabelField("当前: 默认图标", EditorStyles.miniLabel);
+                if (tpl == null)
+                    return;
+                ConfigIconApplier.PersistForTemplate(tpl);
+            };
         }
 
         /// <summary>并表绘制：表头 + 基类只读字段 + 自身可编辑字段。</summary>
@@ -688,7 +764,7 @@ namespace HYC.Framework.Config.Editor
             var chainHasUngenerated = false;
             foreach (var c in chain)
             {
-                if (!ConfigTemplateCodeGen.IsGenerated(c))
+                if (!ConfigTemplateCodeGen.IsBaseReady(c))
                     chainHasUngenerated = true;
             }
             if (chainHasUngenerated)
@@ -750,8 +826,7 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("+ 添加字段", GUILayout.Width(90)))
             {
-                mFieldsProp.arraySize++;
-                mTarget.ApplyModifiedProperties();
+                AddEmptyField();
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -847,7 +922,7 @@ namespace HYC.Framework.Config.Editor
             var nameValid = ConfigTemplateCodeGen.IsValidIdentifier(nameProp.stringValue) && !IsDuplicateFieldName(index);
             var refMissing = (ConfigFieldType)typeProp.intValue == ConfigFieldType.Reference
                             && !string.IsNullOrEmpty(refProp.stringValue)
-                            && Type.GetType(refProp.stringValue) == null;
+                            && ResolveRefType(refProp.stringValue) == null;
             var enumMissing = (ConfigFieldType)typeProp.intValue == ConfigFieldType.Enum
                               && (string.IsNullOrEmpty(enumProp.stringValue)
                                   || ConfigEnumCodeGen.FindEnum(enumProp.stringValue) == null);
@@ -919,6 +994,9 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.LabelField("勾选后数据编辑器中该字段不可编辑（仅影响展示，不影响发号/导出）", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
 
+            // 关联参数：条件显示（满足全部条件才在配置面板绘制本字段）
+            DrawVisibilityBlock(prop);
+
             if (isNumeric)
             {
                 EditorGUILayout.BeginHorizontal();
@@ -947,6 +1025,226 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>关联参数候选目标字段（本模板 + 继承链上的 bool/enum 标量字段）。</summary>
+        private sealed class ConditionTarget
+        {
+            public string Name;
+            public ConfigFieldType Type;
+            public string EnumClassName = "";
+        }
+
+        /// <summary>
+        /// 「关联参数」块（展开明细区内、只读行之后）：条件显示规则。
+        /// 每条 = 左下拉选一个 bool/enum 字段 + 右侧控件（bool→勾选；enum→多选枚举值）；
+        /// 多条之间 AND；目标字段丢失/类型不符视为满足（保持显示）。
+        /// </summary>
+        private void DrawVisibilityBlock(SerializedProperty prop)
+        {
+            var visProp = prop.FindPropertyRelative("visibility");
+            if (visProp == null)
+                return;
+
+            var nameProp = prop.FindPropertyRelative("name");
+            var selfName = nameProp != null ? nameProp.stringValue ?? "" : "";
+            var candidates = CollectConditionTargets(selfName);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("关联参数", GUILayout.Width(50));
+            EditorGUILayout.LabelField("满足全部条件才在配置面板显示本字段", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+
+            for (var i = 0; i < visProp.arraySize; i++)
+                DrawVisibilityConditionRow(visProp, i, candidates);
+
+            using (new EditorGUI.DisabledScope(candidates.Count == 0))
+            {
+                if (GUILayout.Button("+ 添加条件", GUILayout.Width(90)))
+                    AddVisibilityCondition(visProp);
+            }
+            if (candidates.Count == 0)
+                EditorGUILayout.LabelField("当前模板没有可用的布尔/枚举字段（不含自身与列表字段）", EditorStyles.miniLabel);
+        }
+
+        /// <summary>单条关联条件行：[缩进16][目标字段下拉][值控件][× 删除]。</summary>
+        private void DrawVisibilityConditionRow(SerializedProperty visProp, int index, List<ConditionTarget> candidates)
+        {
+            var cond = visProp.GetArrayElementAtIndex(index);
+            var targetProp = cond.FindPropertyRelative("targetField");
+            var boolProp = cond.FindPropertyRelative("boolValue");
+            var enumValuesProp = cond.FindPropertyRelative("enumValues");
+            if (targetProp == null)
+                return;
+
+            var targetName = targetProp.stringValue ?? "";
+            var rowRect = EditorGUILayout.GetControlRect(true, 18);
+
+            const float padL = 16f;
+            const float delW = 22f;
+            var avail = rowRect.width - padL - delW - 4;
+            if (avail < 60f)
+                avail = 60f; // 极窄窗口防御： Rect 宽度不取负（与 ColumnWidths 的护栏同范式）
+            var ddW = Mathf.Min(170f, avail * 0.45f);
+            var dropRect = new Rect(rowRect.x + padL, rowRect.y, ddW, rowRect.height);
+            var valueRect = new Rect(dropRect.xMax + 4, rowRect.y, avail - ddW - 4, rowRect.height);
+            var delRect = new Rect(rowRect.xMax - delW, rowRect.y, delW, rowRect.height);
+
+            // 左：目标字段下拉。存量无效条件（字段被删/改类型）以"（已失效）"占位留在首位，便于发现与改回。
+            var names = new List<string>();
+            foreach (var c in candidates)
+                names.Add(c.Name);
+            var idx = names.IndexOf(targetName);
+            var invalid = idx < 0;
+            if (invalid)
+                names.Insert(0, string.IsNullOrEmpty(targetName) ? "（未选择字段）" : targetName + "（已失效）");
+
+            var newIdx = EditorGUI.Popup(dropRect, Mathf.Max(idx, 0), names.ToArray());
+            if (newIdx >= 0 && newIdx < names.Count)
+            {
+                var keepStale = invalid && newIdx == 0;
+                if (!keepStale)
+                    targetProp.stringValue = names[newIdx];
+            }
+
+            // 右：按目标字段类型给控件（bool→勾选；enum→多选枚举值；无效→黄字提示）
+            var target = candidates.Find(c => c.Name == targetName);
+            if (target == null)
+            {
+                var oldColor = GUI.color;
+                GUI.color = new Color(1f, 0.8f, 0.35f);
+                GUI.Label(valueRect, "目标字段不存在或类型不支持（条件不生效，字段保持显示）", EditorStyles.miniLabel);
+                GUI.color = oldColor;
+            }
+            else if (target.Type == ConfigFieldType.Bool)
+            {
+                boolProp.boolValue = EditorGUI.Toggle(valueRect, boolProp.boolValue);
+            }
+            else
+            {
+                DrawEnumConditionValue(valueRect, target, enumValuesProp);
+            }
+
+            // × 删除本条条件
+            if (GUI.Button(delRect, "×"))
+            {
+                visProp.DeleteArrayElementAtIndex(index);
+                mTarget.ApplyModifiedProperties();
+            }
+        }
+
+        /// <summary>enum 目标的值控件：MaskField 多选枚举值（≤32 个；更多给提示不放行）。</summary>
+        private static void DrawEnumConditionValue(Rect rect, ConditionTarget target, SerializedProperty enumValuesProp)
+        {
+            var def = ConfigEnumCodeGen.FindEnum(target.EnumClassName);
+            var valueNames = def != null && def.values != null
+                ? def.values.Where(v => v != null && !string.IsNullOrEmpty(v.name)).Select(v => v.name).ToList()
+                : new List<string>();
+
+            if (def == null || valueNames.Count == 0)
+            {
+                GUI.Label(rect, "枚举定义不存在或没有枚举值（条件不生效）", EditorStyles.miniLabel);
+                return;
+            }
+            if (valueNames.Count > 32)
+            {
+                GUI.Label(rect, $"枚举值 {valueNames.Count} 个超过 32，无法多选（请精简枚举或改用布尔字段）", EditorStyles.miniLabel);
+                return;
+            }
+
+            var options = valueNames.ToArray();
+            var mask = 0;
+            for (var v = 0; v < options.Length; v++)
+            {
+                if (EnumValuesContains(enumValuesProp, options[v]))
+                    mask |= 1 << v;
+            }
+
+            var newMask = EditorGUI.MaskField(rect, mask, options);
+            if (newMask != mask)
+                WriteEnumValues(enumValuesProp, options, newMask);
+        }
+
+        /// <summary>enumValuesProp 列表里是否已含指定值名。</summary>
+        private static bool EnumValuesContains(SerializedProperty enumValuesProp, string valueName)
+        {
+            if (enumValuesProp == null)
+                return false;
+            for (var i = 0; i < enumValuesProp.arraySize; i++)
+            {
+                if (enumValuesProp.GetArrayElementAtIndex(i).stringValue == valueName)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>MaskField 掩码写回 enumValues（-1 = Everything = 全选，与 Unity MaskFieldGUI 一致）。</summary>
+        private static void WriteEnumValues(SerializedProperty enumValuesProp, string[] options, int mask)
+        {
+            if (enumValuesProp == null)
+                return;
+
+            enumValuesProp.arraySize = 0;
+            var all = mask == -1;
+            for (var v = 0; v < options.Length; v++)
+            {
+                if (all || (mask & (1 << v)) != 0)
+                {
+                    var i = enumValuesProp.arraySize;
+                    enumValuesProp.arraySize++;
+                    enumValuesProp.GetArrayElementAtIndex(i).stringValue = options[v];
+                }
+            }
+            enumValuesProp.serializedObject.ApplyModifiedProperties();
+        }
+
+        /// <summary>添加一条空条件（逐属性复位，防 arraySize++ 复制上一条的条件）。</summary>
+        private static void AddVisibilityCondition(SerializedProperty visProp)
+        {
+            var index = visProp.arraySize;
+            visProp.arraySize++;
+            var cond = visProp.GetArrayElementAtIndex(index);
+            cond.FindPropertyRelative("targetField").stringValue = "";
+            cond.FindPropertyRelative("boolValue").boolValue = true;
+            var enumValues = cond.FindPropertyRelative("enumValues");
+            if (enumValues != null)
+                enumValues.arraySize = 0;
+            visProp.serializedObject.ApplyModifiedProperties();
+        }
+
+        /// <summary>候选目标字段：继承链（顶层→直接基类）+ 自身 的 bool/enum 标量字段，排除自身与列表字段。</summary>
+        private List<ConditionTarget> CollectConditionTargets(string selfName)
+        {
+            var result = new List<ConditionTarget>();
+            var tpl = mTarget.targetObject as ConfigTemplate;
+            if (tpl == null)
+                return result;
+
+            var chain = new List<ConfigTemplate>();
+            ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out _);
+
+            for (var i = chain.Count - 1; i >= 0; i--)
+                CollectTargetsFrom(chain[i].fields, selfName, result);
+            CollectTargetsFrom(tpl.fields, selfName, result);
+
+            return result;
+        }
+
+        private static void CollectTargetsFrom(List<ConfigTemplateField> fields, string selfName, List<ConditionTarget> result)
+        {
+            foreach (var f in fields)
+            {
+                if (f == null || f.isList || f.name == selfName)
+                    continue;
+                if (f.type != ConfigFieldType.Bool && f.type != ConfigFieldType.Enum)
+                    continue;
+                result.Add(new ConditionTarget
+                {
+                    Name = f.name,
+                    Type = f.type,
+                    EnumClassName = f.enumRefClassName ?? "",
+                });
+            }
+        }
+
         private void MoveOwnField(int index, int delta)
         {
             var target = index + delta;
@@ -961,6 +1259,86 @@ namespace HYC.Framework.Config.Editor
                 return;
             mFieldsProp.DeleteArrayElementAtIndex(index);
             mTarget.ApplyModifiedProperties();
+        }
+
+        /// <summary>
+        /// 添加一个全新字段：所有属性取 <see cref="ConfigTemplateField"/> 的默认值，名称自动防重。
+        /// <para>
+        /// 不能用裸 <c>arraySize++</c>：Unity 对 <c>List&lt;类&gt;</c> 的 SerializedProperty 增容会
+        /// <b>复制上一个元素</b>——新字段会继承上一行的类型、列表标志、导出设置（客户端/服务端
+        /// 的 mode/memberName/fixedStringSize 一起被复制）。曾酿成事故：在 string 行后加字段，
+        /// 新字段直接就是 string；上一行若是 ToString/资源导出模式，新加的 long 也被导出成 string。
+        /// Attr 属性目录 / 枚举值编辑器插入后都有显式复位，这里补同一范式。
+        /// </para>
+        /// </summary>
+        private void AddEmptyField()
+        {
+            var index = mFieldsProp.arraySize;
+            mFieldsProp.arraySize++;
+            var f = mFieldsProp.GetArrayElementAtIndex(index);
+
+            // 与 ConfigTemplateField 的字段默认值逐项对齐（类默认即"空字段"）
+            f.FindPropertyRelative("name").stringValue = NextDefaultFieldName();
+            f.FindPropertyRelative("description").stringValue = "";
+            f.FindPropertyRelative("type").intValue = (int)ConfigFieldType.String;
+            f.FindPropertyRelative("isList").boolValue = false;
+            f.FindPropertyRelative("refTypeFullName").stringValue = "";
+            f.FindPropertyRelative("enumRefClassName").stringValue = "";
+            f.FindPropertyRelative("exportTarget").intValue = (int)ConfigExportTarget.Both;
+            f.FindPropertyRelative("readOnly").boolValue = false;
+            f.FindPropertyRelative("hasRange").boolValue = false;
+            f.FindPropertyRelative("minValue").floatValue = 0f;
+            f.FindPropertyRelative("maxValue").floatValue = 0f;
+            f.FindPropertyRelative("notEmptyCheck").intValue = (int)ConfigCheckLevel.None;
+            f.FindPropertyRelative("notZeroCheck").intValue = (int)ConfigCheckLevel.None;
+            f.FindPropertyRelative("rangeCheck").intValue = (int)ConfigCheckLevel.None;
+            ResetExportSetting(f.FindPropertyRelative("clientExport"));
+            ResetExportSetting(f.FindPropertyRelative("serverExport"));
+
+            // 关联条件列表复位为空：arraySize++ 会复制上一个元素的 visibility
+            // （条件行连目标字段一起被抄过来），与上方逐属性复位同一范式。
+            var visibility = f.FindPropertyRelative("visibility");
+            if (visibility != null)
+                visibility.arraySize = 0;
+
+            mTarget.ApplyModifiedProperties();
+        }
+
+        /// <summary>导出设置子对象复位为默认（Direct / 空成员名 / Size128），与 <see cref="ConfigFieldExportSetting"/> 默认值一致。</summary>
+        private static void ResetExportSetting(SerializedProperty setting)
+        {
+            if (setting == null) return;
+            var mode = setting.FindPropertyRelative("mode");
+            if (mode != null) mode.intValue = (int)ConfigFieldExportMode.Direct;
+            var member = setting.FindPropertyRelative("memberName");
+            if (member != null) member.stringValue = "";
+            var size = setting.FindPropertyRelative("fixedStringSize");
+            if (size != null) size.intValue = (int)ConfigFixedStringSize.Size128;
+        }
+
+        /// <summary>默认字段名 newField；与既有字段（含继承链）重名则递增数字后缀，避免生成即报「字段名重复」。</summary>
+        private string NextDefaultFieldName()
+        {
+            var taken = new HashSet<string>();
+            for (var i = 0; i < mFieldsProp.arraySize; i++)
+                taken.Add(mFieldsProp.GetArrayElementAtIndex(i).FindPropertyRelative("name").stringValue ?? "");
+
+            var tpl = mTarget.targetObject as ConfigTemplate;
+            if (tpl != null)
+            {
+                var chain = new List<ConfigTemplate>();
+                ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out _);
+                foreach (var baseTpl in chain)
+                    foreach (var bf in baseTpl.fields)
+                        taken.Add(bf.name ?? "");
+            }
+
+            if (!taken.Contains("newField")) return "newField";
+            for (var n = 2; ; n++)
+            {
+                var candidate = "newField" + n;
+                if (!taken.Contains(candidate)) return candidate;
+            }
         }
 
         /// <summary>True when this own field's name duplicates another own field or any inherited field.</summary>
@@ -1085,6 +1463,7 @@ namespace HYC.Framework.Config.Editor
             { ConfigFieldType.AnimationClip, "框架/动画片段" },
             { ConfigFieldType.AnimatorController, "框架/动画控制器" },
             { ConfigFieldType.Addressable, "框架/资源地址" },
+            { ConfigFieldType.AudioEvent, "框架/音频" },
             { ConfigFieldType.TextAsset, "Unity 对象/文本" },
             { ConfigFieldType.Object, "Unity 对象/通用" },
             // 多语言（仅 loc 包已安装时可用）
@@ -1142,7 +1521,7 @@ namespace HYC.Framework.Config.Editor
                 menu.AddSeparator("");
                 var cfgTypes = TypeCache.GetTypesWithAttribute<CfgAssetAttribute>()
                     .Where(t => typeof(ScriptableObject).IsAssignableFrom(t) && !t.IsAbstract && !t.IsGenericType
-                                && t != typeof(ConfigTemplate) && t != typeof(ConfigEnumDefinition))
+                                && !CfgAssetAttribute.IsHidden(t)) // Hide=true：模板/基类/音频总览等框架基础设施，无实例可引用
                     .OrderBy(t => t.Name)
                     .ToArray();
                 foreach (var t in cfgTypes)
@@ -1183,12 +1562,10 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
+        // 引用类型解析统一走 CodeGen 的 helper：存储全名失败时按当前命名空间重建再试，
+        // 避免 root 切换后（旧全名里的命名空间已失效）误显「引用:未选择」。
         private static Type ResolveRefType(string assemblyQualifiedName)
-        {
-            if (string.IsNullOrEmpty(assemblyQualifiedName))
-                return null;
-            return Type.GetType(assemblyQualifiedName);
-        }
+            => ConfigTemplateCodeGen.ResolveRefTypeForUi(assemblyQualifiedName);
 
         private static string FieldTypeLabel(ConfigTemplateField f)
         {
@@ -1212,16 +1589,21 @@ namespace HYC.Framework.Config.Editor
                 return "动画控制器";
             if (f.type == ConfigFieldType.Addressable)
                 return "资源地址";
+            if (f.type == ConfigFieldType.AudioEvent)
+                return "音频";
             return f.type.ToString();
         }
 
         private void Generate()
         {
-            mTarget.ApplyModifiedProperties();
-
             var tpl = mTarget.targetObject as ConfigTemplate;
             if (tpl == null)
                 return;
+
+            // 先落盘再生成：ApplyModifiedProperties 只把 SerializedProperty 提交到内存对象，
+            // 不写盘。不先保存的话：① 生成读的是内存值但资产未落盘（标题长期带 *）；
+            // ② 用户改了显示名没保存就生成，生成用的资产名与保存后的不一致。
+            SaveInternal(showNotification: false);
 
             // 兜底净化（输入框已即时净化，这里防止外部改动直接调用）
             var sanitized = ConfigTemplateCodeGen.SanitizeDisplayName(tpl.displayName);
@@ -1243,7 +1625,12 @@ namespace HYC.Framework.Config.Editor
                 return;
             }
 
-            mWindow?.ShowNotification(new GUIContent($"已生成 {tpl.className}.cs"));
+            // WriteFile 内部为记录 lastGeneratedClassName 会 SetDirty，这里补一次落盘，
+            // 使生成后资产不留未保存标记（标题的 * 会消失）。
+            if (SaveInternal(showNotification: false))
+                mWindow?.ShowNotification(new GUIContent($"已保存并生成 {tpl.className}.cs"));
+            else
+                mWindow?.ShowNotification(new GUIContent($"已生成 {tpl.className}.cs（模板落盘失败，请手动保存）"));
         }
 
         /// <summary>
@@ -1333,13 +1720,19 @@ namespace HYC.Framework.Config.Editor
             mWindow?.ShowNotification(new GUIContent($"已改名并重新生成 {newName}.cs"));
         }
 
-        private void Save()
+        /// <summary>
+        /// 落盘当前模板：净化显示名 → 同步资产名 → SetDirty + SaveAssetIfDirty。
+        /// 「保存模板」与「生成代码」共用（生成必须先落盘，否则资产长期带未保存标记）。
+        /// </summary>
+        /// <param name="showNotification">是否弹「模板已保存」提示（生成流程自己弹合并后的提示）。</param>
+        /// <returns>资产是否已成功落盘。</returns>
+        private bool SaveInternal(bool showNotification)
         {
             mTarget.ApplyModifiedProperties();
 
             var tpl = mTarget.targetObject as ConfigTemplate;
             if (tpl == null)
-                return;
+                return false;
 
             // 兜底净化
             var sanitized = ConfigTemplateCodeGen.SanitizeDisplayName(tpl.displayName);
@@ -1358,7 +1751,23 @@ namespace HYC.Framework.Config.Editor
             // 只保存当前模板，避免 SaveAssets 把其他 dirty 资产一并写盘
             EditorUtility.SetDirty(tpl);
             AssetDatabase.SaveAssetIfDirty(tpl);
-            mWindow?.ShowNotification(new GUIContent("模板已保存"));
+
+            // 图标传播到 Unity 原生 Project 窗口（保存即生效）
+            ConfigIconApplier.ApplyForTemplate(tpl);
+
+            // 自定义纹理同步持久化进 .cs.meta（不落 meta 则数据树读的 meta 类型图标
+            // 与 Project 窗口的 session 图标分裂）；数据树行图标立即刷新
+            PersistIconDeferred(tpl);
+            mWindow?.RefreshTree();
+
+            if (showNotification)
+                mWindow?.ShowNotification(new GUIContent("模板已保存"));
+            return true;
+        }
+
+        private void Save()
+        {
+            SaveInternal(showNotification: true);
         }
     }
 }

@@ -9,7 +9,7 @@ namespace HYC.Framework.Config
     /// 普通枚举 = 1,2,3,4...；复合枚举（Flags）= 1,2,4,8,16...。
     /// 生成 C# 枚举代码，并按导出目标生成到客户端/服务器目录。
     /// </summary>
-    [CfgAsset("枚举/枚举定义", 0)]
+    [CfgAsset("枚举/枚举定义", 0, Hide = true)]
     public class ConfigEnumDefinition : ScriptableObject
     {
         [Tooltip("显示名，支持 分类/名称，例如 装备/部位")]

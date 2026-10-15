@@ -3,7 +3,7 @@
 > 本文件是**菜单结构的唯一真源**。改动任何 `[MenuItem("HYC Framework/...")]` 时，
 > 必须同步更新本文件与引用了该路径的文档，否则会留下失效路径。
 >
-> 最后核对：2026-10-07
+> 最后核对：2026-10-13
 
 ---
 
@@ -46,10 +46,14 @@ HYC Framework/
 ├── Config/            配置管线
 │   ├── Config Window            配置模板定义（className/字段）      pri 0
 │   ├── Validate Config          结构校验                          pri 1
-│   └── Data Editor              填表                                pri 2
+│   ├── Data Editor              填表                                pri 2
+│   ├── Reissue Duplicate IDs   复制重复 ID 手动重派发（兜底）         pri 3
+│   ├── Regenerate All Config Code  一键重生成全部配置代码            pri 4
+│   └── Apply Template Icons    手动应用模板图标到 Project 窗口（兜底）  pri 5
 ├── BT/                行为树
 │   ├── BT Editor                可视化编辑器（画布）               pri 10
-│   └── Export Blob (For Build)  导出 Blob 供真机加载（打包必做）    pri 11
+│   ├── Export Blob (For Build)  导出 Blob 供真机加载（打包必做）    pri 11
+│   └── New Tree                新建行为树（统一走 BTAssetFactory）   pri 12
 ├── UI/                ECS UI
 │   ├── Generate UI Binders                                        pri 20
 │   ├── Regenerate UI Binders (Clean)                             pri 21
@@ -67,7 +71,11 @@ HYC Framework/
 │   ├── Attribute Catalog Editor 两页：属性目录 / 属性组           pri 40
 │   └── Generate Accessor        生成 AttrKey/AttrKeyMap/AttrBag   pri 41
 ├── Talent/            天赋树
-│   └── Talent Tree Editor                                         pri 50
+│   ├── Talent Tree Editor                                         pri 50
+│   └── Reissue Duplicate Tree IDs 复制重复 treeId 手动重派发        pri 51
+├── Audio/             音频（Addressables / Wwise）
+│   ├── Audio Manager                                              pri 60
+│   └── Export Catalog Blob                                       pri 61
 │   ══════════════ ② 通用工具（偶尔用）══════════════
 ├── Tools/             与具体子系统无关的通用资产工具
 │   └── Assets/
@@ -80,7 +88,7 @@ HYC Framework/
     └── Import HYCSimple                                           pri 210
 
 > **三档之间的分隔线不是画出来的，是priority 差 ≥ 11 自动生成的**：
-> `Talent(50) → Tools(100)` 差 50、`Tools(101) → Settings(200)` 差 99 ⇒ 恰好两处分隔线。
+> `Talent(51) → Tools(100)` 差 49、`Tools(101) → Settings(200)` 差 99 ⇒ 恰好两处分隔线。
 > 档内相邻差均 ≤ 10 ⇒ 档内不画线。**不要随意改动这些数值**，改前先读本文档第一、二节。
 ```
 

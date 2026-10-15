@@ -80,7 +80,7 @@ namespace HYC.Framework.Config.Editor
                 if (tpl != null)
                 {
                     var label = $"[配置模板] {tpl.displayName} ({tpl.className})";
-                    if (!ConfigTemplateCodeGen.IsGenerated(tpl))
+                    if (!ConfigTemplateCodeGen.IsBaseReady(tpl))
                         label += " (未生成)";
                     return label;
                 }
@@ -154,6 +154,13 @@ namespace HYC.Framework.Config.Editor
                 return FindItem(ids[0], rootItem) as ConfigDataTreeNode;
             }
         }
+
+        /// <summary>
+        /// 标记：下一次 <see cref="EditorApplication.projectChanged"/> 触发的自动 <see cref="Reload"/> 是否跳过。
+        /// 用于文件夹重命名时避免 <see cref="ConfigDataWindow.OnProjectChanged"/> 在 Refresh 生效前读到脏数据，
+        /// 从而产生幽灵/重复节点。
+        /// </summary>
+        public bool SkipNextProjectChangedReload { get; set; }
 
         /// <summary>是否存在任一资产处于未保存（dirty）状态（用于列表 * 标记）。</summary>
         public bool HasDirtyAssets()
@@ -246,22 +253,33 @@ namespace HYC.Framework.Config.Editor
 
         private void InstallFolders(TreeViewItem parent, string folder)
         {
-            foreach (var path in AssetDatabase.GetSubFolders(folder))
-            {
-                var name = Path.GetFileName(path);
-                var guid = AssetDatabase.AssetPathToGUID(path);
+            // 绕过 AssetDatabase.GetSubFolders 的文件夹缓存 bug：直接从文件系统枚举子目录，
+            // 再映射回 Unity 相对路径。只保留有 .meta 的目录（与 Unity 资产视图一致）。
+            var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
+            var fullFolder = $"{projectRoot}/{folder}";
+            if (!Directory.Exists(fullFolder))
+                return;
 
+            foreach (var dirPath in Directory.GetDirectories(fullFolder))
+            {
+                var dirUnity = dirPath.Replace("\\", "/").Replace(projectRoot + "/", "");
+                var name = Path.GetFileName(dirPath);
+                var metaPath = Path.Combine(fullFolder, name + ".meta");
+                if (!File.Exists(metaPath))
+                    continue;
+
+                var guid = AssetDatabase.AssetPathToGUID(dirUnity);
                 var node = new ConfigDataTreeFolderNode(guid)
                 {
-                    id = GetFolderID(path),
+                    id = GetFolderID(dirUnity),
                     depth = parent.depth + 1,
                     displayName = name,
-                    icon = (Texture2D)AssetDatabase.GetCachedIcon(path),
+                    icon = (Texture2D)AssetDatabase.GetCachedIcon(dirUnity),
                 };
                 parent.AddChild(node);
                 mGuid2FolderNode[guid] = node;
 
-                InstallFolders(node, path);
+                InstallFolders(node, dirUnity);
             }
         }
 
@@ -394,19 +412,7 @@ namespace HYC.Framework.Config.Editor
             var root = rootItem;
             if (root is ConfigDataTreeFolderNode folder)
             {
-                var menu = new GenericMenu();
-                menu.AddItem(new GUIContent("创建配置"), false, () => OpenCreateWindow(folder));
-                menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset(root));
-                menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset(root));
-                menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(root));
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("保存并导出内部所有"), false, () => SaveAndExportFolderAll(folder));
-                menu.AddItem(new GUIContent("全量清理后全量导出"), false, () => CleanAndExportAll());
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("刷新"), false, () => Reload());
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("选择根目录资源"), false, () => PingGuid(folder.guid));
-                menu.ShowAsContext();
+                BuildFolderContextMenu(folder, true).ShowAsContext();
             }
         }
 
@@ -428,6 +434,213 @@ namespace HYC.Framework.Config.Editor
                 EditorUtility.DisplayDialog("保存并导出", "未找到可导出的配置", "确定");
             else
                 EditorUtility.DisplayDialog("保存并导出", $"已保存并导出 {count} 种配置到客户端/服务器目录", "确定");
+        }
+
+        /// <summary>
+        /// 构建文件夹节点的右键菜单（根目录与普通文件夹共用；<paramref name="isRoot"/> 时
+        /// 无重命名/删除、多一项「全量清理后全量导出」）。
+        /// <para>导出项按文件夹内容动态列出，集中在「导出」子菜单里（GenericMenu 的路径按 "/"
+        /// 拆子菜单，见 Unity 官方文档）：每种可导出配置类型一项（带该文件夹内资产数），
+        /// 末尾分隔线 + 「导出全部」。枚举 / 模板不是「导出」动作（枚举走导出、模板走生成代码），
+        /// 作为顶级动态项单列。</para>
+        /// </summary>
+        private GenericMenu BuildFolderContextMenu(ConfigDataTreeFolderNode folder, bool isRoot)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("创建配置"), false, () => OpenCreateWindow(folder));
+            menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset());
+            menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset());
+            menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(folder));
+            menu.AddSeparator("");
+            AddDynamicExportItems(menu, folder, path);
+            menu.AddSeparator("");
+            if (isRoot)
+                menu.AddItem(new GUIContent("全量清理后全量导出"), false, () => CleanAndExportAll());
+            menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+            menu.AddSeparator("");
+            if (!isRoot)
+            {
+                menu.AddItem(new GUIContent("重命名"), false, () => BeginRename(folder));
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent("删除"), false, () => DeleteFolder(folder));
+                menu.AddSeparator("");
+            }
+            menu.AddItem(new GUIContent(isRoot ? "选择根目录资源" : "选择资源"), false, () => PingGuid(folder.guid));
+            return menu;
+        }
+
+        /// <summary>
+        /// 按文件夹内容动态追加导出/生成项：
+        /// <list type="bullet">
+        /// <item>「导出」子菜单：每种可导出配置类型一项「短名（N 个）」（N = 该文件夹内资产数），
+        /// 末尾 <c>AddSeparator("导出/")</c> 子菜单内分隔线 + 「导出全部」；</item>
+        /// <item>枚举 / 模板：顶级动态项「保存导出所有枚举（N 个）」「保存并生成所有模板代码（N 个）」——
+        /// 模板是生成代码不是导出，不塞进导出子菜单；</item>
+        /// <item>三类皆无：一条禁用提示。</item>
+        /// </list>
+        /// </summary>
+        private void AddDynamicExportItems(GenericMenu menu, ConfigDataTreeFolderNode folder, string path)
+        {
+            var exportable = CountExportableAssetsByType(path);
+            var enumCount = CountAssetsUnder(path, typeof(ConfigEnumDefinition));
+            var templateCount = CountAssetsUnder(path, typeof(ConfigTemplate));
+
+            if (exportable.Count > 0)
+            {
+                var seen = new HashSet<string>();
+                foreach (var kv in exportable)
+                {
+                    // 循环体内声明的局部变量 → 每个 lambda 捕获各自的副本（不会全绑到最后一个类型上）
+                    var type = kv.Key;
+                    var label = ConfigTypeDisplay.GetShortName(type);
+                    if (!seen.Add(label))
+                        label += $"（{type.Name}）"; // 不同命名空间的同类短名撞车 → 加类名消歧
+
+                    menu.AddItem(new GUIContent($"导出/{label}（{kv.Value} 个）"), false,
+                        () => ExportFolderType(folder, type));
+                }
+
+                menu.AddSeparator("导出/"); // 尾斜杠 = 分隔线嵌在子菜单内（Unity 官方用法）
+                menu.AddItem(new GUIContent("导出/导出全部"), false, () => SaveAndExportFolderAll(folder));
+            }
+
+            if (enumCount > 0)
+                menu.AddItem(new GUIContent($"保存导出所有枚举（{enumCount} 个）"), false, () => SaveAndExportFolderEnums(folder));
+            if (templateCount > 0)
+                menu.AddItem(new GUIContent($"保存并生成所有模板代码（{templateCount} 个）"), false, () => GenerateFolderTemplateCode(folder));
+
+            if (exportable.Count == 0 && enumCount == 0 && templateCount == 0)
+                menu.AddDisabledItem(new GUIContent("（没有可导出 / 可生成的内容）"));
+        }
+
+        /// <summary>
+        /// 导出文件夹内某一配置类型（先保存整个文件夹，再按类型批量导出）。
+        /// <para>必须走 <see cref="ConfigExportService.ExportAll"/> 整类型导出：Blob/JSON 产物
+        /// 一类型一个文件，逐资产调 <c>ExportSingle</c> 会各写一遍、互相覆盖成只剩最后一个。</para>
+        /// </summary>
+        private void ExportFolderType(ConfigDataTreeFolderNode folder, Type configType)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
+            ConfigExportService.SaveFolder(path); // 先保存，避免「改了没存就导出」
+
+            if (ConfigExportService.ExportAll(configType, true, true))
+                EditorUtility.DisplayDialog("导出",
+                    $"已导出 {ConfigTypeDisplay.GetShortName(configType)}（{configType.Name}）到客户端/服务器目录", "确定");
+            else
+                EditorUtility.DisplayDialog("导出失败",
+                    $"导出 {configType.Name} 失败（该类型是否还没生成导出类？）", "确定");
+        }
+
+        /// <summary>
+        /// 统计文件夹（递归，含子文件夹）下各可导出配置类型的资产数，按类型短名排序。
+        /// 过滤规则与 <see cref="ConfigExportService.ExportFolder"/> 完全一致（排除 <see cref="ConfigTemplate"/>、
+        /// 排除命名空间不在 <see cref="ConfigDataSettings.Namespace"/> 内的资产），
+        /// 保证菜单里写的「N 个」就是该文件夹内该类型的实际资产数。
+        /// </summary>
+        private static List<KeyValuePair<Type, int>> CountExportableAssetsByType(string folder)
+        {
+            var counts = new Dictionary<Type, int>();
+            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder }))
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset == null)
+                    continue;
+
+                var type = asset.GetType();
+                if (type == typeof(ConfigTemplate))
+                    continue;
+                if (type.Namespace == null || !type.Namespace.StartsWith(ConfigDataSettings.Namespace))
+                    continue;
+
+                counts.TryGetValue(type, out var n);
+                counts[type] = n + 1;
+            }
+
+            var list = new List<KeyValuePair<Type, int>>(counts);
+            list.Sort((a, b) => string.CompareOrdinal(
+                ConfigTypeDisplay.GetShortName(a.Key), ConfigTypeDisplay.GetShortName(b.Key)));
+            return list;
+        }
+
+        /// <summary>统计文件夹（递归，含子文件夹）下指定类型资产的数量。</summary>
+        private static int CountAssetsUnder(string folder, Type type)
+            => AssetDatabase.FindAssets($"t:{type.Name}", new[] { folder }).Length;
+
+        /// <summary>加载文件夹（递归，含子文件夹）下所有指定类型资产。</summary>
+        private static List<T> LoadAssetsUnder<T>(string folder) where T : UnityEngine.Object
+        {
+            var list = new List<T>();
+            foreach (var guid in AssetDatabase.FindAssets($"t:{typeof(T).Name}", new[] { folder }))
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<T>(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset != null)
+                    list.Add(asset);
+            }
+            return list;
+        }
+
+        /// <summary>保存并导出文件夹下所有枚举定义（递归，含子文件夹；逐个先落盘再导出）。</summary>
+        private void SaveAndExportFolderEnums(ConfigDataTreeFolderNode folder)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
+            var defs = LoadAssetsUnder<ConfigEnumDefinition>(path);
+            if (defs.Count == 0)
+            {
+                EditorUtility.DisplayDialog("保存导出所有枚举", "未找到枚举定义", "确定");
+                return;
+            }
+
+            var ok = 0;
+            foreach (var def in defs)
+            {
+                EditorUtility.SetDirty(def);
+                AssetDatabase.SaveAssetIfDirty(def);
+                if (ConfigEnumCodeGen.Export(def, true, true))
+                    ok++;
+            }
+
+            EditorUtility.DisplayDialog("保存导出所有枚举",
+                $"已保存并导出 {ok}/{defs.Count} 个枚举到客户端/服务器目录", "确定");
+        }
+
+        /// <summary>保存并生成文件夹下所有模板代码（递归，含子文件夹；流程与单个生成一致：先落盘再生成，生成后再落盘消 * 标记）。</summary>
+        private void GenerateFolderTemplateCode(ConfigDataTreeFolderNode folder)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(folder.guid);
+            var tpls = LoadAssetsUnder<ConfigTemplate>(path);
+            if (tpls.Count == 0)
+            {
+                EditorUtility.DisplayDialog("生成模板代码", "未找到配置模板", "确定");
+                return;
+            }
+
+            var ok = 0;
+            string firstError = null;
+            foreach (var tpl in tpls)
+            {
+                // 生成前先落盘：保证生成读到的字段值与磁盘一致（改了显示名没保存就生成的情况）
+                EditorUtility.SetDirty(tpl);
+                AssetDatabase.SaveAssetIfDirty(tpl);
+
+                if (ConfigTemplateCodeGen.WriteFile(tpl, out var error))
+                {
+                    ok++;
+                    // WriteFile 已 SetDirty（记录 lastGeneratedClassName），补落盘消除 * 标记
+                    EditorUtility.SetDirty(tpl);
+                    AssetDatabase.SaveAssetIfDirty(tpl);
+                }
+                else if (firstError == null)
+                {
+                    firstError = $"{tpl.className}: {error}";
+                }
+            }
+
+            Reload();
+            if (ok == tpls.Count)
+                EditorUtility.DisplayDialog("生成模板代码", $"已生成 {ok} 个模板的代码", "确定");
+            else
+                EditorUtility.DisplayDialog("生成模板代码", $"成功 {ok}/{tpls.Count} 个。\n首个失败：{firstError}", "确定");
         }
 
         /// <summary>全量清理后全量导出（先确认，再调用 ConfigExportService 清空并重新导出所有配置类型）。</summary>
@@ -500,8 +713,8 @@ namespace HYC.Framework.Config.Editor
             else
             {
                 menu.AddItem(new GUIContent("创建配置"), false, () => OpenCreateWindow(file));
-                menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset(file));
-                menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset(file));
+                menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset());
+                menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset());
                 menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(file));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("导出"), false, () => ExportSingleAsset(file));
@@ -548,11 +761,25 @@ namespace HYC.Framework.Config.Editor
         /// <summary>生成模板代码并刷新树（带错误提示）。</summary>
         private void GenerateTemplateCode(ConfigTemplate tpl)
         {
+            if (tpl == null)
+                return;
+
+            // 生成前先落盘：WriteFile 内部为记录 lastGeneratedClassName 会 SetDirty，
+            // 生成后必须再存一次，否则资产留着未保存标记（标题带 *）。
+            // 同时保证生成读到的字段值与磁盘一致（改了显示名没保存就生成的情况）。
+            EditorUtility.SetDirty(tpl);
+            AssetDatabase.SaveAssetIfDirty(tpl);
+
             if (!ConfigTemplateCodeGen.WriteFile(tpl, out var error))
             {
                 EditorUtility.DisplayDialog("生成失败", error, "确定");
                 return;
             }
+
+            // WriteFile 已 SetDirty（记录 lastGeneratedClassName），补落盘消除 * 标记
+            EditorUtility.SetDirty(tpl);
+            AssetDatabase.SaveAssetIfDirty(tpl);
+
             Reload();
         }
 
@@ -566,19 +793,7 @@ namespace HYC.Framework.Config.Editor
 
             if (item is ConfigDataTreeFolderNode folder)
             {
-                menu.AddItem(new GUIContent("创建配置"), false, () => OpenCreateWindow(folder));
-                menu.AddItem(new GUIContent("创建配置模板"), false, () => CreateTemplateAsset(item));
-                menu.AddItem(new GUIContent("创建枚举"), false, () => CreateEnumAsset(item));
-                menu.AddItem(new GUIContent("创建目录"), false, () => CreateFolder(item));
-                menu.AddItem(new GUIContent("保存并导出内部所有"), false, () => SaveAndExportFolderAll(folder));
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("刷新"), false, () => Reload());
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("重命名"), false, () => BeginRename(item));
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("删除"), false, () => DeleteFolder(folder));
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("选择资源"), false, () => PingGuid(folder.guid));
+                menu = BuildFolderContextMenu(folder, false);
             }
             else if (item is ConfigDataTreeFileNode file)
             {
@@ -624,40 +839,18 @@ namespace HYC.Framework.Config.Editor
             ConfigCreateWindow.ShowWindow(targetFolder);
         }
 
-        /// <summary>Creates a new template asset in the node's folder and selects it in the tree.</summary>
-        private void CreateTemplateAsset(TreeViewItem item)
+        /// <summary>创建新模板资产（自动归置到「配置模板」类型文件夹）并在树中选中。</summary>
+        private void CreateTemplateAsset()
         {
-            string targetFolder = ConfigDataSettings.RootFolder;
-
-            if (item is ConfigDataTreeFolderNode folder)
-            {
-                targetFolder = AssetDatabase.GUIDToAssetPath(folder.guid);
-            }
-            else if (item is ConfigDataTreeFileNode file)
-            {
-                targetFolder = Path.GetDirectoryName(AssetDatabase.GUIDToAssetPath(file.guid));
-            }
-
-            var tpl = ConfigTemplateCodeGen.CreateTemplateAsset(targetFolder);
+            var tpl = ConfigTemplateCodeGen.CreateTemplateAsset();
             Reload();
             SelectAsset(tpl);
         }
 
-        /// <summary>Creates a new enum definition asset in the node's folder and selects it in the tree.</summary>
-        private void CreateEnumAsset(TreeViewItem item)
+        /// <summary>创建新枚举定义资产（自动归置到「枚举」类型文件夹）并在树中选中。</summary>
+        private void CreateEnumAsset()
         {
-            string targetFolder = ConfigDataSettings.RootFolder;
-
-            if (item is ConfigDataTreeFolderNode folder)
-            {
-                targetFolder = AssetDatabase.GUIDToAssetPath(folder.guid);
-            }
-            else if (item is ConfigDataTreeFileNode file)
-            {
-                targetFolder = Path.GetDirectoryName(AssetDatabase.GUIDToAssetPath(file.guid));
-            }
-
-            var def = ConfigEnumCodeGen.CreateEnumAsset(targetFolder);
+            var def = ConfigEnumCodeGen.CreateEnumAsset();
             Reload();
             SelectAsset(def);
         }
@@ -871,24 +1064,115 @@ namespace HYC.Framework.Config.Editor
 
         protected override void RenameEnded(RenameEndedArgs args)
         {
+            // 此 Unity 版本（2022.3）的 RenameEndedArgs 无 accepted 字段：取消（Esc）时 newName 回退为原名，
+            // 以此判定跳过；空名/未变也由 ApplyRenameCore 的 null/empty 守卫兜底。
             var item = FindItem(args.itemID, rootItem);
+            Debug.Log($"[ConfigDataTree] RenameEnded itemId={args.itemID}, newName={args.newName}, item={(item == null ? "null" : item.displayName)}");
+            if (item == null || args.newName == item.displayName)
+                return;
+
+            string path;
+            bool isFolder;
             if (item is ConfigDataTreeFileNode fileNode)
             {
-                var path = AssetDatabase.GUIDToAssetPath(fileNode.guid);
-                var result = AssetDatabase.RenameAsset(path, args.newName);
-                if (!string.IsNullOrEmpty(result))
-                    EditorUtility.DisplayDialog("重命名失败", result, "确定");
-                else
-                    item.displayName = args.newName;
+                path = AssetDatabase.GUIDToAssetPath(fileNode.guid);
+                isFolder = false;
             }
             else if (item is ConfigDataTreeFolderNode folder)
             {
-                var path = AssetDatabase.GUIDToAssetPath(folder.guid);
-                var result = AssetDatabase.RenameAsset(path, args.newName);
-                if (!string.IsNullOrEmpty(result))
-                    EditorUtility.DisplayDialog("重命名失败", result, "确定");
+                path = AssetDatabase.GUIDToAssetPath(folder.guid);
+                isFolder = true;
+            }
+            else
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogWarning("[ConfigDataTree] RenameEnded path empty, skip.");
+                return;
+            }
+
+            var newName = args.newName;
+            var itemId = args.itemID;
+            Debug.Log($"[ConfigDataTree] Schedule delayCall rename: path={path}, newName={newName}, isFolder={isFolder}, itemId={itemId}");
+            EditorApplication.delayCall += () => ApplyRenameCore(path, newName, isFolder, itemId);
+        }
+
+        /// <summary>
+        /// 真正执行重命名，由 <see cref="EditorApplication.delayCall"/> 调度到 RenameEnded 回调外执行。
+        /// <para><b>根因修复</b>：Unity 的 <see cref="AssetDatabase.RenameAsset"/> 文档明确只支持「asset file」，
+        /// 对文件夹返回空成功却实际不做任何操作。文件夹改名必须走
+        /// <see cref="FileUtil.MoveFileOrDirectory"/> —— Unity 原生的文件/目录搬家工具；但它不会自动搬目录的
+        /// <c>.meta</c>，所以目录与 <c>.meta</c> 要各搬一次，GUID 才保持不变。这是「搬家/改名」不是「新建+删除」，
+        /// 旧目录里的内容会一并搬到新目录。</para>
+        /// </summary>
+        private void ApplyRenameCore(string path, string newName, bool isFolder, int itemId)
+        {
+            Debug.Log($"[ConfigDataTree] ApplyRenameCore start: path={path}, newName={newName}, isFolder={isFolder}, itemId={itemId}");
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(newName))
+                return;
+
+            // 跳过本次 projectChanged 自动 Reload：改名会触发 projectChanged，
+            // 若 ConfigDataWindow.OnProjectChanged 在 Reload 前读到中间态会重影。
+            SkipNextProjectChangedReload = true;
+            try
+            {
+                var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
+                var absOld = Path.Combine(projectRoot, path).Replace("\\", "/");
+                var newPath = Path.GetDirectoryName(path).Replace("\\", "/") + "/" + newName;
+                var absNew = Path.Combine(projectRoot, newPath).Replace("\\", "/");
+                var oldMetaPath = path + ".meta";
+                var newMetaPath = newPath + ".meta";
+                var absOldMeta = Path.Combine(projectRoot, oldMetaPath).Replace("\\", "/");
+                var absNewMeta = Path.Combine(projectRoot, newMetaPath).Replace("\\", "/");
+
+                // 诊断：重命名前 GUID 映射与磁盘状态
+                var guid = AssetDatabase.AssetPathToGUID(path);
+                Debug.Log($"[ConfigDataTree] Before: guid={guid}, oldDir={Directory.Exists(absOld)}, newDir={Directory.Exists(absNew)}, oldMeta={File.Exists(absOldMeta)}, newMeta={File.Exists(absNewMeta)}");
+
+                string result = null;
+                if (isFolder)
+                {
+                    // 文件夹：FileUtil 支持目录搬家，但 .meta 要手动一起搬；内容是「搬」不是「复制+删除」。
+                    Debug.Log($"[ConfigDataTree] Folder move: {path} -> {newPath}");
+                    try
+                    {
+                        FileUtil.MoveFileOrDirectory(path, newPath);
+                        if (File.Exists(absOldMeta))
+                            FileUtil.MoveFileOrDirectory(oldMetaPath, newMetaPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        result = ex.Message;
+                    }
+                }
                 else
-                    item.displayName = args.newName;
+                {
+                    // 文件：AssetDatabase.RenameAsset 是官方支持的文件改名 API，自动处理 .meta。
+                    Debug.Log($"[ConfigDataTree] File rename: {path} -> {newName}");
+                    result = AssetDatabase.RenameAsset(path, newName);
+                }
+
+                // 诊断：重命名后 GUID 映射与磁盘状态
+                var pathAfter = AssetDatabase.GUIDToAssetPath(guid);
+                var absAfter = Path.Combine(projectRoot, pathAfter).Replace("\\", "/");
+                Debug.Log($"[ConfigDataTree] After: result='{result ?? "<null>"}', guidPathAfter={pathAfter}, afterDir={Directory.Exists(absAfter)}, oldDir={Directory.Exists(absOld)}, oldMeta={File.Exists(absOldMeta)}");
+
+                if (!string.IsNullOrEmpty(result))
+                {
+                    Debug.LogError($"[ConfigDataTree] Rename failed: {result}");
+                    EditorUtility.DisplayDialog("重命名失败", result, "确定");
+                    return;
+                }
+
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                Reload();
+            }
+            finally
+            {
+                SkipNextProjectChangedReload = false;
             }
         }
 
@@ -952,32 +1236,84 @@ namespace HYC.Framework.Config.Editor
                 {
                     if (DragAndDrop.paths.Contains(parent))
                         return DragAndDropVisualMode.Rejected;
-                    parent = Path.GetDirectoryName(parent);
+                    parent = Path.GetDirectoryName(parent)?.Replace("\\", "/");
                 }
 
                 if (args.performDrop)
                 {
+                    var moves = new List<(string from, string to)>();
                     foreach (var dragPath in DragAndDrop.paths)
                     {
-                        var newPath = Path.Combine(dropPath, Path.GetFileName(dragPath));
-                        var result = AssetDatabase.ValidateMoveAsset(dragPath, newPath);
-                        if (string.IsNullOrEmpty(result))
-                        {
-                            AssetDatabase.MoveAsset(dragPath, newPath);
-                        }
-                        else
-                        {
-                            EditorUtility.DisplayDialog("错误", result, "确定");
-                            break;
-                        }
+                        // Unity 路径必须全用正斜杠；Path.Combine 在 Windows 会产出反斜杠，导致 MoveAsset 失败。
+                        var newPath = dropPath + "/" + Path.GetFileName(dragPath).Replace("\\", "/");
+                        moves.Add((dragPath, newPath));
                     }
-                    Reload();
+
+                    Debug.Log($"[ConfigDataTree] DragDrop scheduled {moves.Count} moves to {dropPath}");
+                    // AssetDatabase.MoveAsset 在 TreeView 拖拽回调的事务内调用会返回成功但不落盘，
+                    // 必须延迟到下一编辑器 tick 真正执行（与 RenameEnded/ApplyRenameCore 同因）。
+                    EditorApplication.delayCall += () => ApplyMoveCore(moves);
                 }
 
                 return DragAndDropVisualMode.Move;
             }
 
             return DragAndDropVisualMode.Rejected;
+        }
+
+        /// <summary>
+        /// 在拖拽回调外真正执行资产移动。
+        /// <para>AssetDatabase.MoveAsset 在 TreeView 拖拽事务内调用会返回成功但不落盘；本方法改用
+        /// <see cref="FileUtil.MoveFileOrDirectory"/> 做真文件系统搬家，并手动复现
+        /// <see cref="ConfigAssetLayout.ShouldBlockMove"/> 的「不建议移动」弹窗（FileUtil 不会触发
+        /// AssetModificationProcessor，必须自己弹）。</para>
+        /// </summary>
+        private void ApplyMoveCore(List<(string from, string to)> moves)
+        {
+            SkipNextProjectChangedReload = true;
+            try
+            {
+                var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
+                foreach (var (dragPath, newPath) in moves)
+                {
+                    Debug.Log($"[ConfigDataTree] FileUtil move: {dragPath} -> {newPath}");
+
+                    // 手动复现「移出类型文件夹守护」弹窗（FileUtil 不会触发 ConfigAssetMoveGuard）
+                    var block = ConfigAssetLayout.ShouldBlockMove(dragPath, newPath);
+                    if (block != null)
+                    {
+                        if (!EditorUtility.DisplayDialog("不建议移动", block, "仍然移动", "取消"))
+                            break;
+                    }
+
+                    var absFrom = Path.Combine(projectRoot, dragPath).Replace("\\", "/");
+                    var absTo = Path.Combine(projectRoot, newPath).Replace("\\", "/");
+                    var absFromMeta = Path.Combine(projectRoot, dragPath + ".meta").Replace("\\", "/");
+                    var absToMeta = Path.Combine(projectRoot, newPath + ".meta").Replace("\\", "/");
+                    Debug.Log($"[ConfigDataTree] Before move: from={File.Exists(absFrom)}, to={File.Exists(absTo)}, fromMeta={File.Exists(absFromMeta)}, toMeta={File.Exists(absToMeta)}");
+
+                    try
+                    {
+                        FileUtil.MoveFileOrDirectory(dragPath, newPath);
+                        if (File.Exists(absFromMeta))
+                            FileUtil.MoveFileOrDirectory(dragPath + ".meta", newPath + ".meta");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"[ConfigDataTree] Move failed: {ex.Message}");
+                        EditorUtility.DisplayDialog("移动未执行", ex.Message, "确定");
+                        break;
+                    }
+
+                    Debug.Log($"[ConfigDataTree] After move: from={File.Exists(absFrom)}, to={File.Exists(absTo)}, fromMeta={File.Exists(absFromMeta)}, toMeta={File.Exists(absToMeta)}");
+                }
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                Reload();
+            }
+            finally
+            {
+                SkipNextProjectChangedReload = false;
+            }
         }
 
         #endregion

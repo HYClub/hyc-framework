@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using HYC.Framework.Audio;
 
 namespace HYC.Framework.Config.Editor
 {
@@ -93,7 +94,13 @@ namespace HYC.Framework.Config.Editor
                 guiField.IsLocKey = field.GetCustomAttributes(typeof(LocKeyAttribute), true).Length > 0;
                 guiField.IsBehaviourTree = field.GetCustomAttributes(typeof(BehaviourTreeFieldAttribute), true).Length > 0;
                 guiField.IsAddressable = field.GetCustomAttributes(typeof(AddressableFieldAttribute), true).Length > 0;
+                guiField.IsAudioField = field.GetCustomAttributes(typeof(AudioFieldAttribute), true).Length > 0;
+                // [Header("…")]：Unity 只在默认 PropertyField 流程里画它，
+                // 走自定义绘制分支（行为树/音频/多语言Key/多行）时必须自己画，否则面板上丢描述。
+                var headerAttr = field.GetCustomAttributes(typeof(HeaderAttribute), true).FirstOrDefault() as HeaderAttribute;
+                guiField.Header = headerAttr?.header;
                 guiField.Infos = field.GetCustomAttributes<InfoBoxAttribute>(true).ToArray();
+                guiField.VisibleWhen = field.GetCustomAttributes<CfgVisibleWhenAttribute>(true).ToArray();
 
                 Fields.Add(guiField);
                 FieldTable[guiField.Name] = guiField;

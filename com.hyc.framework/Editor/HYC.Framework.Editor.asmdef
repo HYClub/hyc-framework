@@ -9,6 +9,7 @@
     "UnityEditor.Timeline",
     "Unity.Addressables",
     "Unity.ResourceManager",
+    "Newtonsoft.Json",
     "Unity.Addressables.Editor"
   ],
   "includePlatforms": [
@@ -27,6 +28,12 @@
   ],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [],
+  "versionDefines": [
+    {
+      "name": "com.audiokinetic.wwise.addressables",
+      "expression": "",
+      "define": "HYC_WWISE"
+    }
+  ],
   "noEngineReferences": false
 }

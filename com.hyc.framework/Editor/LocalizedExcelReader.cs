@@ -19,7 +19,7 @@ namespace HYC.Framework.Loc.Editor
     /// blob files under <see cref="LocalizationSettings.OutputFolder"/>:
     /// <c>id</c>, one <c>{lang}.lang</c> per language, <c>lang</c> (default
     /// language) and <c>filter</c> (sensitive words). Ported from the source
-    /// StarDeep <c>LocalizedExcelReader</c>.
+    /// <c>LocalizedExcelReader</c>.
     /// </summary>
     public static class LocalizedExcelReader
     {

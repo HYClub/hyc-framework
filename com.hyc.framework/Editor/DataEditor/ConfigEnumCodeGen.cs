@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Text;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -108,7 +109,7 @@ namespace HYC.Framework.Config.Editor
         /// <summary>生成 C# 枚举源码。</summary>
         public static string GenerateCode(ConfigEnumDefinition def)
         {
-            var ns = ConfigDataSettings.Namespace;
+            var ns = ConfigDataSettings.EnumNamespace;
             var sb = new StringBuilder();
             sb.AppendLine("using System;");
             sb.AppendLine();
@@ -160,8 +161,9 @@ namespace HYC.Framework.Config.Editor
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            // 内容没变就不重写、也不 Refresh（重复生成枚举时省掉无谓的导入与编译抖动）
-            if (ConfigTemplateCodeGen.WriteIfChanged(relativePath, code))
+            // 内容没变就不重写、也不 Refresh（重复生成枚举时省掉无谓的导入与编译抖动）；
+            // 走统一写盘入口，自动套「自动生成」壳
+            if (GeneratedCodeFile.WriteIfChanged(relativePath, GeneratedCodeFile.WithHeader(code)))
                 AssetDatabase.Refresh();
             return true;
         }
@@ -200,8 +202,10 @@ namespace HYC.Framework.Config.Editor
                 return false;
             var dir = Path.GetFullPath(exportDir);
             Directory.CreateDirectory(Path.Combine(dir, "Enums"));
-            // 导出目录在工程外（默认 Exports/Client），不走 ImportAsset；内容一致则不重写
-            ConfigTemplateCodeGen.WriteIfChanged(Path.Combine(dir, "Enums", $"{def.className}.cs"), code);
+            // 导出目录在工程外（默认 Exports/Client），不走 ImportAsset；内容一致则不重写；
+            // 走统一写盘入口，自动套「自动生成」壳
+            GeneratedCodeFile.WriteIfChanged(Path.Combine(dir, "Enums", $"{def.className}.cs"),
+                GeneratedCodeFile.WithHeader(code));
             return true;
         }
 
@@ -210,11 +214,15 @@ namespace HYC.Framework.Config.Editor
             return (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
         }
 
-        /// <summary>创建枚举定义资产到指定目录（数据树右键入口）。</summary>
-        public static ConfigEnumDefinition CreateEnumAsset(string targetFolder)
+        /// <summary>
+        /// 创建枚举定义资产到指定目录（数据树右键入口）。
+        /// <para>targetFolder 为空时自动归置到「枚举」类型文件夹（根目录/枚举，没有则创建，
+        /// 见 <see cref="ConfigAssetLayout"/>）。</para>
+        /// </summary>
+        public static ConfigEnumDefinition CreateEnumAsset(string targetFolder = null)
         {
             if (string.IsNullOrEmpty(targetFolder))
-                targetFolder = ConfigDataSettings.RootFolder;
+                targetFolder = ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigEnumDefinition)) ?? ConfigDataSettings.RootFolder;
             ConfigDataSettings.EnsureRootFolder();
 
             var path = $"{targetFolder}/NewEnum.asset";

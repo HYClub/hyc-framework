@@ -60,6 +60,14 @@ namespace HYC.Framework.UI.Editor
             {
                 _items.arraySize++;
                 _list.index = _items.arraySize - 1;
+                // Item 是类：Unity 对类元素数组 arraySize++ 会**复制上一行**——
+                // Name/Target/Component/Desc 全带过来，新行直接重名 + 串绑（生成即 CS0102）。
+                // 显式复位成空条目：Name 留空由用户填（DrawRow 红色提示；填了 Node 后会自动取 Node 名兜底）。
+                var e = _items.GetArrayElementAtIndex(_items.arraySize - 1);
+                e.FindPropertyRelative(nameof(ComponentBinderTable.Item.Name)).stringValue = "";
+                e.FindPropertyRelative(nameof(ComponentBinderTable.Item.Target)).objectReferenceValue = null;
+                e.FindPropertyRelative(nameof(ComponentBinderTable.Item.Component)).objectReferenceValue = null;
+                e.FindPropertyRelative(nameof(ComponentBinderTable.Item.Desc)).stringValue = "";
             };
 
             _list.onRemoveCallback = _ =>

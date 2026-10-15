@@ -15,13 +15,14 @@ MonoBehaviour:
   displayName: "\u6846\u67B6/ConfigBase"
   className: ConfigBase
   lastGeneratedClassName: ConfigBase
+  generateCode: 0
   baseTemplate: {fileID: 0}
   iconBuiltInName: 
   iconCustom: {fileID: 0}
   fields:
   - name: ID
     readOnly: 1
-    description: 
+    description: "配置唯一ID·禁止手填·须由 ConfigIdService(发号服) 派发"
     type: 2
     isList: 0
     refTypeFullName: 
@@ -35,7 +36,7 @@ MonoBehaviour:
     rangeCheck: 0
   - name: GUID
     readOnly: 1
-    description: 
+    description: "配置唯一GUID·禁止手填·须由 ConfigIdService(发号服) 派发"
     type: 0
     isList: 0
     refTypeFullName: 

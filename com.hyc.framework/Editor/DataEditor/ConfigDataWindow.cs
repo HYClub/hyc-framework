@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Text;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
@@ -36,6 +38,102 @@ namespace HYC.Framework.Config.Editor
                 var y = (Screen.height - height) * 0.5f;
                 window.position = new Rect(x, y, width, height);
             }
+        }
+
+        // priority=4：Config 档末位（Config Window 0 / Validate 1 / Data Editor 2 / Reissue 3 → 本项），
+        // 档内相邻差 1 ⇒ 不画线；4 → BT(10) 差 6 < 11 仍不画线，tier①→② 分隔线位置不变。
+        // 一键重生成全部配置代码：模板（主类/侧类型/Check/Editor/Export/Blob 三件套）+ 枚举，
+        // 并清理命名空间 root 切换后残留的旧命名空间生成文件。覆盖写，保留各 .cs 的 .meta GUID，
+        // 配置资产不掉脚本；框架级基类（generateCode=false，如 ConfigBase）自动跳过。
+        [MenuItem("HYC Framework/Config/Regenerate All Config Code", false, 4)]
+        public static void RegenerateAllConfigCode()
+        {
+            var templates = ConfigTemplateCodeGen.LoadAllTemplates() ?? new ConfigTemplate[0];
+            var enumDefs = ConfigEnumCodeGen.LoadAllEnums() ?? new List<ConfigEnumDefinition>();
+            if ((templates == null || templates.Length == 0) && (enumDefs == null || enumDefs.Count == 0))
+            {
+                EditorUtility.DisplayDialog("Regenerate All Config Code", "未找到任何配置模板。", "OK");
+                return;
+            }
+
+            int ok = 0, skipped = 0, failed = 0, enumOk = 0, enumFailed = 0;
+            var errors = new StringBuilder();
+            try
+            {
+                for (int i = 0; i < templates.Length; i++)
+                {
+                    var tpl = templates[i];
+                    var name = (tpl != null && !string.IsNullOrEmpty(tpl.className)) ? tpl.className : "(unnamed)";
+                    EditorUtility.DisplayProgressBar("Regenerate All Config Code",
+                        $"({i + 1}/{templates.Length}) {name}", templates.Length == 0 ? 0f : (float)i / templates.Length);
+                    try
+                    {
+                        // 框架级基类（如 ConfigBase）随包预编译，不往宿主生成
+                        if (tpl != null && !tpl.generateCode)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                        if (ConfigTemplateCodeGen.WriteFile(tpl, out var err))
+                            ok++;
+                        else
+                        {
+                            failed++;
+                            errors.AppendLine($"· {name}: {err}");
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        failed++;
+                        errors.AppendLine($"· {name}: {ex.Message}");
+                    }
+                }
+
+                // 枚举不在模板链里，但同样是「重新生成全部」的应有内容：root 切换后枚举文件
+                // 不会被模板重写覆盖，永远停在旧命名空间（CS0246 批量来源）。
+                foreach (var def in enumDefs)
+                {
+                    if (def == null)
+                        continue;
+                    try
+                    {
+                        if (ConfigEnumCodeGen.WriteFile(def, out var enumErr))
+                            enumOk++;
+                        else
+                        {
+                            enumFailed++;
+                            errors.AppendLine($"· 枚举 {def.className}: {enumErr}");
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        enumFailed++;
+                        errors.AppendLine($"· 枚举 {def.className}: {ex.Message}");
+                    }
+                }
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+
+            AssetDatabase.Refresh();
+
+            // 清理 root 切换等场景下的旧命名空间残留生成文件（只删带自动生成头、命名空间不在
+            // 当前 root 派生范围内的 .cs；手写文件不碰）
+            var cleaned = ConfigTemplateCodeGen.CleanStaleNamespaceFiles(true);
+            if (cleaned > 0)
+                AssetDatabase.Refresh();
+
+            failed += enumFailed;
+            var summary = $"Done — generated {ok}, skipped {skipped} (framework base classes), failed {failed}.";
+            if (enumDefs.Count > 0)
+                summary += $"\nEnums regenerated: {enumOk}, failed: {enumFailed}.";
+            if (cleaned > 0)
+                summary += $"\nStale-namespace generated files removed: {cleaned}.";
+            if (failed > 0)
+                summary += "\n\nFailures:\n" + errors.ToString();
+            EditorUtility.DisplayDialog("Regenerate All Config Code", summary, "OK");
         }
 
         private void OnEnable()
@@ -85,6 +183,14 @@ namespace HYC.Framework.Config.Editor
 
         private void OnProjectChanged()
         {
+            var skip = mTreeView != null && mTreeView.SkipNextProjectChangedReload;
+            Debug.Log($"[ConfigDataWindow] OnProjectChanged skipReload={skip}");
+            if (skip)
+            {
+                mTreeView.SkipNextProjectChangedReload = false;
+                Repaint();
+                return;
+            }
             mTreeView?.Reload();
             Repaint();
         }
@@ -161,9 +267,6 @@ namespace HYC.Framework.Config.Editor
             GUI.color = new Color(0, 0, 0, 0.3f);
             GUI.DrawTexture(new Rect(treeRect.xMax, 22, viewWidth - treeRect.xMax, 1), Texture2D.whiteTexture);
             GUI.color = color;
-
-            // 右下角 ID 构造器状态点（绿/黄/红）
-            ConfigIdService.DrawStatusDot(new Rect(position.width - 18, position.height - 18, 12, 12));
         }
 
         private void DrawToolbar()
@@ -207,7 +310,8 @@ namespace HYC.Framework.Config.Editor
 
             if (GUILayout.Button("创建模板", EditorStyles.toolbarButton, GUILayout.Width(70)))
             {
-                var tpl = ConfigTemplateCodeGen.CreateTemplateAsset(GetTargetFolder());
+                // 不传目标文件夹：自动归置到「配置模板」类型文件夹（见 ConfigAssetLayout）
+                var tpl = ConfigTemplateCodeGen.CreateTemplateAsset();
                 mTreeView?.Reload();
                 mTreeView?.SelectAsset(tpl);
                 Repaint();

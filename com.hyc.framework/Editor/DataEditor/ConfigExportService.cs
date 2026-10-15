@@ -8,7 +8,8 @@ using UnityEngine;
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// 配置导出入口：调用生成的 XxxConfigExport 类（先查注册表，未注册才做一次性程序集扫描定位类型）。
+    /// 配置导出入口：定位并实例化生成的 XxxExport 类（<see cref="ConfigBaseExport"/> 子类，可多级继承；
+    /// 先查注册表，未注册才做一次性程序集扫描定位类型），走基类公共入口完成导出。
     /// 支持单个实例导出、文件夹内全部导出。
     /// </summary>
     public static class ConfigExportService
@@ -45,11 +46,12 @@ namespace HYC.Framework.Config.Editor
                 return false;
             }
 
-            var m = exportType.GetMethod("Export", BindingFlags.Public | BindingFlags.Static);
-            if (m == null)
+            // 生成的 XxxExport 是 ConfigBaseExport 的子类（可多级继承）：实例化后走基类公共入口。
+            // 不走静态反射——继承链上同名静态方法会让 GetMethod 产生歧义。
+            if (!TryCreateExporter(exportType, so.GetType(), out var exporter))
                 return false;
 
-            return (bool)m.Invoke(null, new object[] { so, client, server });
+            return exporter.ExportCore(so as ConfigBase, client, server);
         }
 
         /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。</summary>
@@ -122,7 +124,7 @@ namespace HYC.Framework.Config.Editor
             AssetDatabase.SaveAssets();
         }
 
-        /// <summary>按类型批量导出（调用生成的 XxxConfigExport.ExportAll）。</summary>
+        /// <summary>按类型批量导出（实例化生成的 XxxExport 调 <see cref="ConfigBaseExport.ExportAllCore"/>）。</summary>
         public static bool ExportAll(Type configType, bool client, bool server)
         {
             if (configType == null)
@@ -135,11 +137,29 @@ namespace HYC.Framework.Config.Editor
                 return false;
             }
 
-            var m = exportType.GetMethod("ExportAll", BindingFlags.Public | BindingFlags.Static);
-            if (m == null)
+            if (!TryCreateExporter(exportType, configType, out var exporter))
                 return false;
 
-            return (bool)m.Invoke(null, new object[] { client, server });
+            return exporter.ExportAllCore(client, server);
+        }
+
+        /// <summary>
+        /// 实例化生成的导出类（传入配置类型，基类据此收集资产 / 命名产物文件）。
+        /// 旧版生成的 XxxExport 是 <c>static class</c>（IL 层面 abstract+sealed、不可实例化），
+        /// 据此识别并提示重新生成；实例化后即可按继承链调用最派生 override。
+        /// </summary>
+        private static bool TryCreateExporter(Type exportType, Type configType, out ConfigBaseExport exporter)
+        {
+            exporter = null;
+            if (exportType == null)
+                return false;
+            if (exportType.IsAbstract)
+            {
+                Debug.LogWarning($"导出类 {exportType.Name} 不可实例化（旧版静态类？），请执行 Regenerate All Config Code 重新生成");
+                return false;
+            }
+            exporter = Activator.CreateInstance(exportType, configType) as ConfigBaseExport;
+            return exporter != null;
         }
 
         /// <summary>

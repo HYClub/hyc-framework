@@ -11,7 +11,7 @@ namespace HYC.Framework.Config
     [Serializable]
     public class ConfigRowRef
     {
-        /// <summary>配置类全名，例如 <c>HYC.Framework.Config.Generated.AttrConfig</c>。</summary>
+        /// <summary>配置类全名，例如 <c>{命名空间root}.config.AttrConfig</c>（root 由 HYC Settings → CodeGen 派生）。</summary>
         public string typeName;
 
         /// <summary><c>ConfigId.id</c>。</summary>

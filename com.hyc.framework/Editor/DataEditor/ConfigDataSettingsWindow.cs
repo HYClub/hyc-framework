@@ -11,7 +11,6 @@ namespace HYC.Framework.Config.Editor
     {
         private string mRootFolder;
         private string mOutputDir;
-        private string mNamespace;
         private string mEditorDir;
         private string mClientExportDir;
         private string mServerExportDir;
@@ -19,7 +18,6 @@ namespace HYC.Framework.Config.Editor
         private int mClientFormat;
         private int mServerFormat;
         private string mBlobOutputDir;
-        private string mBlobLoadPath;
         private int mIdProviderType;
         private string mIdServerIp;
         private int mIdServerPort;
@@ -30,7 +28,6 @@ namespace HYC.Framework.Config.Editor
             window.minSize = new Vector2(520, 480);
             window.mRootFolder = ConfigDataSettings.RootFolder;
             window.mOutputDir = ConfigDataSettings.OutputDir;
-            window.mNamespace = ConfigDataSettings.Namespace;
             window.mEditorDir = ConfigDataSettings.EditorDir;
             window.mClientExportDir = ConfigDataSettings.ClientExportDir;
             window.mServerExportDir = ConfigDataSettings.ServerExportDir;
@@ -38,7 +35,6 @@ namespace HYC.Framework.Config.Editor
             window.mClientFormat = ConfigDataSettings.ClientFormat;
             window.mServerFormat = ConfigDataSettings.ServerFormat;
             window.mBlobOutputDir = ConfigDataSettings.BlobOutputDir;
-            window.mBlobLoadPath = ConfigDataSettings.BlobLoadPath;
             window.mIdProviderType = ConfigDataSettings.IdProviderType;
             window.mIdServerIp = ConfigDataSettings.IdServerIp;
             window.mIdServerPort = ConfigDataSettings.IdServerPort;
@@ -84,7 +80,10 @@ namespace HYC.Framework.Config.Editor
             }
             EditorGUILayout.EndHorizontal();
 
-            mNamespace = EditorGUILayout.TextField("命名空间", mNamespace);
+            // 生成命名空间不再单独配置：由「生成代码命名空间 root」派生（{root}.config），
+            // root 在 HYC Settings 窗口的 CodeGen 分组配（留空=项目公司名→Default）。这里只读展示。
+            EditorGUILayout.LabelField("生成命名空间（只读，由 root 派生）");
+            EditorGUILayout.LabelField(ConfigDataSettings.Namespace, EditorStyles.miniLabel);
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("编辑器生成目录", GUILayout.Width(120));
@@ -132,7 +131,17 @@ namespace HYC.Framework.Config.Editor
                     }
                 }
                 EditorGUILayout.EndHorizontal();
-                mBlobLoadPath = EditorGUILayout.TextField("运行时加载路径(相对StreamingAssets)", mBlobLoadPath);
+                // 运行时加载路径由「Blob 输出目录」派生（只读）：导出与读取永远是同一处，杜绝两边配不一致。
+                // 注：用 4 参 LabelField(label, value, style, options) 重载——本仓库已有同形调用可实证；
+                //     2 参 (string, string) 重载未在源码中取证，不凭记忆使用。
+                EditorGUILayout.LabelField("运行时加载路径(只读, 相对StreamingAssets)",
+                                           ConfigDataSettings.ToStreamingAssetsRelative(mBlobOutputDir),
+                                           GUI.skin.textField, GUILayout.ExpandWidth(true));
+                if (!ConfigDataSettings.IsUnderStreamingAssets(mBlobOutputDir))
+                    EditorGUILayout.HelpBox(
+                        "Blob 输出目录必须位于 Assets/StreamingAssets 内——运行期只能从那里读取" +
+                        "（PC / iOS 直接读文件，WebGL / Android 走预取缓存）。放别处打不进包，运行期必然读空。",
+                        MessageType.Error);
             }
 
             EditorGUILayout.Space();
@@ -173,10 +182,13 @@ namespace HYC.Framework.Config.Editor
 
             EditorGUILayout.Space();
             EditorGUILayout.HelpBox(
-                "命名空间需为合法 C# 标识符（可用点号分隔）。修改后需重新生成配置类。\n" +
+                "生成命名空间由「生成代码命名空间 root」派生（{root}.config）——root 在 HYC Settings 窗口的 CodeGen 分组配，" +
+                "留空 = 项目公司名（Project Settings → Company Name），公司名不可用回落 Default；BT 自定义节点落 {root}.BT.Nodes。\n" +
                 "编辑器生成目录：生成配置类时同时生成 XxxConfigEditor.cs（继承默认渲染，可自行扩展）。\n" +
                 "导出目录：客户端/服务器导出输出位置。struct 模式下子结构体字段平铺。\n" +
                 "客户端格式选 Blob：导出二进制 .blob 文件（固定文件名 Cfg{类名}.blob），游戏运行时 System 秒加载 + GetCfgXxx(id)/GetCfgXxxList()。\n" +
+                "Blob 输出目录必须位于 Assets/StreamingAssets 内（运行期加载路径由它自动派生，无需另行配置）；\n" +
+                "  PC / iOS 直接读文件，WebGL / Android 由框架自动走「构建列清单 + 启动预取」，游戏层不写平台分支。\n" +
                 "ID 构造器：本地=进程内发号；局域网=连接独立 ID 服务器（规则一致 {id,guid}，多机唯一）。右下角圆点显示连接状态。",
                 MessageType.Info);
 
@@ -185,14 +197,16 @@ namespace HYC.Framework.Config.Editor
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("保存", GUILayout.Width(80)))
             {
-                if (!IsValidNamespace(mNamespace))
+                if (mClientFormat == 1 && !ConfigDataSettings.IsUnderStreamingAssets(mBlobOutputDir))
                 {
-                    EditorUtility.DisplayDialog("错误", $"命名空间 {mNamespace} 不合法", "确定");
+                    EditorUtility.DisplayDialog("错误",
+                        "客户端格式选了 Blob，但 Blob 输出目录不在 Assets/StreamingAssets 内。\n" +
+                        "运行期只能从 StreamingAssets 读取（WebGL / Android 甚至连文件都读不了，只能走预取缓存）。\n" +
+                        "请把 Blob 输出目录改到 Assets/StreamingAssets 下的子目录。", "确定");
                     return;
                 }
                 ConfigDataSettings.RootFolder = mRootFolder;
                 ConfigDataSettings.OutputDir = mOutputDir;
-                ConfigDataSettings.Namespace = mNamespace;
                 ConfigDataSettings.EditorDir = mEditorDir;
                 ConfigDataSettings.ClientExportDir = mClientExportDir;
                 ConfigDataSettings.ServerExportDir = mServerExportDir;
@@ -200,7 +214,6 @@ namespace HYC.Framework.Config.Editor
                 ConfigDataSettings.ClientFormat = mClientFormat;
                 ConfigDataSettings.ServerFormat = mServerFormat;
                 ConfigDataSettings.BlobOutputDir = mBlobOutputDir;
-                ConfigDataSettings.BlobLoadPath = mBlobLoadPath;
                 ConfigDataSettings.IdProviderType = mIdProviderType;
                 ConfigDataSettings.IdServerIp = mIdServerIp;
                 ConfigDataSettings.IdServerPort = mIdServerPort;
@@ -213,22 +226,6 @@ namespace HYC.Framework.Config.Editor
             }
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
-
-            // 右下角 ID 构造器状态点
-            ConfigIdService.DrawStatusDot(new Rect(position.width - 18, position.height - 18, 12, 12));
-        }
-
-        private static bool IsValidNamespace(string ns)
-        {
-            if (string.IsNullOrEmpty(ns))
-                return false;
-            var parts = ns.Split('.');
-            foreach (var part in parts)
-            {
-                if (!ConfigTemplateCodeGen.IsValidIdentifier(part))
-                    return false;
-            }
-            return true;
         }
     }
 }
