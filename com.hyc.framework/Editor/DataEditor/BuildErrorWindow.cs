@@ -28,6 +28,64 @@ namespace HYC.Framework.Config.Editor
             window.Show();
         }
 
+        /// <summary>
+        /// 本次导出操作里是否已经汇报过内容（开过明细窗 / 批模式打过日志）。
+        /// 用于「导出后总是汇报检查结果」只在**零检查项**时给一次确认——
+        /// 否则逐类型、逐资产会弹出 N 个重复对话框。
+        /// </summary>
+        private static bool s_reportedInOperation;
+
+        /// <summary>
+        /// 顶层导出操作开始时调用，清掉标记。由 <see cref="ConfigExportService"/> 的三个入口
+        /// （单实例 / 文件夹 / 全量清理导出）在各自导出循环之前调用。
+        /// </summary>
+        public static void BeginExportOperation() => s_reportedInOperation = false;
+
+        /// <summary>
+        /// 顶层导出操作结束时调用：本次一条检查项都没有、且开启了
+        /// <see cref="ConfigDataSettings.AlwaysShowCheckWindow"/> 时，弹一句「未发现问题」确认。
+        /// <para>已汇报过内容（有检查项）则不重复弹；批模式不弹；导出本身失败也不弹
+        /// ——避免「目录无效」这类根本没进检查的失败被谎报成「检查通过」。</para>
+        /// </summary>
+        public static void EndExportOperation(string context, bool succeeded)
+        {
+            if (s_reportedInOperation || !succeeded)
+                return;
+            if (Application.isBatchMode)
+                return;
+            if (!ConfigDataSettings.AlwaysShowCheckWindow)
+                return;
+            EditorUtility.DisplayDialog(context, "检查完成：未发现问题。", "确定");
+        }
+
+        /// <summary>
+        /// 报告检查结果：交互模式开错误窗口；**批模式（CI）走 Console**——
+        /// EditorWindow 在 batchmode 下不渲染，开窗无意义，错误必须落日志才能被 CI 捕获。
+        /// 零检查项直接返回（弹窗反馈由 <see cref="EndExportOperation"/> 在操作结束时统一给）。
+        /// </summary>
+        public static void Report(List<CheckError> errors, string context)
+        {
+            if (errors == null || errors.Count == 0)
+                return;
+
+            s_reportedInOperation = true;
+
+            if (Application.isBatchMode)
+            {
+                for (var i = 0; i < errors.Count; i++)
+                {
+                    var e = errors[i];
+                    var msg = $"[{context}] [{e.Group}] {e.Message}";
+                    if (e.Level == CheckErrorLevel.Error) Debug.LogError(msg);
+                    else if (e.Level == CheckErrorLevel.Warning) Debug.LogWarning(msg);
+                    else Debug.Log(msg);
+                }
+                return;
+            }
+
+            OpenWindow(errors);
+        }
+
         private static void LoadIcons()
         {
             if (IconInfo != null)

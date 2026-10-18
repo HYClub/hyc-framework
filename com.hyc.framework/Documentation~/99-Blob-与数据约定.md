@@ -112,7 +112,7 @@ BlobAssetReference<CfgLocalization>.TryRead(reader, 3, out var blob);
 
 1. **生成/编辑期写，运行期只读**：Blob 一旦 `CreateBlobAssetReference` 就不可变。要改配置就重新烘焙。
 2. **`Allocator.Persistent`**：运行期持有的 Blob 必须用 Persistent，不能 Temp/TempJob（帧末销毁）。
-3. **`Dispose` 责任**：谁 `Create` 谁 `Dispose`。`ConfigManager.Register` 注册后，切场景/重进游戏时 `ConfigManager.Clear()` 会对 `IDisposable` 表 `Dispose`；行为树 Blob 由 `BTManager.Unregister` 释放。
+3. **`Dispose` 责任**：谁 `Create` 谁 `Dispose`。`ConfigRegistry.Register` 注册后，切场景/重进游戏时 `ConfigRegistry.Clear()` 会对 `IDisposable` 表 `Dispose`；行为树 Blob 由 `BTManager.Unregister` 释放。
 4. **StreamingAssets 兜底**：配置 Blob 放在 `StreamingAssets/ConfigBlob`，本地化在 `StreamingAssets/Localization`——这些目录**打包后原样随包**，运行期用 `Application.streamingAssetsPath` 读。
 5. **`TryRead` 失败不抛异常**，返回 false——业务代码必须判返回值，别假设 `blob.Value` 一定有效。
 

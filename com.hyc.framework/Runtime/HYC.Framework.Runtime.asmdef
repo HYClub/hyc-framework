@@ -13,7 +13,8 @@
     "Newtonsoft.Json",
     "Unity.Mathematics",
     "Unity.Timeline",
-    "Unity.Burst"
+    "Unity.Burst",
+    "Unity.Cinemachine"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

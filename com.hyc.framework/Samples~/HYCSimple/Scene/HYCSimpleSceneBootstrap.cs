@@ -7,7 +7,7 @@
 //  ⚠️ 为什么必须由它来驱动各 Demo System（这条很重要，勿删）：
 //  下游的 HYCSimple*DemoSystem 全部标了 [DisableAutoCreation] —— 它们**不会**被 Unity
 //  自动拉进 World。原因是示例 System 一旦偷偷自启，就会在宿主毫不知情的情形下改写
-//  框架的进程级静态单例（LocalizationManager / ConfigManager / BTManager），
+//  框架的进程级静态单例（LocalizationManager / ConfigRegistry / BTManager），
 //  曾造成「宿主主菜单全线『未找到Key : xxx』且怎么重导本地化都会被下一帧洗掉」的事故。
 //  正确姿势就是本类的做法：**用户显式把本脚本挂到一个空场景的 GameObject 上**，
 //  由它按正确的顺序手动 Update 一遍，示例才运行。宿主工程什么都不挂，就完全零副作用。

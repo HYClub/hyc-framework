@@ -119,6 +119,9 @@ namespace HYC.Framework.Config.Editor
 
             AssetDatabase.Refresh();
 
+            // 配置查询门面（静态、无 World 依赖）随「重新生成全部」同步；零模板时也能清掉残留
+            ConfigTemplateCodeGen.WriteFacadeFile();
+
             // 清理 root 切换等场景下的旧命名空间残留生成文件（只删带自动生成头、命名空间不在
             // 当前 root 派生范围内的 .cs；手写文件不碰）
             var cleaned = ConfigTemplateCodeGen.CleanStaleNamespaceFiles(true);
@@ -320,6 +323,12 @@ namespace HYC.Framework.Config.Editor
             if (GUILayout.Button("模板▾", EditorStyles.toolbarButton, GUILayout.Width(60)))
             {
                 ShowTemplatesMenu();
+            }
+
+            // 全量检查（纯检查不落盘，与「全量导出」动线相邻：先检查后导出）
+            if (GUILayout.Button("检查", EditorStyles.toolbarButton, GUILayout.Width(50)))
+            {
+                ConfigCheckService.Run();
             }
 
             if (GUILayout.Button("全量导出", EditorStyles.toolbarButton, GUILayout.Width(70)))

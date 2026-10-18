@@ -41,7 +41,7 @@ namespace HYC.Framework.Editor
         public static void ValidateAll()
         {
             Issues.Clear();
-            foreach (var type in ConfigManager.AllTypes)
+            foreach (var type in ConfigRegistry.AllTypes)
             {
                 ValidateStruct(type);
             }

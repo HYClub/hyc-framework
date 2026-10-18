@@ -3,6 +3,7 @@ using HYC.Framework.Config;
 using HYC.Framework.Config.Editor;
 using HYC.Framework.Audio;
 using HYC.Framework.AudioEditor;
+using HYC.Framework.UI;
 using UnityEditor;
 using UnityEngine;
 using HYC.Framework.Runtime;
@@ -334,8 +335,10 @@ namespace HYC.Framework.Editor
         }
 
         /// <summary>
-        /// 生成代码命名空间 root（配置 / BT 自定义节点共用）。留空 = 取项目公司名，公司名不可用回落 Default。
-        /// 配置代码落 <c>{root}.config</c>，BT 自定义节点落 <c>{root}.BT.Nodes</c>。
+        /// 生成代码命名空间 root（所有生成代码共用：配置 / BT 自定义节点 / UI 层 / 属性 / 天赋）。留空 = 取项目公司名，公司名不可用回落 Default。
+        /// 各模块命名空间由 root 派生（配置 <c>{root}.config</c>、枚举 <c>{root}.Enum</c>、BT 自定义节点 <c>{root}.BT.Nodes</c>、
+        /// UI 层 <c>{root}.ui</c>、属性 <c>{root}.Attr</c>、天赋 <c>{root}.Talent</c>）；
+        /// 生成代码目录统一收口在 <c>Assets/HYC/Generated/</c> 下按模块分文件夹（见 <see cref="GeneratedPaths"/>）。
         /// 值存 <see cref="HYCSettings"/> 资产，即时落盘。
         /// </summary>
         [HYCSettingsGroup("CodeGen")]
@@ -358,10 +361,15 @@ namespace HYC.Framework.Editor
             EditorGUILayout.LabelField($"· 编辑器工具：{effective}.config.Editor", EditorStyles.miniLabel);
             EditorGUILayout.LabelField($"· Blob 结构：{effective}.config.Blob", EditorStyles.miniLabel);
             EditorGUILayout.LabelField($"· BT 自定义节点：{effective}.BT.Nodes", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"· UI 层常量：{effective}.ui", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"· 属性访问器：{effective}.Attr", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"· 天赋代码：{effective}.Talent", EditorStyles.miniLabel);
             EditorGUILayout.HelpBox(
                 "留空 = 自动取项目公司名（Project Settings → Company Name）；公司名不可用回落 Default。" +
-                "root 可含点号（如 com.example.game）。改动后需重新生成配置代码 / BT 节点代码。" +
-                "上面列出的命名空间是所有生成产物的真实落点；宿主手写代码若仍引用旧命名空间（如 *.Generated）会编译失败，须一并改回。",
+                "root 可含点号（如 com.example.game）。改动后需重新生成配置代码 / BT 节点代码 / UI 层 / 属性 / 天赋代码。\n" +
+                "上面列出的命名空间是所有生成产物的真实落点；宿主手写代码若仍引用旧命名空间（如 *.Generated）会编译失败，须一并改回。\n" +
+                "生成代码目录统一收口在 Assets/HYC/Generated/ 下（Config / UI / Attr / Talent / BT 分子目录）；" +
+                "存量工程的旧目录（Assets/GeneratedConfigs 等）可用菜单 HYC Framework/Config/Migrate Generated Code 一键搬迁。",
                 MessageType.Info);
         }
 
@@ -611,6 +619,294 @@ namespace HYC.Framework.Editor
         {
             if (GUILayout.Button("Run Config Validators"))
                 ConfigValidator.ValidateAll();
+        }
+
+        /// <summary>
+        /// 配置数据检查与导出行为（项目级，落 <see cref="HYCSettings"/> 资产）。
+        /// <para><b>导出后总是汇报检查结果</b>：默认关闭 = 导出干净时静默通过（导出频繁时不打扰）；
+        /// 开启后每次导出都给出明确反馈——零问题弹「检查完成：未发现问题」，有检查项开明细窗。
+        /// 导出中止语义不受影响：始终只有 Error 级中止，Info／Warning 仅展示。</para>
+        /// <para>批模式（CI）不受此开关影响：EditorWindow 不渲染，永远只走 Console。</para>
+        /// </summary>
+        [HYCSettingsGroup("配置")]
+        private void DrawConfigCheckSection()
+        {
+            EditorGUI.BeginChangeCheck();
+            var always = EditorGUILayout.Toggle(
+                new GUIContent("导出后总是汇报检查结果",
+                    "开启后每次导出都弹窗反馈（零问题弹「检查完成：未发现问题」）；" +
+                    "关闭则仅在存在提示／警告／错误时弹窗，导出干净时静默通过。批模式（CI）不受影响。"),
+                ConfigDataSettings.AlwaysShowCheckWindow);
+            if (EditorGUI.EndChangeCheck())
+                ConfigDataSettings.AlwaysShowCheckWindow = always;
+
+            // 恒定绘制：只按状态换文案，不增删控件（IMGUI 每帧控件集合必须一致）。
+            EditorGUILayout.LabelField(
+                ConfigDataSettings.AlwaysShowCheckWindow
+                    ? "当前：每次导出都弹窗——零问题弹确认框，有检查项开明细窗。"
+                    : "当前：仅在存在检查项时弹窗；导出干净时静默通过（可随时点工具栏「检查」看概览）。",
+                EditorStyles.miniLabel);
+        }
+
+        // ---- UI 层级：项目级设定，落 FrameworkSettings 资产（出包生效）----
+
+        private const float LayerHandleWidth = 36f;
+        private const float LayerNameWidth = 124f;
+        private const float LayerFlagWidth = 46f;
+        private const float LayerHideFlagWidth = 62f;
+        private const float LayerDeleteWidth = 22f;
+
+        /// <summary>正在拖动排序的行下标（-1 = 没在拖）。</summary>
+        private int _dragLayer = -1;
+
+        /// <summary>拖动时接管的控件 id（松开时归还）。</summary>
+        private int _dragControl;
+
+        /// <summary>本帧各行矩形（自上而下、与层表下标同序），循环结束后才对拖动结算。</summary>
+        private readonly List<Rect> _layerRowRects = new List<Rect>();
+
+        /// <summary>上一次「保存并生成」的结果提示。</summary>
+        private string _layerGenStatus = "";
+
+        /// <summary>
+        /// UI 层表（项目级，出包生效）。<b>行序 = 层表下标序</b>：第 0 行 HUD 显示在最上方、
+        /// 实际位于最底层，自上而下正好是从底到顶（决定 Canvas 的 sortingOrder 与 Hierarchy 里的
+        /// 兄弟顺序）；行号即生成常量 <c>UILayer.xxx</c> 的值。拖动左侧手柄排序，
+        /// 行内改层名与中文描述；三列开关对应 <see cref="UILayerDef"/> 的行为标记。
+        ///
+        /// <para>群体行为（HUD 自动隐藏 / 挡输入 / 全隐藏）读标记、不读名字，改名与插层自动跟随；
+        /// 框架里少数按默认层名查找的 API（HasWindow / ExistOtherWindow* / OpenHud 等角色方法）
+        /// 在层名被改后会失效并在初始化时报错——这时用「保存并生成」产出的常量与方法。</para>
+        /// </summary>
+        [HYCSettingsGroup("UI/层级")]
+        private void DrawUILayersSection()
+        {
+            var s = FrameworkSettings.Instance;
+            if (s.uiLayers == null)
+                s.uiLayers = UILayerTable.DefaultTable();
+            var defs = s.uiLayers;
+
+            EditorGUILayout.HelpBox(
+                "自上而下 = 从底到顶（决定 sortingOrder 与 Hierarchy 顺序），行号即生成常量 UILayer.xxx 的值。" +
+                "「保存并生成」产出 Assets/GeneratedUI/UILayer.g.cs（具名常量 + 每层一个 Open 方法）。",
+                MessageType.Info);
+
+            EditorGUI.BeginChangeCheck();
+
+            // ---- 表头：列宽与行内控件严格一致 ----
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("#", GUILayout.Width(LayerHandleWidth));
+            GUILayout.Label("层名", GUILayout.Width(LayerNameWidth));
+            GUILayout.Label("中文描述");
+            GUILayout.Label("HUD", GUILayout.Width(LayerFlagWidth));
+            GUILayout.Label("挡输入", GUILayout.Width(LayerFlagWidth));
+            GUILayout.Label("全隐藏", GUILayout.Width(LayerHideFlagWidth));
+            GUILayout.Label(GUIContent.none, GUILayout.Width(LayerDeleteWidth));
+            EditorGUILayout.EndHorizontal();
+
+            // ---- 行（正序 = 层表下标序；删除记下标、循环结束后统一执行，行内不位移）----
+            _layerRowRects.Clear();
+            var removeAt = -1;
+            for (var i = 0; i < defs.Count; i++)
+            {
+                if (defs[i] == null)
+                    defs[i] = new UILayerDef();
+                var def = defs[i];
+
+                EditorGUILayout.BeginHorizontal();
+
+                // 固定尺寸手柄：Box(GUIStyle.none) 占位 + GetLastRect 取精确矩形
+                // （GetRect 系列实测不钉死尺寸，同窗口圆点先例见 DrawIdServerSection）
+                GUILayout.Box(GUIContent.none, GUIStyle.none, GUILayout.Width(LayerHandleWidth), GUILayout.Height(18f));
+                var handleRect = GUILayoutUtility.GetLastRect();
+                GUI.Label(handleRect, i + " ≡",
+                    _dragLayer == i ? EditorStyles.boldLabel : EditorStyles.centeredGreyMiniLabel);
+                var controlId = GUIUtility.GetControlID(FocusType.Passive, handleRect);
+                CaptureLayerDragStart(i, handleRect, controlId);
+
+                def.name = EditorGUILayout.TextField(def.name, GUILayout.Width(LayerNameWidth));
+                def.desc = EditorGUILayout.TextField(def.desc);
+                def.hud = GUILayout.Toggle(def.hud, new GUIContent("", "HUD 组：有窗口类层开着时自动隐藏本层"), GUILayout.Width(LayerFlagWidth));
+                def.blockInput = GUILayout.Toggle(def.blockInput, new GUIContent("", "挡输入：本层窗口会挡住世界空间输入"), GUILayout.Width(LayerFlagWidth));
+                def.hideOnHideAll = GUILayout.Toggle(def.hideOnHideAll, new GUIContent("", "全隐藏：HideAllUI 时一起隐藏（不勾 = 常驻，如 Loading）"), GUILayout.Width(LayerHideFlagWidth));
+                var remove = GUILayout.Button("×", GUILayout.Width(LayerDeleteWidth));
+
+                EditorGUILayout.EndHorizontal();
+
+                var rowRect = GUILayoutUtility.GetLastRect();
+                _layerRowRects.Add(rowRect);
+                if (_dragLayer == i)
+                    DrawLayerRowTint(rowRect);
+
+                if (remove)
+                    removeAt = i;
+            }
+
+            if (removeAt >= 0)
+            {
+                defs.RemoveAt(removeAt);
+                if (_dragLayer == removeAt)
+                    ReleaseLayerDrag();
+                else if (_dragLayer > removeAt)
+                    _dragLayer--;
+            }
+
+            // 行内编辑（改名 / 描述 / 开关）与上面的删除都算一次改动：只标脏，
+            // 落盘推迟到鼠标松开 / 按键抬起（见 FlushAudioSettingsOnMouseUp）。
+            var inlineChanged = EditorGUI.EndChangeCheck();
+
+            // ---- 新增 / 生成 / 恢复默认（结构性改动，立即落盘）----
+            if (GUILayout.Button("+ 新增层"))
+            {
+                defs.Add(new UILayerDef
+                {
+                    name = NextLayerName(defs),
+                    desc = "",
+                    hideOnHideAll = true,
+                });
+                CommitSettingsAsset();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("保存并生成"))
+            {
+                // 先落盘再生成：行内改名只标脏、靠鼠标松开才写盘，而本按钮会吃掉这次 MouseUp，
+                // 不先保存就可能出现「生成用的是新层名、资产里还是旧层名」的分叉。
+                CommitSettingsAsset();
+                if (UILayerCodeGen.Generate(out var genError))
+                    _layerGenStatus = $"已生成 {UILayerCodeGen.OutputPath}";
+                else
+                    _layerGenStatus = genError;
+            }
+            if (GUILayout.Button("恢复默认层表"))
+            {
+                defs.Clear();
+                foreach (var d in UILayerTable.DefaultTable())
+                    defs.Add(new UILayerDef { name = d.name, desc = d.desc, hud = d.hud, blockInput = d.blockInput, hideOnHideAll = d.hideOnHideAll });
+                CommitSettingsAsset();
+                _layerGenStatus = "已恢复默认 10 层（尚未生成代码）";
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.LabelField(_layerGenStatus, EditorStyles.miniLabel);
+
+            if (inlineChanged)
+            {
+                EnsureAudioSettingsAsset();
+                EditorUtility.SetDirty(s);
+            }
+            FlushAudioSettingsOnMouseUp();
+
+            FinishLayerDrag(defs);
+        }
+
+        /// <summary>把 FrameworkSettings 资产落盘（缺资产先建于 Assets/Resources）。音频 / UI 两处项目级设定共用。</summary>
+        private static void CommitSettingsAsset()
+        {
+            EnsureAudioSettingsAsset();
+            SaveAudioSettingsAsset();
+        }
+
+        /// <summary>在手柄上按下即接管拖动（热控件转到手柄，行内输入框不受影响）。</summary>
+        private void CaptureLayerDragStart(int index, Rect handleRect, int controlId)
+        {
+            if (_dragLayer >= 0)
+                return;
+            var e = Event.current;
+            if (e == null || e.type != EventType.MouseDown || e.button != 0)
+                return;
+            if (!handleRect.Contains(e.mousePosition))
+                return;
+
+            GUIUtility.hotControl = controlId;
+            _dragControl = controlId;
+            _dragLayer = index;
+            e.Use();
+            Repaint();
+        }
+
+        /// <summary>结束拖动：只在热控件确实是本行手柄时归还，避免误清别的控件的 hotControl。</summary>
+        private void ReleaseLayerDrag()
+        {
+            if (GUIUtility.hotControl == _dragControl)
+                GUIUtility.hotControl = 0;
+            _dragLayer = -1;
+        }
+
+        /// <summary>
+        /// 拖动结算。必须在行循环结束后调用——那时 <see cref="_layerRowRects"/> 才包含全部行，
+        /// 才能判断松手位置对应哪一行。整个拖动过程只改热控件与高亮，不增删控件（Layout / Repaint 集合恒定）。
+        /// </summary>
+        private void FinishLayerDrag(List<UILayerDef> defs)
+        {
+            if (_dragLayer < 0)
+                return;
+            var e = Event.current;
+            if (e == null)
+                return;
+
+            if (e.type != EventType.MouseUp)
+            {
+                if (e.type == EventType.MouseDrag)
+                    Repaint();
+                return;
+            }
+
+            var from = _dragLayer;
+            var to = LayerDropIndex(e.mousePosition.y, defs.Count);
+            ReleaseLayerDrag();
+            e.Use();
+
+            if (to >= 0 && to != from)
+            {
+                var item = defs[from];
+                defs.RemoveAt(from);
+                // to 可能等于原行数（末行下方追加）；移除后夹到合法插入位
+                defs.Insert(Mathf.Min(to, defs.Count), item);
+                CommitSettingsAsset();
+            }
+
+            Repaint();
+        }
+
+        /// <summary>
+        /// 鼠标 Y 对应的插入下标：行内 / 行上方空隙 → 该行下标；首行上方 → 0；末行下方 → 行数（追加）。
+        /// 与 <see cref="_layerRowRects"/> 同序（自上而下 = 下标 0→Count-1）。
+        /// </summary>
+        private int LayerDropIndex(float y, int count)
+        {
+            for (var i = 0; i < _layerRowRects.Count && i < count; i++)
+            {
+                if (y <= _layerRowRects[i].yMax)
+                    return i;
+            }
+            return count;
+        }
+
+        /// <summary>拖动行高亮（只改颜色，不改控件集合）。</summary>
+        private static void DrawLayerRowTint(Rect rowRect)
+        {
+            if (Event.current == null || Event.current.type != EventType.Repaint)
+                return;
+            var old = GUI.color;
+            GUI.color = new Color(0.31f, 0.79f, 1f, 0.10f);
+            EditorGUI.DrawRect(rowRect, new Color(0.31f, 0.79f, 1f, 0.10f));
+            GUI.color = old;
+        }
+
+        /// <summary>给新层挑个不重名的名字：NewLayer / NewLayer2 / NewLayer3 …</summary>
+        private static string NextLayerName(List<UILayerDef> defs)
+        {
+            const string baseName = "NewLayer";
+            if (defs.Find(d => d != null && d.name == baseName) == null)
+                return baseName;
+            for (var n = 2; n < 1000; n++)
+            {
+                var candidate = baseName + n;
+                if (defs.Find(d => d != null && d.name == candidate) == null)
+                    return candidate;
+            }
+            return baseName + System.Guid.NewGuid().ToString("N").Substring(0, 6);
         }
     }
 }

@@ -108,8 +108,9 @@ namespace HYC.Framework.Tests
                     name = "Drop",
                     type = ConfigFieldType.Reference,
                     refTypeFullName = "StaleOldRoot.config.NsRuleTargetConfig, Assembly-CSharp, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null",
-                    // 只导服务器：Reference 整对象不可 blittable，选 Both 会被客户端 Blob 可行性拦截
-                    exportTarget = ConfigExportTarget.Server,
+                    // 只导服务器：Reference 整对象不可 blittable，客户端侧选「不导出」绕开 Blob 可行性拦截
+                    clientExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.None },
+                    serverExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.Direct },
                 },
             };
 
@@ -143,7 +144,8 @@ namespace HYC.Framework.Tests
                     type = ConfigFieldType.Reference,
                     // 框架自带 [CfgAsset] 类，命名空间 HYC.Framework.Audio，无对应模板
                     refTypeFullName = typeof(AudioCatalogAsset).AssemblyQualifiedName,
-                    exportTarget = ConfigExportTarget.Server,
+                    clientExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.None },
+                    serverExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.Direct },
                 },
             };
 
@@ -168,7 +170,8 @@ namespace HYC.Framework.Tests
                     name = "Ghost",
                     type = ConfigFieldType.Reference,
                     refTypeFullName = "StaleOldRoot.config.NsRuleGhostConfig, Assembly-CSharp",
-                    exportTarget = ConfigExportTarget.Server,
+                    clientExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.None },
+                    serverExport = new ConfigFieldExportSetting { mode = ConfigFieldExportMode.Direct },
                 },
             };
 

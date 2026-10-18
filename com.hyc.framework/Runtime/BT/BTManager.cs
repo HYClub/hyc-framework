@@ -13,7 +13,7 @@ namespace HYC.Framework.BT
 {
     /// <summary>
     /// 全局行为树注册表。树资产(Blob)由加载系统在数据阶段注册。
-    /// 静态存储, 世界无关, 与 hyc ConfigManager 同风格。
+    /// 静态存储, 世界无关, 与 hyc ConfigRegistry 同风格。
     /// </summary>
     public static unsafe class BTManager
     {

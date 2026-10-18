@@ -1,4 +1,5 @@
 ﻿using System;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -76,6 +77,26 @@ namespace HYC.Framework.Config.Editor
                         mOutputDir = "Assets" + rel.Substring(Application.dataPath.Length);
                     else
                         EditorUtility.DisplayDialog("错误", "生成目录必须在 Assets 目录内!", "确定");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 存量迁移入口：旧版生成目录（Assets/GeneratedConfigs 等）残留时引导一键搬到统一总根。
+            // 两个控件每帧恒定绘制，只切文案/可用态——Layout 与 Repaint 控件集合必须一致。
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(
+                GeneratedFolderMigration.HasLegacyContent()
+                    ? "检测到旧版生成目录残留（Assets/GeneratedConfigs 等）——生成代码已统一收口到 Assets/HYC/Generated/"
+                    : "生成代码统一收口于 Assets/HYC/Generated/（Config/UI/Attr/Talent/BT 分模块目录）",
+                EditorStyles.miniLabel);
+            using (new EditorGUI.DisabledScope(!GeneratedFolderMigration.HasLegacyContent()))
+            {
+                if (GUILayout.Button("迁移旧目录", GUILayout.Width(100)))
+                {
+                    var report = GeneratedFolderMigration.Migrate();
+                    EditorUtility.DisplayDialog("迁移完成", report, "确定");
+                    mOutputDir = ConfigDataSettings.OutputDir;     // 迁移可能改过设置值，回刷窗口缓存
+                    mEditorDir = ConfigDataSettings.EditorDir;
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -186,7 +207,7 @@ namespace HYC.Framework.Config.Editor
                 "留空 = 项目公司名（Project Settings → Company Name），公司名不可用回落 Default；BT 自定义节点落 {root}.BT.Nodes。\n" +
                 "编辑器生成目录：生成配置类时同时生成 XxxConfigEditor.cs（继承默认渲染，可自行扩展）。\n" +
                 "导出目录：客户端/服务器导出输出位置。struct 模式下子结构体字段平铺。\n" +
-                "客户端格式选 Blob：导出二进制 .blob 文件（固定文件名 Cfg{类名}.blob），游戏运行时 System 秒加载 + GetCfgXxx(id)/GetCfgXxxList()。\n" +
+                "客户端格式选 Blob：导出二进制 .blob 文件（固定文件名 Cfg{类名}.blob），游戏运行时 System 秒加载；运行期查询走门面 ConfigManager.{类型}.GetByID(id)（零拷贝 ref）/ {类型}.Count + GetByIndex(i) 遍历 / Contains(id) 宽松判存在。\n" +
                 "Blob 输出目录必须位于 Assets/StreamingAssets 内（运行期加载路径由它自动派生，无需另行配置）；\n" +
                 "  PC / iOS 直接读文件，WebGL / Android 由框架自动走「构建列清单 + 启动预取」，游戏层不写平台分支。\n" +
                 "ID 构造器：本地=进程内发号；局域网=连接独立 ID 服务器（规则一致 {id,guid}，多机唯一）。右下角圆点显示连接状态。",

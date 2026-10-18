@@ -128,6 +128,17 @@ namespace HYC.Framework.Config.Editor
             set => HYCSettings.Instance.SideTypeIsStruct = value;
         }
 
+        /// <summary>
+        /// 导出后是否总是汇报检查结果：true = 零问题也弹窗确认，有问题开明细窗；
+        /// false（默认）= 仅在存在检查项时弹窗，导出干净则静默通过。
+        /// 在 HYC Settings 窗口的「配置」分组里勾选；批模式（CI）不受影响。
+        /// </summary>
+        public static bool AlwaysShowCheckWindow
+        {
+            get => HYCSettings.Instance.AlwaysShowCheckWindow;
+            set => HYCSettings.Instance.AlwaysShowCheckWindow = value;
+        }
+
         /// <summary>Root folder (project-relative, e.g. Assets/ConfigData) scanned by the data editor tree.</summary>
         public static string RootFolder
         {

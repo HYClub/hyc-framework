@@ -1,7 +1,7 @@
 // =============================================================================
 //  HYCSimple · 属性系统示例 · 生成访问器（枚举）
 //  注意：本文件是「向导生成的产物」的示例副本，正常流程里应由
-//  AttributeCatalogWindow / AttributeGenerateWizard 生成到 Assets/HYC/Generated/Attributes/。
+//  AttributeCatalogWindow / AttributeGenerateWizard 生成到 Assets/HYC/Generated/Attr/。
 //  这里手写在 Sample 里，让例子导入即可编译、无需先跑向导。
 //  生成文件不要手改——改目录后重新 Generate 整体覆盖。
 // =============================================================================

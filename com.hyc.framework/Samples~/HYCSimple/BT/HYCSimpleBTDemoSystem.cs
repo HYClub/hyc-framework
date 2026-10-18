@@ -14,7 +14,7 @@
 //     编辑器里不导出也能跑（BTAutoRegisterOnPlay 自动注册），但那样验证不到打包链路。
 //
 //  ⚠️ 刻意标了 [DisableAutoCreation]：示例 System 若自动进宿主工程的 World，会悄悄改写
-//     框架静态单例（BTManager / LocalizationManager / ConfigManager），干扰宿主。
+//     框架静态单例（BTManager / LocalizationManager / ConfigRegistry），干扰宿主。
 //     改由 HYCSimpleSceneBootstrap（用户显式挂到场景才生效）手动 Update。
 // =============================================================================
 using Unity.Entities;

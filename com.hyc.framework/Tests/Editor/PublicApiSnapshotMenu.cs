@@ -21,10 +21,10 @@ namespace HYC.Framework.Tests
         [MenuItem("Tools/Tests/Show Public API Diff")]
         private static void ShowDiff()
         {
-            var abs = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), PublicApiSnapshot.SnapshotPath);
+            var abs = PublicApiSnapshot.ResolveSnapshotPath();
             if (!System.IO.File.Exists(abs))
             {
-                EditorUtility.DisplayDialog("Public API 快照", $"快照不存在：\n{PublicApiSnapshot.SnapshotPath}\n\n执行「Tools/Tests/Update Public API Snapshot」以生成。", "好");
+                EditorUtility.DisplayDialog("Public API 快照", $"快照不存在：\n{abs}\n\n执行「Tools/Tests/Update Public API Snapshot」以生成。", "好");
                 return;
             }
 

@@ -12,13 +12,15 @@ namespace HYC.Framework.Config.Editor
 {
     /// <summary>
     /// Generates a C# <c>[CfgAsset]</c> config class from a <see cref="ConfigTemplate"/>.
-    /// Output lands in <c>Assets/GeneratedConfigs</c> under a fixed namespace so
+    /// Output lands in <see cref="GeneratedPaths.Config"/> under a fixed namespace so
     /// the new type is picked up by <see cref="ConfigCreateWindow"/> immediately
     /// after a compile.
     /// </summary>
     public static class ConfigTemplateCodeGen
     {
+        /// <summary>旧版默认输出目录（生成代码统一收口前的落点）。存量工程迁移见 <see cref="GeneratedFolderMigration"/>。</summary>
         public const string LegacyOutputDir = "Assets/GeneratedConfigs";
+        /// <summary>旧版默认命名空间（生成代码命名空间 root 机制前的落点）。</summary>
         public const string LegacyDefaultNamespace = "HYC.Sample.Generated";
 
         private static readonly HashSet<string> CSharpKeywords = new HashSet<string>
@@ -275,11 +277,10 @@ namespace HYC.Framework.Config.Editor
 
         /// <summary>
         /// 该类型在「直接导出」下是否无法被 Newtonsoft 序列化为 JSON（服务器侧）。
-        /// = 资源/对象引用族(UnityEngine.Object) + Gradient/AnimationCurve；与导出模式无关（其余模式都转 string/标量）。
-        /// 必须随 <see cref="UnityTypeName"/> 的资源类型增删同步维护。
+        /// 集合定义见 <see cref="ConfigFieldTypes.IsServerUnsupported"/>（与模板编辑器共用同一份判定）。
         /// </summary>
         private static bool IsJsonUnsupportedElementType(ConfigFieldType type)
-            => IsAssetRefType(type) || type == ConfigFieldType.Gradient || type == ConfigFieldType.AnimationCurve;
+            => ConfigFieldTypes.IsServerUnsupported(type);
 
         /// <summary>
         /// 静态判断某字段的导出配置是否“能导”（与代码生成共用同一份类型知识，永不漂移，不依赖样例试跑）：
@@ -298,7 +299,7 @@ namespace HYC.Framework.Config.Editor
             // 客户端：Blob 必须 blittable。BlobElemInfoOf 对不支持的类型会落 default:int（历史兜底），
             // 但生成器随后在 BlobBuilder 里把对象/结构赋给 int 字段 → 编译报错。把“落到兜底”识别为不可导。
             // （Int/Enum 本身合法映射成 int，排除；BehaviourTree→long 等也非 int，不会误伤。）
-            if (MatchesTarget(f.exportTarget, true))
+            if (IsExportedOnSide(f, true))
             {
                 var info = BlobElemInfoOf(f);
                 if (info.TypeName == "int" && f.type != ConfigFieldType.Int && f.type != ConfigFieldType.Enum)
@@ -306,7 +307,7 @@ namespace HYC.Framework.Config.Editor
             }
 
             // 服务器：Direct 且类型是 Unity 对象/不可 JSON 序列化类型 → Newtonsoft 无法序列化。
-            if (MatchesTarget(f.exportTarget, false))
+            if (IsExportedOnSide(f, false))
             {
                 if (f.serverExport.mode == ConfigFieldExportMode.Direct && IsJsonUnsupportedElementType(f.type))
                     result.ServerBroken = true;
@@ -328,10 +329,16 @@ namespace HYC.Framework.Config.Editor
             var sides = feas.ClientBroken && feas.ServerBroken
                 ? "客户端 Blob 与服务器 JSON 均"
                 : feas.ClientBroken ? "客户端 Blob" : "服务器 JSON";
-            // 资源/对象引用族可走 资源名/路径/AA地址/转字符串；其余（Gradient/Rect/Bounds/…）只能转字符串。
-            var suggestion = IsAssetRefType(f.type)
-                ? "请改用：资源名 / 资源路径 / AA地址 / 转字符串（任一即可导出为字符串）。"
-                : "请改用：转字符串（导出为字符串）。";
+            // 服务器侧不可 JSON 类型（Object 引用族 / Color / Color32 / Gradient / AnimationCurve）：
+            // 模板编辑器已强制只能「不导出」，历史存档若是「直接导出」需改回，不再建议资源名等无效选项。
+            // 其余资源类型可走 资源名/路径/AA地址/转字符串；非资源类型只能转字符串；两侧都能单独选「不导出」。
+            string suggestion;
+            if (feas.ServerBroken && IsJsonUnsupportedElementType(f.type))
+                suggestion = "服务器侧已不再提供该类型的导出选项；若历史存档为「直接导出」，请在「服务器导出」下拉改回「不导出」。";
+            else if (IsAssetRefType(f.type))
+                suggestion = "请改用：资源名 / 资源路径 / AA地址 / 转字符串（任一即可导出为字符串），或该侧直接选「不导出」。";
+            else
+                suggestion = "请改用：转字符串（导出为字符串），或该侧直接选「不导出」。";
             return $"字段 {f.name}（{typeName}）使用「直接导出」→ {sides}无法导出。{suggestion}";
         }
 
@@ -580,42 +587,39 @@ namespace HYC.Framework.Config.Editor
             {
                 foreach (var f in chain[i].fields)
                 {
-                    if (MatchesTarget(f.exportTarget, forClient))
+                    if (IsExportedOnSide(f, forClient))
                         list.Add(f);
                 }
             }
             foreach (var f in template.fields)
             {
-                if (MatchesTarget(f.exportTarget, forClient))
+                if (IsExportedOnSide(f, forClient))
                     list.Add(f);
             }
             return list.ToArray();
         }
 
-        /// <summary>是否为数值字段类型（可配 Min/Max）。</summary>
+        /// <summary>是否为数值字段类型（可配 Min/Max）。判定集合见 <see cref="ConfigFieldTypes.IsNumeric"/>。</summary>
         private static bool IsNumericField(ConfigFieldType type)
-        {
-            switch (type)
-            {
-                case ConfigFieldType.Int:
-                case ConfigFieldType.Long:
-                case ConfigFieldType.Float:
-                case ConfigFieldType.Double:
-                case ConfigFieldType.Short:
-                case ConfigFieldType.Byte:
-                case ConfigFieldType.UInt:
-                case ConfigFieldType.Decimal:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+            => ConfigFieldTypes.IsNumeric(type);
 
-        private static bool MatchesTarget(ConfigExportTarget target, bool forClient)
+        /// <summary>
+        /// 该字段类型是否存在真正的「空」态（null / 空串），即「非空」检查是否有意义。
+        /// 判定集合见 <see cref="ConfigFieldTypes.SupportsNotEmpty"/>。
+        /// </summary>
+        private static bool SupportsNotEmptyField(ConfigFieldType type)
+            => ConfigFieldTypes.SupportsNotEmpty(type);
+
+        /// <summary>
+        /// 该字段在这一侧是否导出。旧版靠 <c>exportTarget</c>（Client/Server/Both）单独判定「进哪一侧」，
+        /// 现统一由该侧的导出设置决定：选了 <see cref="ConfigFieldExportMode.None"/> 就是这一侧不导出。
+        /// 单一真源，避免「闸门 + 方式」两处都要维护。
+        /// </summary>
+        private static bool IsExportedOnSide(ConfigTemplateField f, bool forClient)
         {
-            return target == ConfigExportTarget.Both
-                || (forClient && target == ConfigExportTarget.Client)
-                || (!forClient && target == ConfigExportTarget.Server);
+            if (f == null) return false;
+            var set = forClient ? f.clientExport : f.serverExport;
+            return set != null && set.mode != ConfigFieldExportMode.None;
         }
 
         /// <summary>
@@ -646,7 +650,7 @@ namespace HYC.Framework.Config.Editor
             var ownFields = new List<ConfigTemplateField>();
             foreach (var f in template.fields)
             {
-                if (MatchesTarget(f.exportTarget, forClient))
+                if (IsExportedOnSide(f, forClient))
                     ownFields.Add(f);
             }
 
@@ -656,7 +660,7 @@ namespace HYC.Framework.Config.Editor
             {
                 foreach (var f in chain[i].fields)
                 {
-                    if (MatchesTarget(f.exportTarget, forClient))
+                    if (IsExportedOnSide(f, forClient))
                         flatFields.Add(f);
                 }
             }
@@ -1159,29 +1163,9 @@ namespace HYC.Framework.Config.Editor
             => type == ConfigFieldType.String || type == ConfigFieldType.LocalizedKey
                || type == ConfigFieldType.Addressable || type == ConfigFieldType.AudioEvent;
 
-        /// <summary>源字段是否为 Unity 资源/对象引用（编辑器存储为对象）。</summary>
+        /// <summary>源字段是否为 Unity 资源/对象引用（编辑器存储为对象）。判定集合见 <see cref="ConfigFieldTypes.IsAssetRef"/>。</summary>
         private static bool IsAssetRefType(ConfigFieldType type)
-        {
-            switch (type)
-            {
-                case ConfigFieldType.Sprite:
-                case ConfigFieldType.Texture2D:
-                case ConfigFieldType.GameObject:
-                case ConfigFieldType.AudioClip:
-                case ConfigFieldType.Material:
-                case ConfigFieldType.Mesh:
-                case ConfigFieldType.PhysicMaterial:
-                case ConfigFieldType.Font:
-                case ConfigFieldType.Shader:
-                case ConfigFieldType.TextAsset:
-                case ConfigFieldType.Object:
-                case ConfigFieldType.AnimationClip:
-                case ConfigFieldType.AnimatorController:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+            => ConfigFieldTypes.IsAssetRef(type);
 
         /// <summary>取配置引用目标类型上的某个成员字段类型。</summary>
         private static Type MemberTypeOf(ConfigTemplateField f, string memberName, out string error)
@@ -1688,6 +1672,9 @@ namespace HYC.Framework.Config.Editor
                 DeleteGeneratedFile($"{ConfigDataSettings.OutputDir}/Blob/{template.className}BlobBuilder.cs"); // 旧位置
             }
 
+            // 配置查询门面（{ns}.ConfigManager，静态、无 World 依赖）随每次生成同步
+            WriteFacadeFile();
+
             AssetDatabase.Refresh();
 
             // 图标传播：自定义纹理持久化进 .cs.meta；模板 / MonoScript / 存量资产即时应用
@@ -1703,6 +1690,87 @@ namespace HYC.Framework.Config.Editor
                 EditorUtility.SetDirty(template);
             }
             return true;
+        }
+
+        /// <summary>
+        /// 写配置查询门面 <c>{OutputDir}/ConfigManager.cs</c>：<c>{ns}.ConfigManager.{Type}.GetByID(id)</c>
+        /// → <c>ref Cfg{Type}</c>（零拷贝，转框架 <c>HYC.Framework.Config.ConfigRegistry.GetRef</c>）；
+        /// 遍历全表走 <c>{Type}.Count</c> + <c>{Type}.GetByIndex(i)</c>（转 <c>GetRowCount</c> / <c>GetRowRefAt</c>）。
+        /// 静态、无 World 依赖，是宿主查询配置的唯一稳定入口（低层 <c>ConfigRegistry</c> 仅生成代码 / 自建加载系统内部调用；不再提供 World 扩展，消除与 EA0001 铁律冲突的「值拷贝 / 未命中返 default」地雷）。
+        /// <para>只收录磁盘上已生成 Blob 结构 <c>Blob/Cfg{Type}.cs</c> 的类型——避免引用不存在的类型（CS0246）；
+        /// 无可用类型（ClientFormat≠Blob 或全部无客户端导出字段）时删除残留门面。</para>
+        /// <para>门面名 <c>ConfigManager</c> 与框架低层注册表 <c>HYC.Framework.Config.ConfigRegistry</c>
+        /// 已不重名：宿主查询只写 <c>ConfigManager</c> 即门面，不会与框架类型二义（CS0104）；
+        /// 只有手工建表 / 注册才需直接调 <c>ConfigRegistry</c>（生成的 <c>XxxBlobSystem</c> 内部就是这么做的）。</para>
+        /// </summary>
+        public static void WriteFacadeFile()
+        {
+            var path = $"{ConfigDataSettings.OutputDir}/ConfigManager.cs";
+            var classNames = CollectBlobTypeClassNames();
+            if (classNames.Count == 0)
+            {
+                DeleteGeneratedFile(path);   // 无 Blob 类型 → 清残留门面（与 Blob 生成条件联动）
+                return;
+            }
+            WriteAndImport(path, BuildFacadeCode(classNames));
+        }
+
+        /// <summary>收集磁盘上已生成 <c>Blob/Cfg{Type}.cs</c> 的配置类型短名（Ordinal 排序，稳定输出）。</summary>
+        private static List<string> CollectBlobTypeClassNames()
+        {
+            var list = new List<string>();
+            var root = Directory.GetCurrentDirectory();
+            foreach (var t in LoadAllTemplates())
+            {
+                if (t == null || !t.generateCode || string.IsNullOrEmpty(t.className))
+                    continue;
+                var blobPath = Path.Combine(root, $"{ConfigDataSettings.OutputDir}/Blob/Cfg{t.className}.cs");
+                if (!File.Exists(blobPath))
+                    continue;   // 只收录已生成 Blob 结构的类型，避免引用不存在的 Cfg{Type}
+                list.Add(t.className);
+            }
+            list.Sort(StringComparer.Ordinal);
+            return list;
+        }
+
+        /// <summary>拼门面源码：<c>{ns}.ConfigManager</c> 下每类型一个嵌套类——GetByID 转 <c>ConfigRegistry.GetRef</c>、GetByIndex 转 <c>GetRowRefAt</c>、Count 转 <c>GetRowCount</c>。</summary>
+        private static string BuildFacadeCode(List<string> classNames)
+        {
+            var ns = ConfigDataSettings.Namespace;
+            var sb = new StringBuilder();
+            sb.AppendLine($"using {ns}.Blob;");
+            sb.AppendLine();
+            sb.AppendLine($"namespace {ns}");
+            sb.AppendLine("{");
+            sb.AppendLine("    /// <summary>配置查询门面：静态、无 World 依赖。每类型一个嵌套类——按 id 查询走 GetByID，遍历全表走 Count + GetByIndex，均返回指向 Blob 行的可写 ref（零拷贝；刻意不用 ref readonly——C# 禁 ref-readonly 返回值绑 ref var（CS8329），而分析器又要求 blob 行局部变量必须非只读 ref（EA0001），可写 ref 是唯一合法形态，只读靠纪律保证）。⛔ 取行必须 ref 接收（EA0001）：<c>ref var row = ref ...GetByID(id)</c>——行含 BlobString/BlobArray（自相对偏移），值拷贝寻址错位。</summary>");
+            sb.AppendLine("    public static class ConfigManager");
+            sb.AppendLine("    {");
+            foreach (var className in classNames)
+            {
+                sb.AppendLine($"        /// <summary>{className} 查询。⛔ 取行必须 ref 接收（EA0001）：<c>ref var row = ref ...{className}.GetByID(id)</c>——行含 BlobString/BlobArray，值拷贝寻址错位。</summary>");
+                sb.AppendLine($"        public static class {className}");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            /// <summary>按配置 id 取一行（零拷贝 ref）。未命中抛 KeyNotFoundException——引用型 id 必然存在，数据错误应响亮失败。⛔ 必须 <c>ref var row = ref ...</c> 接收（EA0001：blob 行禁值拷贝，值拷贝寻址错位）；ref 禁跨方法传参/存字段/闭包捕获/跨帧缓存。</summary>");
+                sb.AppendLine($"            public static ref Cfg{className} GetByID(long id)");
+                sb.AppendLine($"                => ref HYC.Framework.Config.ConfigRegistry.GetRef<Cfg{className}>(id);");
+                sb.AppendLine();
+                sb.AppendLine($"            /// <summary>表已加载的行数；未加载时为 0。遍历全表时作 GetByIndex 的循环边界。</summary>");
+                sb.AppendLine($"            public static int Count");
+                sb.AppendLine($"                => HYC.Framework.Config.ConfigRegistry.GetRowCount<Cfg{className}>();");
+                sb.AppendLine();
+                sb.AppendLine($"            /// <summary>按行序取一行（零拷贝 ref）。越界抛 KeyNotFoundException；配合 Count 遍历全表。⛔ 同样必须 <c>ref var r = ref ...</c> 接收（EA0001）。</summary>");
+                sb.AppendLine($"            public static ref Cfg{className} GetByIndex(int index)");
+                sb.AppendLine($"                => ref HYC.Framework.Config.ConfigRegistry.GetRowRefAt<Cfg{className}>(index);");
+                sb.AppendLine();
+                sb.AppendLine($"            /// <summary>配置 id 是否已加载（不取行、零拷贝、无 EA0001 风险）。配合 GetByID 实现『宽松语义』：<c>if (Contains(id)) {{ ref var row = ref GetByID(id); ... }}</c>。表未注册时返回 false。</summary>");
+                sb.AppendLine($"            public static bool Contains(long id)");
+                sb.AppendLine($"                => HYC.Framework.Config.ConfigRegistry.Contains<Cfg{className}>(id);");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+            }
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            return sb.ToString();
         }
 
 
@@ -1743,7 +1811,7 @@ namespace HYC.Framework.Config.Editor
             WriteAndImport(path, code);
         }
 
-        /// <summary>生成 Blob 运行时加载 System + 查询扩展（运行时把 .blob 挂进 ConfigManager）。</summary>
+        /// <summary>生成 Blob 运行时加载 System + 查询扩展（运行时把 .blob 挂进 ConfigRegistry）。</summary>
         private static void WriteBlobSystemFile(ConfigTemplate template)
         {
             if (template == null || string.IsNullOrEmpty(template.className))
@@ -1766,7 +1834,7 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine($"namespace {ns}.Blob");
             sb.AppendLine("{");
             sb.AppendLine("    /// <summary>");
-            sb.AppendLine($"    /// 加载 Cfg{className}.blob 并注册进 ConfigManager，提供 GetCfg{className}(id) 查询。");
+            sb.AppendLine($"    /// 加载 Cfg{className}.blob 并注册进 ConfigRegistry；运行期查询走生成式门面 {ns}.ConfigManager.{className}（零拷贝 ref，详见 ConfigManager.cs）。");
             sb.AppendLine("    /// </summary>");
             sb.AppendLine($"    public partial class {className}BlobSystem : SystemBase");
             sb.AppendLine("    {");
@@ -1795,7 +1863,7 @@ namespace HYC.Framework.Config.Editor
                 sb.AppendLine($"                var table = ConfigBlobTable<Cfg{className}>.FromBlob(blob, r => r.ID);");
             else
                 sb.AppendLine($"                var table = ConfigBlobTable<Cfg{className}>.FromBlob(blob);");
-            sb.AppendLine($"                ConfigManager.Register(table);");
+            sb.AppendLine($"                ConfigRegistry.Register(table);");
             sb.AppendLine("            }");
             sb.AppendLine("            else");
             sb.AppendLine("            {");
@@ -1805,23 +1873,6 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("    }");
             sb.AppendLine("}");
             sb.AppendLine();
-            sb.AppendLine($"namespace {ns}.Blob");
-            sb.AppendLine("{");
-            sb.AppendLine($"    public static class {className}Extensions");
-            sb.AppendLine("    {");
-            sb.AppendLine($"        /// <summary>按 ID 查询 {className} 配置。</summary>");
-            sb.AppendLine($"        public static Cfg{className} GetCfg{className}(this World world, long id)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return ConfigManager.TryGet<Cfg{className}>(id, out var row) ? row : default;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine($"        /// <summary>查询全部 {className} 配置。</summary>");
-            sb.AppendLine($"        public static BlobArray<Cfg{className}> GetCfg{className}List(this World world)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            return ConfigManager.GetAllRows<Cfg{className}>();");
-            sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
 
             var dir = $"{ConfigDataSettings.OutputDir}/Blob";
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), dir));
@@ -2065,13 +2116,14 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("            var errors = new List<CheckError>();");
             sb.AppendLine("            if (data == null)");
             sb.AppendLine("            {");
-            sb.AppendLine("                errors.Add(new CheckError(null, \"" + className + "\", CheckErrorLevel.Error, \"数据为空\"));");
+            sb.AppendLine("                errors.Add(new CheckError(data, \"" + className + "\", CheckErrorLevel.Error, \"数据为空\"));");
             sb.AppendLine("                return errors;");
             sb.AppendLine("            }");
 
             foreach (var f in allFields)
             {
-                var isString = f.type == ConfigFieldType.String || f.type == ConfigFieldType.LocalizedKey;
+                var isString = f.type == ConfigFieldType.String || f.type == ConfigFieldType.LocalizedKey
+                    || f.type == ConfigFieldType.Addressable || f.type == ConfigFieldType.AudioEvent;
                 var isNumeric = IsNumericField(f.type);
 
                 // 多语言 key 存在性检查（反射调 loc，未安装跳过）
@@ -2091,24 +2143,26 @@ namespace HYC.Framework.Config.Editor
                     sb.AppendLine("                {");
                     sb.AppendLine("                    var hasKey = locType.GetMethod(\"HasKey\", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static, null, new[] { typeof(string) }, null);");
                     sb.AppendLine($"                    if (hasKey != null && !(bool)hasKey.Invoke(null, new object[] {{ {src} }}))");
-                    sb.AppendLine($"                        errors.Add(new CheckError(null, \"{className}\", CheckErrorLevel.Error, \"字段 {f.name} 的多语言 key 不存在\", \"{f.name}\"));");
+                    sb.AppendLine($"                        errors.Add(new CheckError(data, \"{className}\", CheckErrorLevel.Error, \"字段 {f.name} 的多语言 key 不存在\", \"{f.name}\"));");
                     sb.AppendLine("                }");
                     sb.AppendLine("            }");
                     if (f.isList)
                         sb.AppendLine("            }");
                 }
 
-                // 非空检查（string 用 IsNullOrEmpty；数值用 == default）
-                if (f.notEmptyCheck != ConfigCheckLevel.None)
+                // 非空检查（string 族用 IsNullOrEmpty；列表用 null/Count==0；引用/对象/行为树用 == default；值类型无空态，不发射）
+                if (f.notEmptyCheck != ConfigCheckLevel.None && SupportsNotEmptyField(f.type))
                 {
                     var lvl = f.notEmptyCheck == ConfigCheckLevel.Info ? "CheckErrorLevel.Info"
                         : f.notEmptyCheck == ConfigCheckLevel.Warning ? "CheckErrorLevel.Warning"
                         : "CheckErrorLevel.Error";
-                    if (isString)
+                    if (f.isList)
+                        sb.AppendLine($"            if (data.{f.name} == null || data.{f.name}.Count == 0)");
+                    else if (isString)
                         sb.AppendLine($"            if (string.IsNullOrEmpty(data.{f.name}))");
                     else
                         sb.AppendLine($"            if (data.{f.name} == default)");
-                    sb.AppendLine($"                errors.Add(new CheckError(null, \"{className}\", {lvl}, \"字段 {f.name} 不能为空\", \"{f.name}\"));");
+                    sb.AppendLine($"                errors.Add(new CheckError(data, \"{className}\", {lvl}, \"字段 {f.name} 不能为空\", \"{f.name}\"));");
                 }
                 // 非0检查（仅数值）
                 if (isNumeric && f.notZeroCheck != ConfigCheckLevel.None)
@@ -2117,7 +2171,7 @@ namespace HYC.Framework.Config.Editor
                         : f.notZeroCheck == ConfigCheckLevel.Warning ? "CheckErrorLevel.Warning"
                         : "CheckErrorLevel.Error";
                     sb.AppendLine($"            if (data.{f.name} == 0)");
-                    sb.AppendLine($"                errors.Add(new CheckError(null, \"{className}\", {lvl}, \"字段 {f.name} 不能为0\", \"{f.name}\"));");
+                    sb.AppendLine($"                errors.Add(new CheckError(data, \"{className}\", {lvl}, \"字段 {f.name} 不能为0\", \"{f.name}\"));");
                 }
                 // 范围检查（仅数值）
                 if (isNumeric && f.rangeCheck != ConfigCheckLevel.None && f.hasRange)
@@ -2126,7 +2180,7 @@ namespace HYC.Framework.Config.Editor
                         : f.rangeCheck == ConfigCheckLevel.Warning ? "CheckErrorLevel.Warning"
                         : "CheckErrorLevel.Error";
                     sb.AppendLine($"            if (data.{f.name} < {f.minValue} || data.{f.name} > {f.maxValue})");
-                    sb.AppendLine($"                errors.Add(new CheckError(null, \"{className}\", {lvl}, \"字段 {f.name} 超出范围 [{f.minValue}~{f.maxValue}]\", \"{f.name}\"));");
+                    sb.AppendLine($"                errors.Add(new CheckError(data, \"{className}\", {lvl}, \"字段 {f.name} 超出范围 [{f.minValue}~{f.maxValue}]\", \"{f.name}\"));");
                 }
             }
 

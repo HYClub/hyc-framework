@@ -67,7 +67,11 @@ namespace HYC.Framework.Config
         AudioEvent,
     }
 
-    /// <summary>字段导出目标：客户端 / 服务器 / 两者。</summary>
+    /// <summary>
+    /// 导出目标：客户端 / 服务器 / 两者。现供<b>枚举定义</b>（<see cref="ConfigEnumDefinition.exportTarget"/>）使用；
+    /// 配置模板字段不再用它判定进哪一侧，改由该侧 <see cref="ConfigFieldExportSetting.mode"/> 是否
+    /// 为 <see cref="ConfigFieldExportMode.None"/> 决定（单一真源）。
+    /// </summary>
     public enum ConfigExportTarget
     {
         Client,
@@ -86,7 +90,7 @@ namespace HYC.Framework.Config
 
     /// <summary>
     /// 字段"导出设置"：决定导出的客户端/服务端数据里，这个字段取哪个值、用什么类型表示。
-    /// 编辑器里存原值，导出时按此设置投影。
+    /// 编辑器里存原值，导出时按此设置投影。<see cref="ConfigFieldExportMode.None"/> 表示该侧不导出此字段。
     /// </summary>
     public enum ConfigFieldExportMode
     {
@@ -106,6 +110,8 @@ namespace HYC.Framework.Config
         AssetPath,
         /// <summary>资源/对象字段导出 Addressable 地址（导出 string，需在导出时解析）。</summary>
         AssetAddressable,
+        /// <summary>不导出（该侧产物里不包含此字段）。落在枚举末尾，不改动既有序号，避免破坏已序列化设置。</summary>
+        None,
     }
 
     /// <summary>FixedString 定长容量档位（映射 Unity.Collections.FixedString{size}Bytes）。</summary>
@@ -186,8 +192,6 @@ namespace HYC.Framework.Config
         public string refTypeFullName = "";
         /// <summary>引用的枚举类名（<see cref="ConfigEnumDefinition.className"/>），当 <see cref="type"/> 为 <see cref="ConfigFieldType.Enum"/> 时使用。</summary>
         public string enumRefClassName = "";
-        /// <summary>导出目标：客户端 / 服务器 / 两者。</summary>
-        public ConfigExportTarget exportTarget = ConfigExportTarget.Both;
 
         /// <summary>
         /// 数据编辑器中该字段只读（生成代码打 [ReadOnly]，绘制时禁用输入）。

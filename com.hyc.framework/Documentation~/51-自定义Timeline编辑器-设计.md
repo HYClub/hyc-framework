@@ -42,7 +42,7 @@ Director 不变，新系统补上「轨道级编排与播放」的真空。
 
 - **`TimelinePlayer`（内核，纯逻辑）**：`Play / Pause / Seek / Evaluate(t)`，与 World 解耦。**编辑器内不进 Play Mode 也能 Scrub/Play 预览**（preview context 下 Spawn/改实体走空实现，Audio 可真播）。
 - **`TimelinePlayerSystem`（ECS System）**：挂框架 World 的 UpdateGroup，每帧 `player.Advance(dt)`，对处于激活区间 `[Start, Start+Duration]` 的片段调 `OnEnter / OnUpdate / OnExit`。
-- **`TimelineEvalContext`**：携带当前时间/Δt、`World`/`EntityManager`、目标实体、以及 `Audio`/`ConfigManager`/`BTManager`/`UIManager` 等服务句柄。
+- **`TimelineEvalContext`**：携带当前时间/Δt、`World`/`EntityManager`、目标实体、以及 `Audio`/`ConfigRegistry`/`BTManager`/`UIManager` 等服务句柄。
 
 ---
 

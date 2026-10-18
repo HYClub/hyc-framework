@@ -6,7 +6,7 @@ namespace HYC.Framework.Config
     /// 引用配置表的一行（类型全名 + 行 id），用于「某实体/某资产引用了某配置行」这类数据。
     /// 原定义于 Talent 模块，现归位到 Config（它是通用引用结构，不专属 Talent）。
     /// 与框架配置管线的约定保持一致：不直接持有 ScriptableObject，
-    /// 运行期用 <c>ConfigManager.TryGet&lt;T&gt;(id)</c> 取回数据。
+    /// 运行期用 <c>ConfigRegistry.TryGet&lt;T&gt;(id)</c> 取回数据。
     /// </summary>
     [Serializable]
     public class ConfigRowRef

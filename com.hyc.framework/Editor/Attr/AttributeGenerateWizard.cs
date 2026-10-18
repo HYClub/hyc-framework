@@ -7,6 +7,7 @@
 // ============================================================
 
 using HYC.Framework.Attr;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -16,9 +17,12 @@ namespace HYC.Framework.Attr.Editor
     public class AttributeGenerateWizard : ScriptableWizard
     {
         [HideInInspector] public AttributeCatalog catalog;
-        public string outputFolder = "Assets/HYC/Generated/Attributes";
+        /// <summary>输出目录默认落生成代码总根下的 Attr 子目录（<see cref="GeneratedPaths.Attr"/>）。</summary>
+        public string outputFolder = GeneratedPaths.Attr;
         public string classNamePrefix = "Game";
-        public string namespaceName = "HYC.Framework.Attr.Generated";
+        /// <summary>生成代码命名空间：由 HYC Settings 的「生成代码命名空间 root」派生（<c>{root}.Attr</c>），
+        /// 在 <see cref="Show"/> 里填（静态属性不能做字段初始值）；域重载丢失时 OnWizardUpdate 兜底重填。</summary>
+        public string namespaceName;
 
         private string _error;
         private static AttributeCatalog _pending;
@@ -29,6 +33,8 @@ namespace HYC.Framework.Attr.Editor
             _pending = cat;
             var w = DisplayWizard<AttributeGenerateWizard>("生成属性访问器", "生成");
             w.catalog = cat;
+            w.outputFolder = GeneratedPaths.Attr;
+            w.namespaceName = HYCSettings.AttrCodeNamespace;
             w.classNamePrefix = AttributeCodeGenerator.SanitizePrefix(cat.name);
             w.classNamePrefix = string.IsNullOrEmpty(w.classNamePrefix) ? "Game" : w.classNamePrefix;
         }
@@ -36,6 +42,8 @@ namespace HYC.Framework.Attr.Editor
         private void OnWizardUpdate()
         {
             if (catalog == null) catalog = _pending;   // 兜底：域重载后字段可能丢失
+            if (string.IsNullOrEmpty(outputFolder)) outputFolder = GeneratedPaths.Attr;
+            if (string.IsNullOrEmpty(namespaceName)) namespaceName = HYCSettings.AttrCodeNamespace;
             _error = null;
             if (catalog == null)
                 _error = "没有可生成的属性目录资产。";

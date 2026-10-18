@@ -51,7 +51,10 @@ namespace HYC.Framework.Config.Editor
             if (!TryCreateExporter(exportType, so.GetType(), out var exporter))
                 return false;
 
-            return exporter.ExportCore(so as ConfigBase, client, server);
+            BuildErrorWindow.BeginExportOperation();
+            var ok = exporter.ExportCore(so as ConfigBase, client, server);
+            BuildErrorWindow.EndExportOperation($"导出 {so.name}", ok);
+            return ok;
         }
 
         /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。</summary>
@@ -82,6 +85,7 @@ namespace HYC.Framework.Config.Editor
             if (!ConfigIdService.EnsureUniqueBeforeExport(assets, $"导出目录 {folder}"))
                 return 0;
 
+            BuildErrorWindow.BeginExportOperation();
             foreach (var asset in assets)
             {
                 var type = asset.GetType();
@@ -91,6 +95,8 @@ namespace HYC.Framework.Config.Editor
                         exported++;
                 }
             }
+            // 零检查项时按设置给一次「未发现问题」确认（一次目录导出最多一个框）
+            BuildErrorWindow.EndExportOperation($"导出目录 {folder}", exported > 0);
 
             return exported;
         }
@@ -147,8 +153,9 @@ namespace HYC.Framework.Config.Editor
         /// 实例化生成的导出类（传入配置类型，基类据此收集资产 / 命名产物文件）。
         /// 旧版生成的 XxxExport 是 <c>static class</c>（IL 层面 abstract+sealed、不可实例化），
         /// 据此识别并提示重新生成；实例化后即可按继承链调用最派生 override。
+        /// 公开供 <see cref="ConfigCheckService"/> 复用（检查与导出共用同一套实例化规则）。
         /// </summary>
-        private static bool TryCreateExporter(Type exportType, Type configType, out ConfigBaseExport exporter)
+        public static bool TryCreateExporter(Type exportType, Type configType, out ConfigBaseExport exporter)
         {
             exporter = null;
             if (exportType == null)
@@ -169,17 +176,29 @@ namespace HYC.Framework.Config.Editor
         /// </summary>
         public static int CleanAndExportAll(bool client, bool server)
         {
-            if (client) ClearBlobDir(ConfigDataSettings.ClientExportDir);
-            if (server) ClearBlobDir(ConfigDataSettings.ServerExportDir);
-
             // 先落盘所有改动，确保「改了没存」也被导出
             SaveFolder(ConfigDataSettings.RootFolder);
 
+            // 导出前 ID/GUID 查重（与单实例/目录导出路径对齐——全量路径此前漏此关卡）。
+            // 必须排在清理旧 blob 之前：用户取消时不能留下"旧产物已删、新产物未写"的空窗。
+            if (!ConfigIdService.EnsureUniqueBeforeExport(
+                    ConfigIdService.CollectConfigAssets(ConfigDataSettings.RootFolder),
+                    "全量清理后全量导出"))
+                return 0;
+
+            if (client) ClearBlobDir(ConfigDataSettings.ClientExportDir);
+            if (server) ClearBlobDir(ConfigDataSettings.ServerExportDir);
+
             var types = CollectConfigTypes(ConfigDataSettings.RootFolder);
             var exported = 0;
+            BuildErrorWindow.BeginExportOperation();
             foreach (var t in types)
                 if (ExportAll(t, client, server))
                     exported++;
+
+            // 零检查项时按设置给一次「未发现问题」确认（逐类型导出会命中标记，不会弹 N 个框）
+            BuildErrorWindow.EndExportOperation("全量清理后全量导出",
+                types.Count > 0 && exported == types.Count);
 
             AssetDatabase.Refresh();
             Debug.Log($"[Config] 全量清理后全量导出完成：{exported} 类配置 -> 客户端[{ConfigDataSettings.ClientExportDir}] 服务器[{ConfigDataSettings.ServerExportDir}]");

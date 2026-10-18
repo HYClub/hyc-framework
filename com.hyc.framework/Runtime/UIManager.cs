@@ -214,17 +214,57 @@ namespace HYC.Framework.UI
             IdleNode.SetParent(RootNode.transform);
             IdleNode.gameObject.SetActive(false);
 
-            LayerNodes = new List<Transform>();
-            LayerViews = new List<List<AbsUISystem>>();
+            // 层表是数据（FrameworkSettings.uiLayers，HYC Settings → UI/层级 可增删改名、拖动排序）：
+            // 节点名 = 层名，列表下标顺序即层级。增减层 / 调序都不需要改本文件。
+            var defs = UILayerTable.All;
+            LayerNodes = new List<Transform>(defs.Count);
+            LayerViews = new List<List<AbsUISystem>>(defs.Count);
 
-            foreach (var item in Enum.GetValues(typeof(WindowLayer)))
+            for (var i = 0; i < defs.Count; i++)
             {
-                var node = new GameObject(item.ToString());
+                var node = new GameObject(defs[i].name);
                 node.transform.SetParent(RootNode.transform);
 
                 LayerNodes.Add(node.transform);
                 LayerViews.Add(new List<AbsUISystem>());
             }
+
+            InitLayerIndexCache();
+        }
+
+        /// <summary>
+        /// 默认层名 → 下标缓存。框架里少数 API 与「主窗口层」精确绑定（<see cref="HasWindow"/> /
+        /// ExistOtherWindow* / <see cref="OpenWindowAndCloseOther{T}"/> / HitTest / 11 个角色 Open 方法），
+        /// 它们保持按默认层名查找：层名被改掉时缓存为 -1，相等判断自然不命中（行为退化为"没有该层"），
+        /// 并在初始化时一次性报错指明缺哪些层。群体行为（HUD 自动隐藏 / 挡输入 / 全隐藏）不查名，
+        /// 走 <see cref="UILayerTable"/> 的标记，改名 / 插层自动跟随。
+        /// </summary>
+        private static readonly int[] LayerIndexCache = Enumerable.Repeat(-1, 10).ToArray();
+        private static bool _layerIndexReady;
+
+        private static void InitLayerIndexCache()
+        {
+            foreach (WindowLayer layer in Enum.GetValues(typeof(WindowLayer)))
+                LayerIndexCache[(int)layer] = UILayerTable.Index(layer.ToString());
+
+            _layerIndexReady = true;
+
+            var missing = UILayerTable.MissingDefaultNames();
+            if (missing.Count > 0)
+            {
+                Debug.LogError(
+                    "UI 层表缺少默认层：" + string.Join("、", missing) +
+                    "。按层名查找的 API（HasWindow / ExistOtherWindow* / HitTest / OpenHud、OpenWindow 等角色方法）会失效。" +
+                    "请在 HYC Settings → UI/层级 改回默认层名，或改用设置页「保存并生成」产出的 UILayer 常量与 Open 方法。");
+            }
+        }
+
+        /// <summary>默认层名 → 当前层表下标；层名不存在时返回 -1（相等判断永不命中）。</summary>
+        private static int LayerIndex(WindowLayer layer)
+        {
+            if (!_layerIndexReady)
+                InitLayerIndexCache();
+            return LayerIndexCache[(int)layer];
         }
 
         private static Camera ResolveUICamera()
@@ -232,92 +272,172 @@ namespace HYC.Framework.UI
             return UICamera != null ? UICamera : Camera.main;
         }
 
+        // ---- 角色 Open 方法：默认 10 层的快捷方式，层号按层名在层表里现查 ----
+        // 层名被改过时 LayerIndex 返回 -1，这里统一退化为「打不开」并报一条错误（不静默开到底层）。
+        // 自定义层 / 改过名的层请用 Open<T>(layer, …) 或设置页「保存并生成」产出的方法。
+
+        /// <summary>打开 HUD 层 UI（默认层名 "HUD"）。</summary>
         public static T OpenHud<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.HUD, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.HUD), Type, uISystemType);
         }
 
+        /// <summary>打开 HUDNotice 层 UI（默认层名 "HUDNotice"）。</summary>
         public static T OpenHudNotice<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.HUDNotice, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.HUDNotice), Type, uISystemType);
         }
 
+        /// <summary>打开 HUDNotice 层 UI（非泛型重载）。</summary>
         public static AbsUISystem OpenHudNotice(Type type, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal)
         {
-            return Open(type, WindowLayer.HUDNotice, Type, uISystemType);
+            return Open(type, LayerIndex(WindowLayer.HUDNotice), Type, uISystemType);
         }
 
+        /// <summary>打开 HUDNotice 层单例 UI（<see cref="UISystemType.Single"/>，默认层名 "HUDNotice"）。</summary>
         public static T OpenHudSingleNotice<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Single) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.HUDNotice, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.HUDNotice), Type, uISystemType);
         }
 
+        /// <summary>打开 Window 层 UI（默认层名 "Window"）。</summary>
         public static T OpenWindow<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.Window, Type, uISystemType, args) as T;
+            return Open<T>(LayerIndex(WindowLayer.Window), Type, uISystemType, args);
         }
 
+        /// <summary>打开 Window 层 UI，并关掉该层其它窗口（默认层名 "Window"）。</summary>
         public static T OpenWindowAndCloseOther<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args) where T : AbsUISystem
         {
-            var windows = LayerViews[(int)WindowLayer.Window];
-            for (var i = windows.Count - 1; i >= 0; i--)
+            var layer = LayerIndex(WindowLayer.Window);
+            if (layer >= 0)
             {
-                var win = windows[i];
-                if (win.GetType() != typeof(T))
-                    Close(win);
+                var windows = LayerViews[layer];
+                for (var i = windows.Count - 1; i >= 0; i--)
+                {
+                    var win = windows[i];
+                    if (win.GetType() != typeof(T))
+                        Close(win);
+                }
             }
 
-            return Open<T>(WindowLayer.Window, Type, uISystemType, args) as T;
+            return Open<T>(layer, Type, uISystemType, args);
         }
 
+        /// <summary>打开 WindowNotice 层 UI（默认层名 "WindowNotice"）。</summary>
         public static T OpenWindowNotice<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.WindowNotice, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.WindowNotice), Type, uISystemType);
         }
 
+        /// <summary>打开 Dialog 层 UI（默认层名 "Dialog"）。</summary>
         public static T OpenDialog<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.Dialog, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.Dialog), Type, uISystemType);
         }
 
+        /// <summary>打开 TopWindow 层 UI（默认层名 "TopWindow"）。</summary>
         public static T OpenTopWindow<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.TopWindow, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.TopWindow), Type, uISystemType);
         }
 
+        /// <summary>打开 Loading 层 UI（默认层名 "Loading"）。</summary>
         public static T OpenLoading<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.Loading, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.Loading), Type, uISystemType);
         }
 
+        /// <summary>打开 Cursor 层 UI（默认层名 "Cursor"）。</summary>
         public static T OpenCursor<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.Cursor, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.Cursor), Type, uISystemType);
         }
 
+        /// <summary>打开 Mask 层 UI（默认层名 "Mask"）。</summary>
         public static T OpenMask<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.Mask, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.Mask), Type, uISystemType);
         }
 
+        /// <summary>打开 ToolTip 层 UI（默认层名 "ToolTip"）。</summary>
         public static T OpenToolTip<T>(WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal) where T : AbsUISystem
         {
-            return Open<T>(WindowLayer.ToolTip, Type, uISystemType) as T;
+            return Open<T>(LayerIndex(WindowLayer.ToolTip), Type, uISystemType);
         }
 
+        /// <summary>打开 ToolTip 层 UI（非泛型重载）。</summary>
         public static AbsUISystem OpenToolTip(Type type, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal)
         {
-            return Open(type, WindowLayer.ToolTip, Type, uISystemType);
+            return Open(type, LayerIndex(WindowLayer.ToolTip), Type, uISystemType);
         }
 
+        /// <summary>Window / Dialog 层是否有开着的窗口。</summary>
         public static bool HasWindow()
         {
-            var windowLayer = (int)WindowLayer.Window;
-            var dialogLayer = (int)WindowLayer.Dialog;
+            var windowLayer = LayerIndex(WindowLayer.Window);
+            var dialogLayer = LayerIndex(WindowLayer.Dialog);
 
-            return LayerViews[windowLayer].Count > 0 || LayerViews[dialogLayer].Count > 0;
+            return (windowLayer >= 0 && LayerViews[windowLayer].Count > 0) ||
+                   (dialogLayer >= 0 && LayerViews[dialogLayer].Count > 0);
         }
 
+        /// <summary>在指定层打开 UI（通用入口，层号取自层表；生成产物 <c>UILayer</c> 提供具名常量）。</summary>
+        /// <param name="layer">层表下标，0 在最底。越界或层表为空时记错误并返回 null。</param>
+        public static T Open<T>(int layer, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args) where T : AbsUISystem
+        {
+            return Open(typeof(T), layer, Type, uISystemType, args) as T;
+        }
+
+        /// <summary>在指定层打开 UI（非泛型重载）。</summary>
+        /// <param name="layer">层表下标，0 在最底。越界或层表为空时记错误并返回 null。</param>
+        public static AbsUISystem Open(Type type, int layer, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args)
+        {
+            if (LayerViews == null || layer < 0 || layer >= LayerViews.Count)
+            {
+                Debug.LogError($"打开 UI 失败：层号 {layer} 不存在（当前层表共 {LayerViews?.Count ?? 0} 层）。" +
+                               "层号请用设置页「保存并生成」产出的 UILayer 常量。");
+                return null;
+            }
+
+            var world = World.DefaultGameObjectInjectionWorld;
+            var group = GetSystemGroup(type);
+            var window = world.GetOrCreateSystemManaged(type) as AbsUISystem;
+            var windowState = GetWindowState(window);
+
+            window.UISystemType = uISystemType;
+
+            group.AddSystemToUpdateList(window);
+            group.SortSystems();
+
+            //Remove from the previous layer.
+            foreach (var LayerCurr in LayerViews)
+            {
+                if (LayerCurr.Contains(window))
+                {
+                    LayerCurr.Remove(window);
+                    break;
+                }
+            }
+
+            //Append to the target layer.
+            LayerViews[layer].Add(window);
+
+            //Move under the target layer node.
+            if (windowState.Canvas != null)
+                windowState.Canvas.transform.SetParent(LayerNodes[layer]);
+
+            //Record the window layer.
+            windowState.Layer = layer;
+
+            //Load the prefab.
+            if (windowState.View == null && !windowState.ViewLoadOperation.IsValid())
+            {
+                LoadSceenBegin(window, Type, args);
+            }
+
+            return window;
+        }
         public static bool IsOpen<T>() where T : AbsUISystem
         {
             var world = World.DefaultGameObjectInjectionWorld;
@@ -370,53 +490,6 @@ namespace HYC.Framework.UI
                 group = world.GetExistingSystemManaged<UIGroup>();
 
             return group;
-        }
-
-        /// <summary>Open. Generic overload.</summary>
-        private static AbsUISystem Open<T>(WindowLayer layer, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args) where T : AbsUISystem
-        {
-            return Open(typeof(T), layer, Type, uISystemType, args);
-        }
-
-        private static AbsUISystem Open(Type type, WindowLayer layer, WindowCanvasType Type = WindowCanvasType.Normal, UISystemType uISystemType = UISystemType.Normal, params object[] args)
-        {
-            var world = World.DefaultGameObjectInjectionWorld;
-            var group = GetSystemGroup(type);
-            var window = world.GetOrCreateSystemManaged(type) as AbsUISystem;
-            var windowState = GetWindowState(window);
-
-            window.UISystemType = uISystemType;
-
-            group.AddSystemToUpdateList(window);
-            group.SortSystems();
-
-            //Remove from the previous layer.
-            foreach (var LayerCurr in LayerViews)
-            {
-                if (LayerCurr.Contains(window))
-                {
-                    LayerCurr.Remove(window);
-                    break;
-                }
-            }
-
-            //Append to the target layer.
-            LayerViews[(int)layer].Add(window);
-
-            //Move under the target layer node.
-            if (windowState.Canvas != null)
-                windowState.Canvas.transform.SetParent(LayerNodes[(int)layer]);
-
-            //Record the window layer.
-            windowState.Layer = layer;
-
-            //Load the prefab.
-            if (windowState.View == null && !windowState.ViewLoadOperation.IsValid())
-            {
-                LoadSceenBegin(window, Type, args);
-            }
-
-            return window;
         }
 
         private static void LoadSceenBegin(AbsUISystem window, WindowCanvasType Type = WindowCanvasType.Normal, params object[] args)
@@ -598,21 +671,20 @@ namespace HYC.Framework.UI
 
         public static void HideAllUI()
         {
-            var index = 0;
-
-            foreach (var Views in LayerViews)
+            // 逐层问层表的 hideOnHideAll 标记：勾了的层一起隐藏，没勾的层（Loading / Cursor / Mask 这类
+            // 常驻层）原样留着。原实现按「层号 >= Loading」跳过，且 continue 漏了 index++（靠 LayerViews
+            // 恰好有序才没出错）；改成按标记判断后顺序无关，也不会再漏计数。
+            for (var i = 0; i < LayerViews.Count; i++)
             {
-                var layer = (WindowLayer)index;
-                if (layer >= WindowLayer.Loading)
+                if (!UILayerTable.HiddenOnHideAll(i))
                     continue;
 
-                foreach (var View in Views)
+                foreach (var View in LayerViews[i])
                 {
                     View.Hide();
                 }
-
-                index++;
             }
+
             IsHideAllUI = true;
         }
 
@@ -887,12 +959,14 @@ namespace HYC.Framework.UI
                 hasWindow = true;
 
             //A window exists.
+            var windowLayer = LayerIndex(WindowLayer.Window);
+            var dialogLayer = LayerIndex(WindowLayer.Dialog);
             foreach (var layer in LayerViews)
             {
                 foreach (var window in layer)
                 {
                     var state = GetWindowState(window);
-                    if (state.Layer == WindowLayer.Window || state.Layer == WindowLayer.Dialog)
+                    if (state.Layer == windowLayer || state.Layer == dialogLayer)
                     {
                         hasWindow = true;
                         break;
@@ -906,24 +980,25 @@ namespace HYC.Framework.UI
                 hasWindow = true;
             }
 
-            foreach (var layer in LayerViews)
+            // HUD 组的层读层表的 hud 标记（不按名），改名 / 插层后自动跟随。
+            for (var i = 0; i < LayerViews.Count; i++)
             {
-                foreach (var window in layer)
+                if (!UILayerTable.IsHud(i))
+                    continue;
+
+                foreach (var window in LayerViews[i])
                 {
                     var state = GetWindowState(window);
-                    if (state.Layer == WindowLayer.HUD || state.Layer == WindowLayer.HUDNotice)
-                    {
-                        if (state.Canvas != null)
-                            state.Canvas.enabled = !hasWindow;
-                        if (state.CanvasRaycaster != null)
-                            state.CanvasRaycaster.enabled = !hasWindow;
+                    if (state.Canvas != null)
+                        state.Canvas.enabled = !hasWindow;
+                    if (state.CanvasRaycaster != null)
+                        state.CanvasRaycaster.enabled = !hasWindow;
 
-                        if (hasWindow && state.View != null)
-                        {
-                            var particles = state.View.GetComponentsInChildren<ParticleSystem>();
-                            foreach (var particle in particles)
-                                particle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        }
+                    if (hasWindow && state.View != null)
+                    {
+                        var particles = state.View.GetComponentsInChildren<ParticleSystem>();
+                        foreach (var particle in particles)
+                            particle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     }
                 }
             }
@@ -957,10 +1032,8 @@ namespace HYC.Framework.UI
         /// <summary>Reset UI input (routed to navigate mode).</summary>
         private static void ResetGUIInput()
         {
-            var max = (int)WindowLayer.Mask;
-            var min = (int)WindowLayer.HUD;
-
-            for (var i = max; i >= min; i--)
+            // 从最顶层往下找第一个可聚焦窗口：层数由层表决定，不再假定"最后一个是 Mask、第一个是 HUD"。
+            for (var i = LayerViews.Count - 1; i >= 0; i--)
             {
                 foreach (var view in LayerViews[i])
                 {
@@ -1118,6 +1191,10 @@ namespace HYC.Framework.UI
         /// <summary>Whether another Window/Dialog/TopWindow exists.</summary>
         public static bool ExistOtherWindowOrDialog<T>() where T : AbsUISystem
         {
+            var windowLayer = LayerIndex(WindowLayer.Window);
+            var dialogLayer = LayerIndex(WindowLayer.Dialog);
+            var topWindowLayer = LayerIndex(WindowLayer.TopWindow);
+
             foreach (var layer in LayerViews)
             {
                 foreach (var window in layer)
@@ -1127,7 +1204,7 @@ namespace HYC.Framework.UI
                         continue;
                     }
                     var state = GetWindowState(window);
-                    if (state.Layer == WindowLayer.Window || state.Layer == WindowLayer.Dialog || state.Layer == WindowLayer.TopWindow)
+                    if (state.Layer == windowLayer || state.Layer == dialogLayer || state.Layer == topWindowLayer)
                     {
                         return true;
                     }
@@ -1139,6 +1216,8 @@ namespace HYC.Framework.UI
         /// <summary>Whether another Window exists.</summary>
         public static bool ExistOtherWindow<T>() where T : AbsUISystem
         {
+            var windowLayer = LayerIndex(WindowLayer.Window);
+
             foreach (var layer in LayerViews)
             {
                 foreach (var window in layer)
@@ -1148,7 +1227,7 @@ namespace HYC.Framework.UI
                         continue;
                     }
                     var state = GetWindowState(window);
-                    if (state.Layer == WindowLayer.Window)
+                    if (state.Layer == windowLayer)
                     {
                         return true;
                     }
@@ -1161,7 +1240,9 @@ namespace HYC.Framework.UI
         private class WindowState
         {
             public AbsUISystem Window;
-            public WindowLayer Layer;
+
+            /// <summary>所在层在层表里的下标（<see cref="UILayerTable"/> 的下标，-1 = 无）。</summary>
+            public int Layer;
             public string SceneKey;
             public AsyncOperationHandle<GameObject> ViewLoadOperation;
             public Canvas Canvas;
@@ -1170,7 +1251,11 @@ namespace HYC.Framework.UI
             public ViewAnimationHook ViewAnimationHook;
         }
 
-        /// <summary>Window layers.</summary>
+        /// <summary>
+        /// 默认层名表（顺序即默认层级）。仅用于把「按默认层名查找」的 API 解析到层表下标：
+        /// 实际层集合是数据（<see cref="UILayerTable"/>），可增删改名与拖动排序，
+        /// 名字对不上时 <see cref="LayerIndex"/> 返回 -1（相等判断不命中），并在初始化时一次性报错。
+        /// </summary>
         private enum WindowLayer
         {
             HUD,
@@ -1193,22 +1278,25 @@ namespace HYC.Framework.UI
 
         /// <summary>
         /// Whether the given screen-space point hits any interactive object.
+        /// 逐层问层表的 blockInput 标记（不按名）：默认在 Loading / Dialog / Window 三层判定，
+        /// 增层或改名后在设置页勾「挡输入」即可纳入。
         /// </summary>
         public static bool HitTest(Vector2 point)
         {
-            if (HitTest(WindowLayer.Loading, point))
-                return true;
-            if (HitTest(WindowLayer.Dialog, point))
-                return true;
-            if (HitTest(WindowLayer.Window, point))
-                return true;
+            for (var i = LayerViews.Count - 1; i >= 0; i--)
+            {
+                if (!UILayerTable.BlocksInput(i))
+                    continue;
+                if (HitTestLayer(i, point))
+                    return true;
+            }
 
             return false;
         }
 
-        private static bool HitTest(WindowLayer layer, Vector2 point)
+        private static bool HitTestLayer(int layer, Vector2 point)
         {
-            var windowList = LayerViews[(int)layer];
+            var windowList = LayerViews[layer];
 
             for (int i = windowList.Count - 1; i >= 0; i--)
             {

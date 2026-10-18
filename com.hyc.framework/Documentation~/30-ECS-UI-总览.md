@@ -32,19 +32,19 @@
 | `BaseDialogSystem` / `<T>` | Runtime | 弹窗层基类（`Focusable = true`） |
 | `BaseHudSystem` / `<T>` | Runtime | HUD 基类（**`Focusable = false`**） |
 | `BaseLoadingSystem` / `<T>` | Runtime | Loading 基类（`Focusable = false`） |
-| `AbsParentBaseWindowSystem` | Runtime | 能开子窗口的父窗口 |
-| `BaseWindowPart` / `<T>` | Runtime | 可复用窗口部件（挂在父窗口节点下） |
+| `UIMode` | Runtime | `TopLevel` / `Embedded`：UI 实例的挂载形态（由 `UIManager.OpenWindow` 或宿主 `Open` 决定） |
 | `UIGroup` | Runtime | 默认系统组，`[UpdateInGroup(typeof(LateSimulationSystemGroup))]` |
 | `IComponentBinder` | Runtime | 生成的绑定类协议：`Reset(GameObject)` |
 | `BinderEngine` | Runtime | 运行时按路径解析组件 |
 | `ComponentBinderTable` | Runtime | 编辑器侧 authoring 组件（`[AddComponentMenu("HYC Framework/UI/UI 元素绑定")]`） |
 | `UIAnimationHook` | Runtime | Animator 动画事件桥接 |
+| `UILayerTable` | Runtime | UI 层表的运行期门面（`FrameworkSettings.uiLayers`）：层名→下标、HUD/挡输入/全隐藏标记、默认 10 层兜底 |
 
 ---
 
-## 层级（WindowLayer）
+## 层级（层表，原 WindowLayer 枚举）
 
-`UIManager` 内部的**私有枚举**，顺序即层级（数值越大越靠前）：
+层集合是**数据**：`FrameworkSettings.uiLayers`（Resources 资产，出包生效），在 **HYC Settings → UI/层级** 增删改名、拖动排序；下表是默认 10 层，顺序即层级（数值越大越靠前）：
 
 | # | 层 | 打开 API | 说明 |
 | --- | --- | --- | --- |
@@ -58,6 +58,8 @@
 | 7 | `Loading` | `OpenLoading<T>()` | 加载遮罩 |
 | 8 | `Cursor` | `OpenCursor<T>()` | 光标 |
 | 9 | `Mask` | `OpenMask<T>()` | 最上层遮罩 |
+
+这些角色 Open 方法**按默认层名**在层表里现查下标：层名被改掉时下标为 -1，退化为「打不开」且初始化时一次性报错——自定义层 / 改过名的层请用设置页「保存并生成」产出的 `UILayer` 常量与 `OpenXxx<T>()`，或通用入口 `Open<T>(int layer, …)`。详见 [31-窗口系统.md](./31-窗口系统.md) 第十一节。
 
 **sortingOrder 计算**：`i * 1000 + j`（`i` 从 1 开始，`j` 是层内按 `Order` 排序后的序号，也从 1 开始）。
 所以单层的窗口数量**不要超过 999**，否则会串到下一层的号段。

@@ -13,6 +13,7 @@
 // ============================================================
 
 using System.Collections.Generic;
+using HYC.Framework.Editor;
 using HYC.Framework.Talent;
 using UnityEditor;
 using UnityEngine;
@@ -27,9 +28,11 @@ namespace HYC.Framework.Talent.Editor
         [HideInInspector] public TalentTreeAsset asset;
         [HideInInspector] public List<int> selectedIds = new List<int>();
 
-        public string outputFolder = "Assets/Talent/Generated";
+        public string outputFolder = GeneratedPaths.Talent;
         public string classNamePrefix = "MyTree";
-        public string namespaceName = "HYC.Framework.Talent.Generated";
+        /// <summary>生成代码命名空间：由 HYC Settings 的「生成代码命名空间 root」派生（<c>{root}.Talent</c>），
+        /// 在 <see cref="Show"/> 里填（静态属性不能做字段初始值）；域重载丢失时 OnWizardUpdate 兜底重填。</summary>
+        public string namespaceName;
         public bool onlySelectedNodes = false;
 
         private string _error;
@@ -48,6 +51,8 @@ namespace HYC.Framework.Talent.Editor
             var w = DisplayWizard<TalentGenerateWizard>("生成天赋树代码 / UI", "生成");
             w.asset = asset;
             w.selectedIds = _pendingSelected;
+            w.outputFolder = GeneratedPaths.Talent;
+            w.namespaceName = HYCSettings.TalentCodeNamespace;
             w.classNamePrefix = TalentCodeGenerator.SanitizePrefix(
                 string.IsNullOrEmpty(asset.displayName) ? asset.name : asset.displayName);
             w.classNamePrefix = string.IsNullOrEmpty(w.classNamePrefix) ? "Talent" : w.classNamePrefix;
@@ -57,6 +62,8 @@ namespace HYC.Framework.Talent.Editor
         {
             if (asset == null) asset = _pendingAsset;          // 兜底
             if (selectedIds == null) selectedIds = _pendingSelected;
+            if (string.IsNullOrEmpty(outputFolder)) outputFolder = GeneratedPaths.Talent;
+            if (string.IsNullOrEmpty(namespaceName)) namespaceName = HYCSettings.TalentCodeNamespace;
 
             _error = null;
             if (asset == null)

@@ -117,11 +117,10 @@ namespace HYC.Framework.Loc
                 Debug.LogException(e);
             }
 
-#if UNITY_EDITOR
-            var textComponents = UnityEngine.Object.FindObjectsOfType<LocalizedBase>();
-            foreach (var component in textComponents)
-                component.Refresh();
-#endif
+            // 曾在此处（仅编辑器）补一次 FindObjectsOfType<LocalizedBase> 全场景强制刷新。
+            // 已移除：onLanguageChanged 会刷新所有已启用组件（LocalizedBase.OnEnable 订阅），
+            // 而组件重新激活时 OnEnable 自身也会 Refresh —— 两条路径已覆盖全部场景，
+            // 全场景扫描只是重复劳动，且开销随场景对象数线性增长。
         }
 
         #region 文件读取

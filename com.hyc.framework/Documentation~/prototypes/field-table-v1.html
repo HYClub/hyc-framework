@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>模板编辑器字段表 v1 — 表头深色带 + 宽松行距</title>
+<style>
+  :root {
+    --bg-window: #2b2b2b;        /* Unity 深色检查器窗口底 */
+    --bg-band: #1c1c1c;          /* 表头深色带 */
+    --bg-row: #2b2b2b;
+    --bg-row-alt: #2e2e2e;
+    --bg-row-hover: #343434;
+    --bg-ctrl: #3b3b3b;          /* 控件底（Popup/输入框） */
+    --bg-ctrl-hover: #474747;
+    --line: #1a1a1a;             /* 控件描边 */
+    --line-soft: #232323;        /* 行间发丝线 */
+    --line-divider: #4a4a4a;     /* 区块分割线 */
+    --txt: #d6d6d6;
+    --txt-dim: #7d7d7d;          /* 基类只读行 */
+    --txt-faint: #565656;
+    --accent: #4a7eba;           /* Unity 焦点蓝 */
+    --note: #d8c08a;             /* 批注序号 */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1f1f1f;
+    font: 13px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, sans-serif;
+    color: var(--txt);
+    padding: 28px 20px 40px;
+  }
+  .wrap { width: 1180px; margin: 0 auto; }
+  h1 { font-size: 15px; font-weight: 600; color: #e8e8e8; margin-bottom: 4px; }
+  .sub { font-size: 12px; color: #8a8a8a; margin-bottom: 18px; }
+
+  /* ===== 检查器窗口 ===== */
+  .inspector {
+    background: var(--bg-window);
+    border: 1px solid #161616;
+    border-radius: 3px;
+    padding: 10px 12px 12px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+
+  /* ===== 常驻头部区（示意，非本次重点） ===== */
+  .head-row { display: flex; align-items: center; gap: 10px; padding: 6px 2px 10px; }
+  .icon {
+    width: 64px; height: 64px; flex: none;
+    background: #383838 repeating-linear-gradient(45deg,#333 0 6px,#3a3a3a 6px 12px);
+    border: 1px solid #1c1c1c; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    color: #666; font-size: 11px;
+  }
+  .head-fields { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .hf { display: flex; align-items: center; gap: 8px; }
+  .hf label { width: 84px; text-align: right; color: #b9b9b9; flex: none; }
+  .hf .val { flex: 1; color: #e2e2e2; }
+  .hf .base-tpl {
+    background: var(--bg-ctrl); border: 1px solid var(--line); border-radius: 2px;
+    padding: 3px 8px; color: #cfcfcf; font-size: 12px;
+  }
+  .hf .base-tpl .ic { color: #6a9fd8; margin-right: 5px; }
+  .btn-mini {
+    background: var(--bg-ctrl); border: 1px solid var(--line); border-radius: 2px;
+    color: #d0d0d0; font-size: 12px; padding: 3px 12px; cursor: default;
+  }
+  .btn-mini:hover { background: var(--bg-ctrl-hover); }
+
+  /* ===== 字段表 ===== */
+  .ftable { margin-top: 6px; border: 1px solid #1c1c1c; border-radius: 2px; overflow: visible; }
+
+  /* 表头：深色底带 */
+  .fthead {
+    position: relative;
+    display: flex; align-items: center;
+    height: 30px;                       /* ① 原来 ~18px 裸文字 */
+    background: var(--bg-band);         /* ① 深色底 */
+    border-bottom: 1px solid #101010;
+    font-weight: 600; color: #c9c9c9;
+    letter-spacing: .02em;
+  }
+  .fthead .c { padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fthead .c:last-child { text-align: center; }
+
+  /* 列宽（提案） */
+  .c-name   { width: 12%; }
+  .c-desc   { width: 20%; }
+  .c-type   { width: 11%; }
+  .c-list   { width: 4%;  text-align: center; }
+  .c-expc   { width: 13%; }
+  .c-exps   { width: 13%; }
+  .c-check  { width: 20%; }
+  .c-ops    { width: 7%;  text-align: center; }
+
+  /* 行 */
+  .frow {
+    position: relative;
+    display: flex; align-items: center;
+    height: 34px;                       /* ② 原来 ~20px */
+    background: var(--bg-row);
+    border-bottom: 1px solid var(--line-soft);   /* ② 行间发丝线 */
+  }
+  .frow:hover { background: var(--bg-row-hover); }
+  .frow .c { padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .frow .c-name { color: #e0e0e0; }
+  .frow .c-desc { color: #a3a3a3; }
+
+  /* 基类只读行 */
+  .frow.readonly { background: #292929; }
+  .frow.readonly:hover { background: #2d2d2d; }
+  .frow.readonly .c { color: var(--txt-dim); }
+  .frow.readonly .src { color: var(--txt-faint); font-size: 11px; margin-left: 6px; }
+
+  /* 区块分割线（基类 ↔ 自身） */
+  .divider { height: 2px; background: var(--line-divider); margin: 5px 0; }  /* ③ */
+
+  /* ===== 控件（Unity 深色风） ===== */
+  .popup, .txt, .chk {
+    display: inline-flex; align-items: center;
+    height: 22px;                       /* ② 控件随行高一起放宽 */
+    background: var(--bg-ctrl);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: #d2d2d2; font-size: 12px;
+    padding: 0 6px;
+    max-width: 100%;
+  }
+  .popup { cursor: default; justify-content: space-between; gap: 8px; min-width: 96px; }
+  .popup:hover { background: var(--bg-ctrl-hover); }
+  .popup .arrow { color: #9a9a9a; font-size: 9px; flex: none; }
+  .popup.wide { min-width: 120px; }
+  .txt { width: 100%; min-width: 0; color: #e0e0e0; }
+  .txt::placeholder { color: #6d6d6d; }
+  .tog {
+    width: 15px; height: 15px; border-radius: 2px;
+    background: #3b3b3b; border: 1px solid #1a1a1a;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #9ecbff; font-size: 11px; line-height: 1;
+  }
+  .tog.on { background: #4a7eba; border-color: #2f5a8a; color: #fff; }
+
+  /* 检查下拉按钮 + Min/Max */
+  .checkcell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .chk { justify-content: space-between; gap: 10px; width: 108px; flex: none; }
+  .chk .arrow { color: #9a9a9a; font-size: 9px; }
+  .chk.warn { color: #e3c08a; }
+  .chk.err  { color: #e38a8a; }
+  .mm { display: flex; align-items: center; gap: 5px; flex: none; }
+  .mm label { color: #9a9a9a; font-size: 11px; }
+  .mm .txt { width: 56px; height: 22px; text-align: center; padding: 0 4px; }
+
+  /* 操作按钮 */
+  .ops { display: flex; gap: 4px; justify-content: center; }
+  .op {
+    width: 22px; height: 22px;
+    background: var(--bg-ctrl); border: 1px solid var(--line); border-radius: 2px;
+    color: #b4b4b4; font-size: 12px; line-height: 20px; text-align: center;
+  }
+  .op:hover { background: var(--bg-ctrl-hover); color: #e6e6e6; }
+
+  /* 展开明细（示意一行） */
+  .detail { background: #262626; border-bottom: 1px solid var(--line-soft); padding: 8px 12px 10px 34px; }
+  .detail .dl { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .detail .dl:first-child { margin-top: 0; }
+  .detail label { width: 56px; color: #a8a8a8; flex: none; }
+  .detail .hint { color: #6f6f6f; font-size: 11px; }
+
+  /* + 添加字段 */
+  .addrow { padding: 8px 10px; background: var(--bg-row); }
+  .btn-add {
+    background: var(--bg-ctrl); border: 1px solid var(--line); border-radius: 2px;
+    color: #d0d0d0; font-size: 12px; padding: 4px 14px; cursor: default;
+  }
+  .btn-add:hover { background: var(--bg-ctrl-hover); }
+
+  /* ===== 检查下拉菜单（展开态，演示类型感知） ===== */
+  .menu {
+    position: absolute; z-index: 20;
+    top: 100%; left: 10px; margin-top: 2px;
+    min-width: 128px;
+    background: #383838; border: 1px solid #171717; border-radius: 3px;
+    box-shadow: 0 8px 22px rgba(0,0,0,.55);
+    padding: 4px 0; font-size: 12px;
+  }
+  .mi { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 5px 12px 5px 10px; color: #d4d4d4; }
+  .mi:hover { background: #4a7eba; color: #fff; }
+  .mi .ck { color: #9ecbff; font-size: 11px; }
+  .mi:hover .ck { color: #fff; }
+  .mi .sub { color: #9a9a9a; font-size: 9px; }
+  .mi:hover .sub { color: #fff; }
+  .mi.dim { color: #6f6f6f; }
+  .mi.dim:hover { background: #383838; color: #6f6f6f; }
+  .msep { height: 1px; background: #222; margin: 4px 0; }
+  /* 二级子菜单 */
+  .submenu {
+    position: absolute; z-index: 21;
+    top: -5px; left: 100%; margin-left: 2px;
+    min-width: 104px;
+    background: #383838; border: 1px solid #171717; border-radius: 3px;
+    box-shadow: 0 8px 22px rgba(0,0,0,.55);
+    padding: 4px 0;
+  }
+  .submenu .mi { padding: 5px 12px; }
+  .submenu .mi .ck { margin-left: auto; }
+
+  /* ===== 批注 ===== */
+  .anno {
+    position: absolute; z-index: 30;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #d8c08a; color: #2b2b2b;
+    font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+    box-shadow: 0 0 0 2px rgba(216,192,138,.25);
+    cursor: default;
+  }
+  .legend {
+    margin: 18px auto 0; width: 1180px;
+    background: #262626; border: 1px solid #333; border-radius: 3px;
+    padding: 12px 16px; font-size: 12px; color: #b5b5b5;
+  }
+  .legend li { list-style: none; margin: 5px 0; display: flex; gap: 8px; align-items: baseline; }
+  .legend .n {
+    flex: none; width: 17px; height: 17px; border-radius: 50%;
+    background: #d8c08a; color: #2b2b2b; font-size: 11px; font-weight: 700;
+    line-height: 17px; text-align: center;
+  }
+  .legend b { color: #e0d0a8; font-weight: 600; }
+  .legend code { background: #1f1f1f; border: 1px solid #333; border-radius: 2px; padding: 0 5px; color: #9ecbff; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>模板编辑器 · 字段表 v1（提案稿，未落代码）</h1>
+  <div class="sub">表头深色底带 + 行高/列宽放宽。深色主题。点击无交互，静态预览。</div>
+
+  <div class="inspector">
+    <!-- 常驻头部区（示意从简） -->
+    <div class="head-row">
+      <div class="icon">无图标</div>
+      <div class="head-fields">
+        <div class="hf"><label>Display Name</label><span class="val">掉落</span></div>
+        <div class="hf"><label>Class Name</label><span class="val">DropConfig</span><span class="btn-mini">改名…</span></div>
+        <div class="hf"><label>基类模板</label><span class="base-tpl"><span class="ic">◆</span>ConfigBase (Config Template)</span></div>
+      </div>
+    </div>
+
+    <!-- ============ 字段表 ============ -->
+    <div class="ftable">
+
+      <!-- 表头：深色底带 -->
+      <div class="fthead">
+        <span class="anno" style="top:-8px; left:56px;">1</span>
+        <div class="c c-name">字段名</div>
+        <div class="c c-desc">描述</div>
+        <div class="c c-type">类型</div>
+        <div class="c c-list">列表</div>
+        <div class="c c-expc">客户端导出</div>
+        <div class="c c-exps">服务端导出</div>
+        <div class="c c-check">检查</div>
+        <div class="c c-ops">操作</div>
+      </div>
+
+      <!-- 基类只读行 -->
+      <div class="frow readonly">
+        <span class="anno" style="top:8px; left:-9px;">3</span>
+        <div class="c c-name">ID<span class="src">(ConfigBase)</span></div>
+        <div class="c c-desc">配置唯一ID·禁止手填·须由 ConfigIdS… Long</div>
+        <div class="c c-type">Long</div>
+        <div class="c c-list"></div>
+        <div class="c c-expc"></div>
+        <div class="c c-exps"></div>
+        <div class="c c-check"></div>
+        <div class="c c-ops"></div>
+      </div>
+      <div class="frow readonly">
+        <div class="c c-name">GUID<span class="src">(ConfigBase)</span></div>
+        <div class="c c-desc">配置唯一GUID·禁止手填·须由 ConfigS… String</div>
+        <div class="c c-type">String</div>
+        <div class="c c-list"></div>
+        <div class="c c-expc"></div>
+        <div class="c c-exps"></div>
+        <div class="c c-check"></div>
+        <div class="c c-ops"></div>
+      </div>
+
+      <!-- 区块分割线 -->
+      <div class="divider"></div>
+
+      <!-- 自身字段行 -->
+      <div class="frow">
+        <div class="c c-name">ItemId</div>
+        <div class="c c-desc" title="掉什么 (ItemId)">掉什么 (ItemId)</div>
+        <div class="c c-type"><span class="popup wide">道具 (ItemId)<span class="arrow">▾</span></span></div>
+        <div class="c c-list"><span class="tog"></span></div>
+        <div class="c c-expc"><span class="popup wide">取成员 ID (long)<span class="arrow">▾</span></span></div>
+        <div class="c c-exps"><span class="popup wide">取成员 ID (long)<span class="arrow">▾</span></span></div>
+        <div class="c c-check"><div class="checkcell"><span class="chk">不检查<span class="arrow">▾</span></span></div></div>
+        <div class="c c-ops"><div class="ops"><span class="op">↑</span><span class="op">↓</span><span class="op">×</span></div></div>
+      </div>
+
+      <div class="frow">
+        <div class="c c-name">Chance</div>
+        <div class="c c-desc">掉落概率 0~1</div>
+        <div class="c c-type"><span class="popup wide">Float<span class="arrow">▾</span></span></div>
+        <div class="c c-list"><span class="tog"></span></div>
+        <div class="c c-expc"><span class="popup wide">直接导出(Float)<span class="arrow">▾</span></span></div>
+        <div class="c c-exps"><span class="popup wide">直接导出(Float)<span class="arrow">▾</span></span></div>
+        <!-- 检查列：下拉展开态（Float=数值 → 菜单无「非空」） -->
+        <div class="c c-check">
+          <div class="checkcell">
+            <span class="chk">不检查<span class="arrow">▴</span></span>
+            <span class="anno" style="position:static; box-shadow:none;">2</span>
+          </div>
+          <div class="menu" style="left:0;">
+            <div class="mi">不检查<span class="ck">✓</span></div>
+            <div class="msep"></div>
+            <div class="mi">非0<span class="sub">▸</span>
+              <div class="submenu">
+                <div class="mi">Info</div>
+                <div class="mi">Warning</div>
+                <div class="mi">Error</div>
+              </div>
+            </div>
+            <div class="mi">范围<span class="sub">▸</span>
+              <div class="submenu" style="top:34px;">
+                <div class="mi">Info</div>
+                <div class="mi">Warning</div>
+                <div class="mi">Error</div>
+              </div>
+            </div>
+            <div class="msep"></div>
+            <div class="mi dim">非空<span style="font-size:10px;">（值类型无此项）</span></div>
+          </div>
+        </div>
+        <div class="c c-ops"><div class="ops"><span class="op">↑</span><span class="op">↓</span><span class="op">×</span></div></div>
+      </div>
+
+      <div class="frow">
+        <div class="c c-name">Weight</div>
+        <div class="c c-desc">同 Actor 多条时的权重</div>
+        <div class="c c-type"><span class="popup wide">Int<span class="arrow">▾</span></span></div>
+        <div class="c c-list"><span class="tog"></span></div>
+        <div class="c c-expc"><span class="popup wide">直接导出(Int)<span class="arrow">▾</span></span></div>
+        <div class="c c-exps"><span class="popup wide">直接导出(Int)<span class="arrow">▾</span></span></div>
+        <!-- 范围选中态：Min/Max 内联 -->
+        <div class="c c-check">
+          <div class="checkcell">
+            <span class="chk err">范围 · Err<span class="arrow">▾</span></span>
+            <span class="mm"><label>Min</label><span class="txt">1</span><label>Max</label><span class="txt">10</span></span>
+            <span class="anno" style="position:static; box-shadow:none;">4</span>
+          </div>
+        </div>
+        <div class="c c-ops"><div class="ops"><span class="op">↑</span><span class="op">↓</span><span class="op">×</span></div></div>
+      </div>
+
+      <!-- + 添加字段 -->
+      <div class="addrow"><span class="btn-add">+ 添加字段</span></div>
+    </div>
+  </div>
+
+  <!-- 改动点图例 -->
+  <ul class="legend">
+    <li><span class="n">1</span><span><b>表头深色底带</b>：高度 18px → <code>30px</code>，底色 <code>#1c1c1c</code>（比行底更深一档），加粗、底部 1px 分隔线——与数据行拉开层次，不再「裸贴」在第一行上。</span></li>
+    <li><span class="n">2</span><span><b>行高放宽</b>：单行 <code>~20px → 34px</code>，控件高度同步 <code>22px</code>；行间加发丝线（<code>#232323</code>）+ hover 高亮。Popup 文本不再竖排挤成一团。</span></li>
+    <li><span class="n">3</span><span><b>基类只读区</b>：整区置灰（文字 <code>#7d7d7d</code>）+ 来源标注 <code>(ConfigBase)</code> 淡印；与自身字段之间 <b>2px 中灰分割线</b>（上一轮已加，此处展示加宽间距后的效果）。</span></li>
+    <li><span class="n">4</span><span><b>Min/Max 内联加宽</b>：输入框 <code>42px → 56px</code>，与检查下拉间距 8px；「范围 · Err」按级别着色（Info 蓝灰 / Warning 琥珀 / Error 红）。</span></li>
+    <li><span class="n">·</span><span><b>列宽重排</b>（括号内为现值）：字段名 12%(9) · 描述 20%(15) · 类型 11%(10) · 列表 4%(3) · 客户端导出 13%(10) · 服务端导出 13%(10) · 检查 20%(余量) · 操作 7%(≈70px)。导出两列各 +3% 专治「直接导出(string)」截断。</span></li>
+    <li><span class="n">·</span><span><b>展开明细区同步放宽</b>：区块内边距与行距加大（演示未画出，实施时一并）。</span></li>
+  </ul>
+</div>
+</body>
+</html>

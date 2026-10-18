@@ -25,7 +25,7 @@ namespace HYC.Framework.Attr
             {
                 var r = refs[i];
                 if (r == null || r.IsEmpty) continue;
-                if (!ConfigManager.TryGet<T>(r.id, out T def)) continue;
+                if (!ConfigRegistry.TryGet<T>(r.id, out T def)) continue;
 
                 buf.Add(new AttributeValue
                 {
@@ -38,7 +38,7 @@ namespace HYC.Framework.Attr
 
         /// <summary>
         /// 从属性预设资产直接灌袋（优化方向 C 的手动入口）。
-        /// 与 <see cref="Init{T}"/> 不同，这里不走 ConfigRowRef / ConfigManager，直接复制预设烘焙好的 values。
+        /// 与 <see cref="Init{T}"/> 不同，这里不走 ConfigRowRef / ConfigRegistry，直接复制预设烘焙好的 values。
         /// </summary>
         public static void InitFromSet(EntityManager em, Entity e, AttributeSetAsset set)
         {

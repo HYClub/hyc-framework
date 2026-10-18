@@ -91,10 +91,28 @@ namespace HYC.Framework.Tests
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 解析快照文件的**绝对路径**。
+        /// <para><b>不能用 <c>Directory.GetCurrentDirectory()</c></b>：本仓库不是 Unity 工程，
+        /// 测试是在**宿主工程**里跑的，CWD 是宿主根 ⇒ 相对路径会指到
+        /// <c>&lt;宿主&gt;/Tests/Editor/</c>，既读不到包内快照，还会往宿主工程里写垃圾目录。
+        /// 这里复用 <see cref="FileIndexAudit.FindRepoRoot"/>（从 CWD 向上找含包目录的仓库根），
+        /// 仓库内引用 / embed 到 <c>Packages/</c> 两种形态都能定位。</para>
+        /// </summary>
+        public static string ResolveSnapshotPath()
+        {
+            var repoRoot = FileIndexAudit.FindRepoRoot();
+            if (repoRoot == null)
+                throw new InvalidOperationException(
+                    "未找到含 " + FileIndexAudit.PackageDir + " 的仓库根：" +
+                    "公开 API 快照只能在框架仓库内运行（仓库外无法定位基线文件）。");
+            return Path.Combine(repoRoot, FileIndexAudit.PackageDir, SnapshotPath);
+        }
+
         /// <summary>写快照文件（供菜单与首次生成调用）。返回是否真的写了。</summary>
         public static bool Write()
         {
-            var abs = Path.Combine(Directory.GetCurrentDirectory(), SnapshotPath);
+            var abs = ResolveSnapshotPath();
             var dir = Path.GetDirectoryName(abs);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
@@ -104,8 +122,9 @@ namespace HYC.Framework.Tests
                 return false;
 
             File.WriteAllText(abs, text, new UTF8Encoding(false));
-            // 让 AssetDatabase 立刻看到，避免 Unity 下次 Refresh 才刷新
-            AssetDatabase.ImportAsset(SnapshotPath, ImportAssetOptions.ForceUpdate);
+            // 快照可能落在包的包里（Packages/...）或仓库根下（不在 Assets 内），
+            // AssetDatabase.ImportAsset 只接受工程相对路径，这里统一用 Refresh 兜底。
+            AssetDatabase.Refresh();
             return true;
         }
 
@@ -205,14 +224,14 @@ namespace HYC.Framework.Tests
         [Test]
         public void 公开API签名_与快照一致()
         {
-            var abs = Path.Combine(Directory.GetCurrentDirectory(), PublicApiSnapshot.SnapshotPath);
+            var abs = PublicApiSnapshot.ResolveSnapshotPath();
 
             if (!File.Exists(abs))
             {
                 // 首次运行：自动生成并给出可操作的提示，而不是让测试莫名失败
                 PublicApiSnapshot.Write();
                 Assert.Fail(
-                    $"快照文件不存在，已自动生成：{PublicApiSnapshot.SnapshotPath}\n" +
+                    $"快照文件不存在，已自动生成：{abs}\n" +
                     "请检查生成内容是否符合预期后，把该文件一起提交（它是公开 API 的基线）。\n" +
                     "之后若你有意改动公开 API，删掉该文件重跑本测试即可重建。");
             }

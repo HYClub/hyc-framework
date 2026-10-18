@@ -35,8 +35,9 @@ namespace HYC.Framework.Editor
         private const string DefaultIdServerIp = "127.0.0.1";
         private const int DefaultIdServerPort = 8920;
         private const string DefaultRootFolder = "Assets/ConfigData";
-        private const string DefaultOutputDir = "Assets/GeneratedConfigs";
-        private const string DefaultEditorDir = "Assets/GeneratedConfigs/Editor";
+        // 生成代码目录统一收口到 GeneratedPaths（单一真源），历史散落的 5 个默认目录见 GeneratedPaths 注释
+        private const string DefaultOutputDir = GeneratedPaths.Config;
+        private const string DefaultEditorDir = GeneratedPaths.ConfigEditor;
         private const string DefaultClientExportDir = "Exports/Client";
         private const string DefaultServerExportDir = "Exports/Server";
         private const string DefaultBlobOutputDir = "Assets/StreamingAssets/ConfigBlob";
@@ -78,6 +79,13 @@ namespace HYC.Framework.Editor
 
         /// <summary>客户端/服务器导出类型：true=struct（字段平铺），false=class（保持继承链）。</summary>
         [SerializeField] private bool _sideTypeIsStruct;
+
+        /// <summary>
+        /// 导出后是否总是汇报检查结果：true = 零问题也弹窗确认，有问题开明细窗；
+        /// false（默认）= 仅在存在检查项（提示／警告／错误）时才弹窗，导出干净则静默通过。
+        /// 批模式（CI）不受此开关影响——永远只走 Console。
+        /// </summary>
+        [SerializeField] private bool _alwaysShowCheckWindow;
 
         /// <summary>配置数据树扫描的根目录（工程相对，必须在 Assets 内）。</summary>
         [SerializeField] private string _rootFolder = DefaultRootFolder;
@@ -218,6 +226,18 @@ namespace HYC.Framework.Editor
             set { _sideTypeIsStruct = value; Save(); }
         }
 
+        /// <summary>
+        /// 导出后是否总是汇报检查结果：true = 零问题也弹窗确认，有问题开明细窗；
+        /// false（默认）= 仅在存在检查项时弹窗，导出干净则静默通过。
+        /// 批模式（CI）不受影响——永远只走 Console。
+        /// 在 HYC Settings 窗口的「配置」分组里勾选。
+        /// </summary>
+        public bool AlwaysShowCheckWindow
+        {
+            get => _alwaysShowCheckWindow;
+            set { _alwaysShowCheckWindow = value; Save(); }
+        }
+
         /// <summary>配置数据树扫描的根目录（空值回落默认路径）。</summary>
         public string RootFolder
         {
@@ -247,6 +267,17 @@ namespace HYC.Framework.Editor
 
         /// <summary>BT 自定义节点代码的命名空间：由同一 root 派生（<c>{root}.BT.Nodes</c>）。</summary>
         public static string BTNodesCodeNamespace => EffectiveGeneratedNamespaceRoot + ".BT.Nodes";
+
+        /// <summary>生成的 UI 层常量类命名空间：由同一 root 派生（<c>{root}.ui</c>），与配置类命名空间平级。</summary>
+        public static string UICodeNamespace => EffectiveGeneratedNamespaceRoot + ".ui";
+
+        /// <summary>属性三件套（AttrKey/AttrKeyMap/AttrBag）命名空间：由同一 root 派生（<c>{root}.Attr</c>）。
+        /// 原为向导硬编码 <c>HYC.Framework.Attr.Generated</c>（不走 root），已收口。</summary>
+        public static string AttrCodeNamespace => EffectiveGeneratedNamespaceRoot + ".Attr";
+
+        /// <summary>天赋生成代码命名空间：由同一 root 派生（<c>{root}.Talent</c>）。
+        /// 原为向导硬编码 <c>HYC.Framework.Talent.Generated</c>（不走 root），已收口。</summary>
+        public static string TalentCodeNamespace => EffectiveGeneratedNamespaceRoot + ".Talent";
 
         /// <summary>生成代码命名空间 root 的**原值**（可能是空串=自动模式）。</summary>
         public string GeneratedNamespaceRoot

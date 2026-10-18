@@ -5,14 +5,14 @@
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.0.4-orange)
+![Version](https://img.shields.io/badge/Version-3.0.0-orange)
 
 ---
 
 ## ✨ 特性
 
 - **DOTS / ECS 数据驱动架构**：以 `World` + 分层 `ComponentSystemGroup` 更新阶梯组织游戏逻辑；配置、本地化、行为树全部以**不可变 Blob** 存储。**内建行为树节点**为指针遍历、无托管分配；但含自定义节点（`GameCustom`，走托管委托 + 反射注册）的整树运行于托管路径，不参与 Burst 编译。
-- **配置管线（Config）**：Excel / 模板驱动，生成期把行烘焙为 blittable 结构体与 `BlobAssetReference`；运行期以**世界无关**的 `ConfigManager` 静态表提供无分配查询。
+- **配置管线（Config）**：Excel / 模板驱动，生成期把行烘焙为 blittable 结构体与 `BlobAssetReference`；运行期宿主**只经生成式门面 `{ns}.ConfigManager.{Type}.GetByID(id)`** 查询（世界无关、零拷贝、零字符串键；遍历全表走 `{Type}.Count` + `{Type}.GetByIndex(i)`）——低层 `ConfigRegistry` 静态表是框架内部机制，宿主禁止直接调用。
 - **多语言本地化（Loc）**：基于 Blob 的多语言系统，支持 key 查询、`string.Format` 占位符、运行时切语言、MonoBehaviour 自动刷新与敏感词过滤。
 - **ECS UI 系统**：UI **即 ECS System**（而非 MonoBehaviour 窗口管理器）。`UIManager` 统一管理分层 Canvas 与 Addressables 实例化，`ComponentBinderTable` 生成强类型组件绑定。
 - **输入 / 热键（Input）**：基于 Unity InputSystem 的 action-name 分发热键中心，支持 Press / Hold、设备切换、键盘 / 手柄导航模式与静音 / 打断控制。
@@ -75,8 +75,8 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 
 1. **生成期（Editor）**：Excel / 配置模板经 `ConfigGenerator` 产出 `[BlobGenerate]` 的 blittable `struct`（命名空间 `{命名空间root}.config`，root 由 HYC Settings → CodeGen 分组设置，留空取项目公司名），经 `ConfigExportService` 烘焙成 `BlobAssetReference<BlobRoot<TRow>>`；本地化表经 `LocalizedExcelReader`(NPOI) 产出 `id` / `lang` / `filter` 与每语言 `{lang}.lang` Blob；行为树在 `BTTreeAsset` 中可视化编辑，由 `BTBlobBuilder.Build` 序列化为纯数据 `BTRootBlob`。三者均可在运行期用 `BlobAssetReference<T>.TryRead` 直接读入，无需反序列化托管对象。
     - ⚠️ 行为树**打包时另有一步**：`BTTreeAsset` / `BTBlobBuilder` 位于 Editor 程序集，打包后不存在，因此真机需先用 `BTBlobExporter`（菜单 `HYC Framework/BT/Export Blob (For Build)`）把树导出到 `Assets/StreamingAssets/BTBlob`，运行时再由 `BTBlobLoader.LoadAll()` 读回——与配置表走 `StreamingAssets/ConfigBlob` 完全同构。详见 `Documentation~/82-BT-运行时与Blob.md` 第七节。
-2. **引导期（A0 / A1 数据阶段）**：游戏 Bootstrap 把 Blob 读入，调用 `ConfigManager.Register(table)`（世界无关静态表）、`LocalizationManager.Reload(folder)`（或 `LocalizationBlobSystem` 自动从 `StreamingAssets/Localization` 加载）、`BTManager.Register(treeId, blobRef)`（编辑器里由 `BTAutoRegisterOnPlay` 进 Play 自动注册；打包后由 `BTBlobLoader.LoadAll()` 从 `StreamingAssets/BTBlob` 读回）。
-3. **运行期（A2 / A3 玩法阶段）**：玩法系统从 `ConfigManager` 查行（无需 World 句柄）、从 `LocalizationManager` 取文本；行为树由 `BTInterpreterSystem`（ISystem）对挂 `RunningBT` 的实体逐帧 `Tick`，`BTInterpreter` 以指针遍历 `BTRootBlob`，通过 `BTContext.GameHandler` 把 `GameCustom` 节点派发到 `BTNodeRuntimeRegistry`（反射缓存的 `BTCustomNode` 子类），并读写 `BTBlackboardRuntime`（每树实例一个，定义只读、实例可写）。
+2. **引导期（A0 / A1 数据阶段）**：游戏 Bootstrap 把 Blob 读入，调用 `ConfigRegistry.Register(table)`（世界无关静态表；生成的 `XxxBlobSystem` 会自动做这一步）、`LocalizationManager.Reload(folder)`（或 `LocalizationBlobSystem` 自动从 `StreamingAssets/Localization` 加载）、`BTManager.Register(treeId, blobRef)`（编辑器里由 `BTAutoRegisterOnPlay` 进 Play 自动注册；打包后由 `BTBlobLoader.LoadAll()` 从 `StreamingAssets/BTBlob` 读回）。
+3. **运行期（A2 / A3 玩法阶段）**：玩法系统经门面 `{ns}.ConfigManager.{Type}.GetByID(id)` 查配置（无需 World 句柄）、从 `LocalizationManager` 取文本；行为树由 `BTInterpreterSystem`（ISystem）对挂 `RunningBT` 的实体逐帧 `Tick`，`BTInterpreter` 以指针遍历 `BTRootBlob`，通过 `BTContext.GameHandler` 把 `GameCustom` 节点派发到 `BTNodeRuntimeRegistry`（反射缓存的 `BTCustomNode` 子类），并读写 `BTBlackboardRuntime`（每树实例一个，定义只读、实例可写）。
 4. **表现期（B9，最后运行）**：UI 系统（`UIManager` + `AbsUISystem`）最后运行，读玩法阶段产生的最新状态刷新 HUD / 窗口；单帧 `MessageEntity` / `EventMessage` 在玩法阶段被消费，帧末由 `MessageExpirySystem` / `MessageClearSystem` 清理，消息绝不过帧。
 
 **UI 如何挂在 ECS 上**：`AbsUISystem`（`[DisableAutoCreation]`）由游戏显式 `CreateSystemManaged` 并加入某 `UpdateGroup`（通常 B9 内）；其 `PrefabKey` 是 Addressable key，`UIManager` 在打开时 `Addressables.InstantiateAsync` 实例化 Prefab 并挂到分层 Canvas 下。视图内组件通过 `ComponentBinderTable` 配置、由 `ComponentBinderCodeGenerator` 生成强类型 `class X : IComponentBinder`，在视图（重）显示时 `Reset` 重新绑定，避免跨场景后引用失效。
@@ -128,7 +128,7 @@ ecb.AddComponent(e, new HYC.Framework.Dots.EventMessage { EventID = 1001, IsRepe
 
 ### 2. 配置管线（Config）
 
-Excel / 模板驱动的「不可变 Blob 配置表」——生成期把行烘焙为 `[BlobGenerate]` blittable 结构体，运行期以**世界无关**的 `ConfigManager` 静态表提供无分配查询。
+Excel / 模板驱动的「不可变 Blob 配置表」——生成期把行烘焙为 `[BlobGenerate]` blittable 结构体；运行期宿主**只通过生成式门面 `{ns}.ConfigManager.{Type}.GetByID(id)`** 查询（零拷贝 ref、零字符串键、无 World 依赖；取行必须 `ref var row = ref ...` 非只读 ref 接收，见下方 EA0001 铁律；遍历全表走 `{Type}.Count` + `{Type}.GetByIndex(i)`），背后是世界无关的 `ConfigRegistry` 静态表（框架内部，宿主不直接调）。
 
 ```csharp
 // 1) 生成期由 Excel / 模板产出（示意，真实由 ConfigGenerator 生成）：
@@ -137,19 +137,36 @@ Excel / 模板驱动的「不可变 Blob 配置表」——生成期把行烘焙
 // public struct ItemCfg : Unity.Entities.IComponentData, System.IEquatable<ItemCfg>
 // { public long Id; public int Price; public int StackMax; }
 
-// 2) 运行期从 .blob 读取并注册（id 取行内 Id 字段）
+// 2) 运行期从 .blob 读取并注册（生成的 XxxBlobSystem 自动完成，无需手写；此处仅示内部机制）
 BlobAssetReference<BlobRoot<ItemCfg>> blobRef = /* BlobAssetReference<BlobRoot<ItemCfg>>.TryRead(...) */;
 var table = ConfigBlobTable<ItemCfg>.FromBlob(blobRef, row => row.Id);
-HYC.Framework.Config.ConfigManager.Register(table);
+HYC.Framework.Config.ConfigRegistry.Register(table);
 
-// 3) 任意处读取（无需 World 句柄）
-if (HYC.Framework.Config.ConfigManager.TryGet<ItemCfg>(itemId, out var cfg))
+// 3) 任意处读取（无需 World 句柄）——门面是唯一入口；未命中抛 KeyNotFoundException
+//    ⛔ 必须 ref 接收（EA0001）：行含 BlobString/BlobArray（自相对偏移），值拷贝寻址错位
+ref var cfg = ref ConfigManager.ItemCfg.GetByID(itemId);
+int price = cfg.Price;
+
+// 遍历全表：Count 作边界 + GetByIndex(i) 按行序取（同样零拷贝）
+for (int i = 0; i < ConfigManager.ItemCfg.Count; i++)
+{
+    ref var r = ref ConfigManager.ItemCfg.GetByIndex(i);
+    Debug.Log(r.Price);
+}
+
+// 宽松语义（未命中不抛、不报错）：先用门面 Contains 预判，命中再取行
+if (ConfigManager.ItemCfg.Contains(itemId))
+{
+    ref var cfg = ref ConfigManager.ItemCfg.GetByID(itemId);
     int price = cfg.Price;
+}
 ```
+
+**⛔ 铁律：宿主禁止调用 `ConfigRegistry`**——它是框架低层注册表（`Register` / `TryGet` / `GetAllRows` / `Clear`…），属生成代码与加载系统的内部机制，API 形态不受宿主兼容承诺；且宿主代码里只应有一个 `ConfigManager` 解析目标（两类同名曾造成 CS0104 / CS1061）。唯一例外：自建 Blob 加载系统时才调 `ConfigRegistry.Register(table)`（造表，非查表）。
 
 **注意**：
 - 行结构体必须 **blittable**（`ConfigBlobTable<TRow> where TRow : unmanaged`）；`ConfigValidator` 会在编辑器菜单 `HYC Framework/Config/Validate Config` 校验缺 `[BlobGenerate]` 标记或非 blittable 字段。
-- `ConfigManager` 的读访问是**世界无关**的——UI 与玩法层查表都不需要 World 句柄。
+- 门面读访问是**世界无关**的——UI 与玩法层查表都不需要 World 句柄；ECS 系统里也不再用 World 扩展（已删除，因其返回 blob 行值拷贝 / 未命中返 `default`，是 EA0001 运行期炸弹），统一走门面 `ConfigManager.{Type}` 即可。
 
 **枚举配置**：分类字段（如「`0=顺序 1=随机 2=离玩家最远`」）不该用裸 `Int`，应改为枚举：
 
@@ -164,11 +181,11 @@ F("PointStrategy", ConfigFieldType.Enum, "顺序/随机/离玩家最远", "WaveP
 ```
 
 > ⚠️ **Blob 里枚举字段是 `int`**（写入时 `(int)` 转换），**只有生成的配置类字段是枚举类型**。
-> 运行期从 `ConfigManager` 取到的是 `int`，需自行转枚举或与枚举常量比较（`row.Kind == (int)ItemKind.Red`）。
+> 运行期从门面 `{ns}.ConfigManager.{Type}.GetByID(id)` 取到的是 `int`，需自行转枚举或与枚举常量比较（`row.Kind == (int)ItemKind.Red`）。
 > 数值是 **1 基**（普通 `index+1`、复合 `1<<index`），**没有 `0` 值**——从 0 基手写枚举迁移时所有数据要 `+1`。
 > 完整机制、校验规则与迁移要点见 `Documentation~/13-枚举配置.md`。
 
-核心类型：`ConfigManager`、`ConfigBlobTable<TRow>`、`BlobRoot<TRow>`、`ConfigTemplate`、`ConfigEnumDefinition` / `ConfigEnumValue`、`ConfigFieldType.Enum`（`enumRefClassName`）、`CfgAssetAttribute`、`IConfigIdProvider`、`BlobGenerateAttribute`。
+核心类型：`ConfigRegistry`、生成式门面 `{ns}.ConfigManager`、`ConfigBlobTable<TRow>`、`BlobRoot<TRow>`、`ConfigTemplate`、`ConfigEnumDefinition` / `ConfigEnumValue`、`ConfigFieldType.Enum`（`enumRefClassName`）、`CfgAssetAttribute`、`IConfigIdProvider`、`BlobGenerateAttribute`。
 
 ---
 
@@ -229,7 +246,13 @@ HYC.Framework.UI.UIManager.Close<BagWindow>();
 
 **注意**：`UIManager` 与 `AbsUISystem` 均标 `[DisableAutoCreation]`，必须由游戏 bootstrap 显式创建并加入某 `UpdateGroup`；热键改用 `HotkeyActionNames` 常量字符串分发（已取代原 `HotkeyID` 枚举）。
 
-核心类型：`UIManager`、`AbsUISystem`、`BaseWindowSystem` / `AbsParentBaseWindowSystem`、`BaseDialogSystem` / `BaseHudSystem` / `BaseLoadingSystem`、`BaseWindowPart`、`IGameFunctionWindow`、`UIGroup`、`IComponentBinder`、`Binder`、`ComponentBinderTable`、`UIAnimationHook`。
+核心类型：`UIManager`、`AbsUISystem`、`BaseWindowSystem`、`BaseDialogSystem` / `BaseHudSystem` / `BaseLoadingSystem`、`IGameFunctionWindow`、`UIGroup`、`IComponentBinder`、`Binder`、`ComponentBinderTable`、`UIAnimationHook`。
+
+**UI 是统一的一条链**：所有 UI 都继承 `AbsUISystem`，**任何 UI 都能嵌另一个 UI、也都能被嵌**。
+区别只在打开方式 —— `UIManager.OpenWindow<T>()` 打开的是 `UIMode.TopLevel`（有层 / Canvas / 焦点，按类型单例）；
+宿主调用 `Open<T>()` 打开的是 `UIMode.Embedded`（无层 / Canvas / 焦点，**每次新实例**，故同类型可多开、可递归嵌套）。
+原「窗口部件」与「子窗口」两套机制已合并为这一个 `Open`。
+（`BaseWindowPart` / `AbsParentBaseWindowSystem` 两个类**已删除**——凡 `AbsUISystem` 子类都能用 `Open` 嵌入，无需专门的基类。）详见 [31-窗口系统](./Documentation~/31-窗口系统.md)。
 
 ---
 
@@ -379,7 +402,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
 ├── package.json / LICENSE / CHANGELOG.md / README.md
 ├── Runtime/                       # 运行时（HYC.Framework.Runtime.asmdef）
 │   ├── 引导与生命周期：Bootstrap / BootstrapSystems / FrameworkBootstrapBase / UpdateGroups / Simulation / Settings / GameCommandArgs
-│   ├── 配置：ConfigManager / BlobTable / ConfigTemplate / ConfigEnumDefinition / DataModel
+│   ├── 配置：ConfigRegistry / BlobTable / ConfigTemplate / ConfigEnumDefinition / DataModel
 │   ├── 本地化：LocalizationManager / LocalizationBlobSystem / LocalizationExtension / SensitiveWordManager
 │   ├── UI：UIManager / AbsUISystem / UIGroup / Base*System / Binder / ComponentBinderTable
 │   ├── 输入与热键：HotkeyManager / Hotkey* / InputDevice / BaseHotkeyElement
@@ -391,6 +414,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
 │   ├── Talent/                    # 天赋树（TalentTreeAsset / TalentNode / TalentRuntime / TalentTreeUIBase）
 │   ├── BT/                        # 行为树运行时（解释器 / 管理器 / 黑板 / 事件总线 / Blob 定义）
 │   ├── Components/                # LocalizedText / LocalizedTMP / LocalizedTextMesh
+│   ├── SceneContent/              # 场景内容物（关卡描述器 / 标记组件 / Blob 加载）
 │   └── ToolTip/                   # ToolTipManager / Tip 视图
 ├── Samples~/HYCSimple/            # 接入示例（带 ~ 不被 Unity 编译，导入工程后才生效）
 ├── Tests/Editor/                  # EditMode 测试（HYC.Framework.Tests.Editor.asmdef，UNITY_INCLUDE_TESTS 约束）
@@ -403,6 +427,7 @@ com.hyc.framework/                 ← Unity 包（package.json 在此）
     ├── Samples/                   # HYCSimpleSampleImporter（一键导入示例）
     ├── BT/                        # 行为树可视化编辑器（IMGUI 画布，11 个文件）
     ├── DataEditor/                # 配置数据编辑器（47 个文件 + FrameworkTemplates/）
+    ├── SceneContent/              # 场景内容物编辑器（8 个文件）
     ├── Loc/Editor/                # Key 使用扫描（LocaleKeyUsageWindow）
     ├── Dlls/                      # NPOI / SharpZipLib / BouncyCastle（Excel 导入依赖，仅编辑器）
     │                              # 许可见 Dlls/THIRD-PARTY-NOTICES.md
@@ -416,7 +441,7 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
 且 `autoReferenced: false`——**不进播放器、也不会被使用方工程自动编译**，只有本仓库开发时才会生效。
 
 首批用例覆盖两处最容易静默退化的契约：`AttributeKey` 的 FNV-1a 哈希（哈希值会烘进代码生成的
-`AttrKeyMap`，算法一改历史数据资产就会静默变成默认值）与 `ConfigBlobTable` / `ConfigManager` 的查询语义。
+`AttrKeyMap`，算法一改历史数据资产就会静默变成默认值）与 `ConfigBlobTable` / `ConfigRegistry` 的查询语义。
 
 #### 公开 API 守护（重要）
 
@@ -443,14 +468,16 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
 
 ## 📚 文档导航
 
-完整文档在包的 `Documentation~/`（29 篇，全部基于源码实测撰写）：
+完整文档在包的 `Documentation~/`（35 篇，全部基于源码实测撰写）：
 
 - **要动手做事 → [`Documentation~/02-操作手册-按任务.md`](Documentation~/02-操作手册-按任务.md)**
   —— 新增配置表、选字段类型与导出模式、写枚举、跑行为树、加 UI 窗口的**分步操作**，
   另含基类一览、导出模式决策表、改完要重跑什么、菜单路径速查。
 - 机制说明按模块分篇：`00` 架构 · `01` 上手 · `10~13` 配置与枚举 · `20~22` 多语言 ·
-  `30~32` UI · `40~50` 输入与过场 · `60~70` 引导与消息 · `80~84` 行为树 ·
+  `30~32` UI · `40~50` 输入与过场 · `52~55` 存档/天赋/属性/音频 · `60~70` 引导与消息 · `80~84` 行为树 ·
   `90` 编辑器工具链 · `99` Blob 约定 · `100` 文件与类索引。
+- **游戏接入索引 → [`Documentation~/200-游戏接入清单.md`](Documentation~/200-游戏接入清单.md)**
+  —— 所有宿主会直接调用的游戏相关子系统 + 用法文档状态 +「AI 扫到可拷进项目」约定。
 
 > 文档同时面向 **AI**：结构固定、类型全名 / 命名空间 / 菜单路径内联且逐条核对过源码，
 > 可直接把 `Documentation~/` 提供给 Copilot / WorkBuddy / Cursor 等助手使用。

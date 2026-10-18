@@ -1,5 +1,6 @@
 ﻿using HYC.Framework.Dots;
 using HYC.Framework.Input;
+using HYC.Framework.RedDot;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -31,8 +32,16 @@ namespace HYC.Framework.UI
         /// <summary>Optional UI scene key loaded additively before the prefab.</summary>
         public virtual string SceneKey => string.Empty;
 
-        /// <summary>Addressable prefab key that instantiates the window view.</summary>
-        public abstract string PrefabKey { get; }
+        /// <summary>Addressable prefab key that instantiates the window view.
+        /// 内嵌 UI 允许为 null —— 改由 <see cref="Open{T}(GameObject, Transform)"/> 传入已有 GameObject。</summary>
+        public virtual string PrefabKey => null;
+
+        /// <summary>TopLevel = 由 UIManager 打开（有层/Canvas/焦点）；
+        /// Embedded = 由宿主 <see cref="Open{T}(Transform, object[])"/> 打开（无层/Canvas/焦点，可多实例）。</summary>
+        public UIMode Mode { get; set; } = UIMode.TopLevel;
+
+        /// <summary>视图是否已就绪（内嵌 UI 由 Open 流程置位）。</summary>
+        public bool Loaded { get; set; }
 
         /// <summary>Sorting order within the window layer.</summary>
         public virtual int Order => 0;
@@ -66,14 +75,20 @@ namespace HYC.Framework.UI
         public virtual void OnViewOpen(params object[] args) => OnViewOpen();
         public virtual void OnViewOpen()
         {
-            if (Focusable) Enable();
+            // 内嵌 UI 不进 UIManager 的层列表，永远拿不到焦点，故不注册导航热键。
+            if (Focusable && Mode == UIMode.TopLevel) Enable();
             _targetAlpha = 1;
+            EnsureRedDotsBound();
         }
 
         protected override void OnUpdate()
         {
             if (View != null)
             {
+                // 兜底：宿主子类若 override 了 OnViewOpen 却没调 base，这里补一次绑定（只尝试一次）。
+                if (!_redDotsBound)
+                    EnsureRedDotsBound();
+
                 if (Focused)
                     UpdateByFocusManager();
 
@@ -85,22 +100,23 @@ namespace HYC.Framework.UI
 
         public virtual void OnViewClose()
         {
-            if (Focusable) Disable();
+            ReleaseRedDots();
+            if (Focusable && Mode == UIMode.TopLevel) Disable();
             UnregisterAllHotkey();
-            CloseAllWindowPart();
+            CloseAllEmbedded();
         }
 
         public virtual void OnViewFocus()
         {
             SetHotkeySilence(false);
-            foreach (var part in _partList)
+            foreach (var part in _embedList)
                 part.OnViewFocus();
         }
 
         public virtual void OnViewLost()
         {
             SetHotkeySilence(true);
-            foreach (var part in _partList)
+            foreach (var part in _embedList)
                 part.OnViewLost();
         }
 
@@ -112,106 +128,258 @@ namespace HYC.Framework.UI
         public virtual void Hide() { _targetAlpha = 0; }
         public virtual void Show() { _targetAlpha = 1; }
 
-        #region 部件窗口
+        #region 红点（融合在 UI 基类：打开自动绑、变化自动刷、关闭自动退）
 
-        private class PartState
+        /// <summary>预制体上的一枚红点绑定（L1 自动收集 / L2 手动绑定共用）。</summary>
+        private struct RedDotBinding
+        {
+            public RedDotBehaviour Behaviour;
+            public RedDotKey Key;
+        }
+
+        private List<RedDotBinding> _redDotBindings;
+        private Action<RedDotKey> _redDotHandler;
+        private bool _redDotsBound;
+
+        /// <summary>某红点节点当前是否亮（聚合结果）。</summary>
+        public bool IsRedDotActive(RedDotKey key) => RedDotManager.IsActive(key);
+
+        /// <summary>某红点节点当前的聚合计数。</summary>
+        public int GetRedDotCount(RedDotKey key) => RedDotManager.GetCount(key);
+
+        /// <summary>业务「已读」：只清该节点自身的亮与计数（不动子节点）。</summary>
+        public void ConsumeRedDot(RedDotKey key) => RedDotManager.Consume(key);
+
+        /// <summary>业务「全部已读」：清该节点及整棵子树的亮与计数。</summary>
+        public void ConsumeRedDotWithChildren(RedDotKey key) => RedDotManager.ConsumeWithChildren(key);
+
+        /// <summary>
+        /// L2 绑定：把运行期实例化的红点组件绑到某个键（动态列表项用）。
+        /// 同一组件重复绑定会覆盖键并立刻刷新。
+        /// </summary>
+        public void BindRedDot(RedDotKey key, RedDotBehaviour behaviour)
+        {
+            if (behaviour == null || !key.IsValid)
+                return;
+
+            EnsureRedDotSubscription();
+            if (_redDotBindings == null)
+                _redDotBindings = new List<RedDotBinding>();
+
+            var binding = new RedDotBinding { Behaviour = behaviour, Key = key };
+            for (var i = 0; i < _redDotBindings.Count; i++)
+            {
+                if (_redDotBindings[i].Behaviour != behaviour)
+                    continue;
+                _redDotBindings[i] = binding;
+                ApplyRedDot(binding);
+                return;
+            }
+
+            _redDotBindings.Add(binding);
+            ApplyRedDot(binding);
+        }
+
+        /// <summary>解除某枚红点组件的绑定（列表项回收时调）。</summary>
+        public void UnbindRedDot(RedDotBehaviour behaviour)
+        {
+            if (behaviour == null || _redDotBindings == null)
+                return;
+
+            for (var i = _redDotBindings.Count - 1; i >= 0; i--)
+            {
+                if (_redDotBindings[i].Behaviour != behaviour)
+                    continue;
+                _redDotBindings.RemoveAt(i);
+                behaviour.ResetApplied();
+            }
+        }
+
+        /// <summary>
+        /// 收集 <see cref="View"/> 下全部 <see cref="RedDotBehaviour"/> 并绑定（L1 零代码）。
+        /// 只执行一次；<see cref="View"/> 尚未就绪时直接返回，等下一次尝试。
+        /// </summary>
+        private void EnsureRedDotsBound()
+        {
+            if (_redDotsBound || View == null)
+                return;
+
+            _redDotsBound = true;
+
+            var found = View.GetComponentsInChildren<RedDotBehaviour>(true);
+            if (found.Length == 0)
+                return;   // 没有红点：不订阅，零开销
+
+            EnsureRedDotSubscription();
+            if (_redDotBindings == null)
+                _redDotBindings = new List<RedDotBinding>();
+
+            for (var i = 0; i < found.Length; i++)
+            {
+                var behaviour = found[i];
+                if (behaviour == null || !behaviour.Key.IsValid)
+                    continue;
+                _redDotBindings.Add(new RedDotBinding { Behaviour = behaviour, Key = behaviour.Key });
+                ApplyRedDot(_redDotBindings[_redDotBindings.Count - 1]);
+            }
+        }
+
+        private void EnsureRedDotSubscription()
+        {
+            if (_redDotHandler != null)
+                return;
+            _redDotHandler = OnRedDotChanged;
+            RedDotManager.OnChanged += _redDotHandler;
+        }
+
+        /// <summary>增量刷新：只更新与变化键相关联的那几枚红点。</summary>
+        private void OnRedDotChanged(RedDotKey key)
+        {
+            if (_redDotBindings == null)
+                return;
+
+            for (var i = 0; i < _redDotBindings.Count; i++)
+            {
+                if (_redDotBindings[i].Key != key)
+                    continue;
+                ApplyRedDot(_redDotBindings[i]);
+            }
+        }
+
+        private static void ApplyRedDot(RedDotBinding binding)
+        {
+            if (binding.Behaviour == null)
+                return;
+            RedDotManager.TryGet(binding.Key, out var active, out var count);
+            binding.Behaviour.Apply(active, count);
+        }
+
+        /// <summary>视图关闭：退订 + 复位所有已绑定的红点，避免下次打开残留亮态。</summary>
+        private void ReleaseRedDots()
+        {
+            if (_redDotHandler != null)
+            {
+                RedDotManager.OnChanged -= _redDotHandler;
+                _redDotHandler = null;
+            }
+
+            if (_redDotBindings != null)
+            {
+                for (var i = 0; i < _redDotBindings.Count; i++)
+                {
+                    if (_redDotBindings[i].Behaviour != null)
+                        _redDotBindings[i].Behaviour.ResetApplied();
+                }
+                _redDotBindings.Clear();
+            }
+
+            _redDotsBound = false;
+        }
+
+        #endregion
+
+        #region 嵌入 UI
+
+        private class EmbedState
         {
             public Transform Parent;
             public GameObject View;
             public AsyncOperationHandle<GameObject> LoadOperation;
         }
 
-        private readonly List<BaseWindowPart> _partList = new List<BaseWindowPart>();
-        private readonly Dictionary<BaseWindowPart, PartState> _partMap = new Dictionary<BaseWindowPart, PartState>();
+        private readonly List<AbsUISystem> _embedList = new List<AbsUISystem>();
+        private readonly Dictionary<AbsUISystem, EmbedState> _embedMap = new Dictionary<AbsUISystem, EmbedState>();
 
-        public T OpenWindowPart<T>() where T : BaseWindowPart
-            => (T)OpenWindowPart(typeof(T), null, null);
+        /// <summary>由宿主打开的内嵌 UI 的关闭回调（由 <see cref="Open(Type, Transform, Transform, object[])"/> 装配）。</summary>
+        internal Action CloseHandler;
 
-        public T OpenWindowPart<T>(Transform parent) where T : BaseWindowPart
-            => (T)OpenWindowPart(typeof(T), parent, null);
+        public void SetCloseHandler(Action handler) => CloseHandler = handler;
 
-        public T OpenWindowPart<T>(GameObject windowPart) where T : BaseWindowPart
-            => (T)OpenWindowPart(typeof(T), null, windowPart.transform);
+        /// <summary>内嵌 UI 自关闭（等价于宿主调用 <see cref="Close(AbsUISystem)"/>）。</summary>
+        public void Close() => CloseHandler?.Invoke();
 
-        public T OpenWindowPart<T>(Transform parent, GameObject windowPart) where T : BaseWindowPart
-            => (T)OpenWindowPart(typeof(T), parent, windowPart.transform);
+        /// <summary>
+        /// 打开一个内嵌 UI —— 窗口与部件不再区分，任何 <see cref="AbsUISystem"/> 子类都能当父也能当子。
+        /// 每次调用都创建新实例，故同类型可同时开多份、可递归嵌套。
+        /// </summary>
+        public T Open<T>(Transform parent = null, params object[] args) where T : AbsUISystem
+            => (T)Open(typeof(T), parent, null, args);
 
-        public BaseWindowPart OpenWindowPart(Type type, Transform parent, Transform windowPart)
+        /// <summary>用已有 GameObject 打开内嵌 UI（不加载预制体）。</summary>
+        public T Open<T>(GameObject view, Transform parent = null) where T : AbsUISystem
+            => (T)Open(typeof(T), parent, view != null ? view.transform : null, null);
+
+        /// <summary>内嵌 UI 的通用入口。</summary>
+        public AbsUISystem Open(Type type, Transform parent, Transform view, params object[] args)
         {
-            if (!typeof(BaseWindowPart).IsAssignableFrom(type))
-                throw new Exception($"{type} 不是一个BaseWindowPart的子类!");
+            if (!typeof(AbsUISystem).IsAssignableFrom(type))
+                throw new Exception($"{type} 不是一个AbsUISystem的子类!");
 
             var group = UIManager.GetSystemGroup(type);
-            var partSystem = (BaseWindowPart)World.CreateSystemManaged(type);
-            var partState = new PartState
+            var child = (AbsUISystem)World.CreateSystemManaged(type);
+            child.Mode = UIMode.Embedded;
+
+            var state = new EmbedState
             {
                 Parent = parent,
-                View = windowPart != null ? windowPart.gameObject : null,
+                View = view != null ? view.gameObject : null,
             };
 
-            _partList.Add(partSystem);
-            _partMap.Add(partSystem, partState);
+            _embedList.Add(child);
+            _embedMap.Add(child, state);
+            group.AddSystemToUpdateList(child.SystemHandle);
+            child.SetCloseHandler(() => Close(child));
 
-            group.AddSystemToUpdateList(partSystem.SystemHandle);
-
-            if (windowPart != null)
+            if (state.View != null)
             {
-                if (partState.Parent != null)
-                    partState.View.transform.SetParent(partState.Parent, false);
-                else
-                    partState.View.transform.SetParent(View.transform, false);
-
-                partSystem.View = partState.View;
-                partSystem.Loaded = true;
-                partSystem.SetCloseHandler(() => CloseWindowPart(partSystem));
-                partSystem.OnViewOpen();
+                state.View.transform.SetParent(state.Parent != null ? state.Parent : View.transform, false);
+                child.View = state.View;
+                child.Loaded = true;
+                child.OnViewOpen(args ?? Array.Empty<object>());
             }
-            else if (!string.IsNullOrEmpty(partSystem.Key))
+            else if (!string.IsNullOrEmpty(child.PrefabKey))
             {
-                partState.LoadOperation = Addressables.InstantiateAsync(partSystem.Key);
-                partState.LoadOperation.Completed += (AsyncOperationHandle<GameObject> obj) =>
+                state.LoadOperation = Addressables.InstantiateAsync(child.PrefabKey);
+                state.LoadOperation.Completed += (AsyncOperationHandle<GameObject> obj) =>
                 {
-                    if (partState.LoadOperation.IsValid())
-                    {
-                        if (obj.Status == AsyncOperationStatus.Succeeded)
-                        {
-                            partState.View = obj.Result;
-                            partState.View.transform.SetParent(partState.Parent != null ? partState.Parent : View.transform, false);
-
-                            partSystem.View = partState.View;
-                            partSystem.Loaded = true;
-                            partSystem.SetCloseHandler(() => CloseWindowPart(partSystem));
-                            partSystem.OnViewOpen();
-                        }
-                        else
-                        {
-                            Debug.LogError($"{partSystem.GetType().Name} 预置体加载失败! ({partSystem.Key})");
-                        }
-                    }
-                    else
+                    if (!state.LoadOperation.IsValid())
                     {
                         Addressables.Release(obj);
+                        return;
                     }
+
+                    if (obj.Status != AsyncOperationStatus.Succeeded)
+                    {
+                        Debug.LogError($"{child.GetType().Name} 预置体加载失败! ({child.PrefabKey})");
+                        return;
+                    }
+
+                    state.View = obj.Result;
+                    state.View.transform.SetParent(state.Parent != null ? state.Parent : View.transform, false);
+                    child.View = state.View;
+                    child.Loaded = true;
+                    child.OnViewOpen(args ?? Array.Empty<object>());
                 };
             }
             else
             {
-                Debug.LogError($"打开 {type.Name} 失败 : WindowPart 既未设置 Key, 也未指定界面对象");
+                Debug.LogError($"打开 {type.Name} 失败 : 既未设置 PrefabKey, 也未指定界面对象");
             }
 
-            return partSystem;
+            return child;
         }
 
-        public void CloseWindowPart(BaseWindowPart part)
+        /// <summary>关闭并销毁一个内嵌 UI 实例。</summary>
+        public void Close(AbsUISystem child)
         {
-            if (part == null) return;
+            if (child == null) return;
 
-            part.OnViewClose();
+            child.OnViewClose();
 
-            var group = UIManager.GetSystemGroup(part.GetType());
-            group.RemoveSystemFromUpdateList(part.SystemHandle);
+            var group = UIManager.GetSystemGroup(child.GetType());
+            group.RemoveSystemFromUpdateList(child.SystemHandle);
 
-            if (_partMap.TryGetValue(part, out var state))
+            if (_embedMap.TryGetValue(child, out var state))
             {
                 if (state.LoadOperation.IsValid())
                     Addressables.Release(state.LoadOperation);
@@ -219,28 +387,31 @@ namespace HYC.Framework.UI
                 state.View = null;
                 state.Parent = null;
 
-                part.View = null;
-                part.Loaded = false;
-                part.SetCloseHandler(null);
-                _partMap.Remove(part);
+                child.View = null;
+                child.Loaded = false;
+                child.SetCloseHandler(null);
+                _embedMap.Remove(child);
             }
-            _partList.Remove(part);
+            _embedList.Remove(child);
 
-            if (part.SystemHandle != SystemHandle.Null)
+            if (child.SystemHandle != SystemHandle.Null)
             {
-                try { World.DestroySystemManaged(part); }
+                try { World.DestroySystemManaged(child); }
                 catch (Exception e) { Debug.LogWarning(e.Message); }
             }
         }
 
-        private void CloseAllWindowPart()
+        /// <summary>该内嵌 UI 是否由自己打开且仍开着。</summary>
+        public bool IsOpened(AbsUISystem child) => child != null && _embedMap.ContainsKey(child);
+
+        private void CloseAllEmbedded()
         {
-            var all = _partList.ToArray();
+            var all = _embedList.ToArray();
             foreach (var item in all)
-                CloseWindowPart(item);
+                Close(item);
         }
 
-        #endregion 部件窗口
+        #endregion 嵌入 UI
 
         #region 组件查找
 
@@ -780,6 +951,17 @@ namespace HYC.Framework.UI
         }
 
         #endregion 引导弹窗
+    }
+
+    /// <summary>
+    /// UI 实例的挂载形态。统一链路后窗口与部件是同一条继承链，区别只在打开方式：
+    /// TopLevel 由 UIManager 打开（有层/Canvas/焦点，按类型单例）；
+    /// Embedded 由宿主 <c>Open</c> 打开（无层/Canvas/焦点，可多实例、可递归嵌套）。
+    /// </summary>
+    public enum UIMode
+    {
+        TopLevel,
+        Embedded,
     }
 
     public enum WindowCanvasType

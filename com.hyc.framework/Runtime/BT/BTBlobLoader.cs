@@ -2,7 +2,7 @@
 // HYC Framework - BT 模块
 // 文件: Runtime/BT/BTBlobLoader.cs
 // 说明: 打包后的行为树加载器 - 从 StreamingAssets 读回 Blob 并注册到 BTManager
-//       与配置管线(StreamingAssets/ConfigBlob + ConfigManager)完全同构:
+//       与配置管线(StreamingAssets/ConfigBlob + ConfigRegistry)完全同构:
 //         编辑器: BTBlobExporter(导出)  ≈  DataEditor(导出)
 //         运行时: BTBlobLoader(加载)    ≈  XxxBlobSystem.Load()
 //       背景: BTTreeAsset / BTBlobBuilder 位于 Editor 程序集, 打包后不存在,

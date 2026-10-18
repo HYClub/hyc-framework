@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HYC 红点树系统 · UI 集成方案 v2</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --panel: #252526; --panel-2: #2d2d30; --border: #3c3c3c;
+    --text: #d4d4d4; --muted: #9a9a9a; --accent: #4ec9ff; --accent-2: #c586c0;
+    --green: #6abf69; --red: #e0564f; --amber: #d7a23a; --blue: #569cd6;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:14px; line-height:1.6; padding:28px 32px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; color:#fff; }
+  h2 { font-size:16px; margin:34px 0 12px; color:var(--accent); border-left:3px solid var(--accent); padding-left:10px; }
+  h3 { font-size:14px; margin:16px 0 6px; color:#fff; }
+  .sub { color:var(--muted); margin:0 0 8px; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin:14px 0; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:860px){ .grid2{grid-template-columns:1fr;} }
+
+  /* demo */
+  .tree-node { display:flex; align-items:center; gap:8px; padding:6px 10px; margin:4px 0;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:7px; }
+  .tree-node.leaf { margin-left:26px; }
+  .tree-node .name { flex:1; font-family:"Cascadia Code",Consolas,monospace; font-size:13px; }
+  .tree-node .mode { font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:0 6px; }
+  .dot { width:14px; height:14px; border-radius:50%; background:#444; flex:none; transition:background .15s; }
+  .dot.on { background:var(--red); box-shadow:0 0 6px var(--red); }
+  .badge { min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red);
+    color:#fff; font-size:11px; line-height:18px; text-align:center; flex:none; }
+  .badge.zero { display:none; }
+  .toggle { font-size:12px; padding:3px 9px; border-radius:5px; border:1px solid var(--border);
+    background:#333; color:var(--text); cursor:pointer; }
+  .toggle:hover { border-color:var(--accent); }
+  .ui-btn { display:inline-flex; align-items:center; gap:8px; position:relative; padding:12px 18px; margin:6px;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-size:14px; }
+  .ui-btn .corner-dot { position:absolute; top:-5px; right:-5px; width:14px; height:14px; border-radius:50%;
+    background:var(--red); box-shadow:0 0 6px var(--red); }
+  .ui-btn .corner-dot.hide { display:none; }
+  .ui-btn .corner-badge { position:absolute; top:-8px; right:-10px; min-width:18px; height:18px; padding:0 5px;
+    border-radius:9px; background:var(--red); color:#fff; font-size:11px; line-height:18px; text-align:center; }
+  .ui-btn .corner-badge.zero { display:none; }
+
+  /* lifecycle strip */
+  .lifecycle { display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; }
+  .lc-step { flex:1 1 200px; background:var(--panel-2); border:1px solid var(--border);
+    border-top:3px solid var(--accent); border-radius:8px; padding:10px 12px; }
+  .lc-step .lc-h { font-size:12px; color:var(--accent); margin-bottom:4px; font-weight:600; }
+  .lc-step code { background:#1b1b1b; color:var(--accent-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+  .lc-arrow { display:flex; align-items:center; color:var(--muted); font-size:20px; }
+
+  /* layers */
+  .layer { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:10px 0; align-items:start; }
+  .layer .lbl { font-size:12px; font-weight:700; text-align:center; border-radius:6px; padding:6px 4px; }
+  .l1 .lbl { background:#1c3a4a; color:var(--accent); }
+  .l2 .lbl { background:#3a2f1c; color:var(--amber); }
+  .l3 .lbl { background:#2c3a1c; color:var(--green); }
+  .layer .body { background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
+  .layer .body p { margin:3px 0; }
+  .layer code { background:#1b1b1b; color:var(--accent-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+
+  pre { background:#1b1b1b; border:1px solid var(--border); border-radius:8px; padding:12px 14px;
+    overflow-x:auto; font-size:12.5px; line-height:1.55; color:var(--text); margin:10px 0; }
+  pre .k { color:var(--blue); } pre .s { color:#ce9178; } pre .c { color:#6a9955; }
+
+  /* flow */
+  .stage { display:grid; grid-template-columns:38px 1fr; gap:14px; align-items:stretch; }
+  .stage .num { display:flex; align-items:center; justify-content:center; }
+  .stage .num span { width:30px; height:30px; border-radius:50%; background:var(--accent); color:#06121b;
+    font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .stage .box { background:var(--panel-2); border:1px solid var(--border); border-left:4px solid var(--accent);
+    border-radius:8px; padding:12px 16px; }
+  .stage .box h3 { margin:0 0 4px; font-size:14px; color:#fff; }
+  .stage .box p { margin:4px 0; color:var(--muted); font-size:13px; }
+  .stage .box code { background:#1b1b1b; color:var(--accent-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+  .connector { display:flex; justify-content:center; color:var(--muted); font-size:18px; height:22px; }
+
+  table { width:100%; border-collapse:collapse; margin:8px 0; }
+  th,td { text-align:left; padding:8px 10px; border:1px solid var(--border); vertical-align:top; }
+  th { background:var(--panel-2); color:var(--accent); font-weight:600; }
+  td.rec { color:var(--green); font-weight:600; }
+  .note { color:var(--muted); font-size:12px; }
+  .kbd { font-family:Consolas,monospace; background:#1b1b1b; padding:1px 5px; border-radius:4px; color:var(--accent-2); }
+  .warn { border-left:3px solid var(--red); background:#2a1f1f; padding:8px 12px; border-radius:0 6px 6px 0; margin:10px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HYC 框架 · 红点树系统 — UI 集成方案 v2</h1>
+  <p class="sub">已按推荐锁定 D1–D5；本版重点细化<strong>如何接进现有「Binder 绑定 + System 窗口」制作链路</strong>，并把方法下沉到 UI System 基类。<span style="color:var(--amber)">待你确认后进入编码。</span></p>
+
+  <!-- ===== 核心：UI 集成 ===== -->
+  <h2>① 核心改动：红点接进 UI System 生命周期</h2>
+  <div class="card">
+    <p class="sub">红点刷新由 <strong>窗口 System 驱动</strong>，而不是预制体上散落的 MonoBehaviour <code>Update</code> —— 与「UI 即 ECS System、最后运行读最新状态」一致。</p>
+    <div class="lifecycle">
+      <div class="lc-step">
+        <div class="lc-h">OnViewOpen</div>
+        <div>自动收集 <code>View</code> 下所有 <code>RedDotBehaviour</code> → 逐个绑定（<span style="color:var(--green)">零代码</span>）</div>
+      </div>
+      <div class="lc-arrow">→</div>
+      <div class="lc-step">
+        <div class="lc-h">OnChanged（变更时）</div>
+        <div><code>RedDotManager</code> 变更事件 → <code>RefreshRedDots()</code> 只刷受影响绑定；值未变不写 <code>SetActive</code></div>
+      </div>
+      <div class="lc-arrow">→</div>
+      <div class="lc-step">
+        <div class="lc-h">OnViewClose</div>
+        <div>全部解绑 + 退订事件（与 <code>Binder</code> 置空同一时机）</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">窗口未打开时其 System 不在更新列表 → 无需刷新；打开瞬间 <code>OnViewOpen</code> 做一次全量刷新，避免「打开时红点已亮却没刷」。</p>
+  </div>
+
+  <h2>② 三层消费模型（同一 Manager，按需取用）</h2>
+  <div class="card">
+    <div class="layer l1">
+      <div class="lbl">L1<br>预制体<br><span style="font-weight:400">零代码</span></div>
+      <div class="body">
+        <p>美术/策划在预制体红点节点上挂 <code>RedDotBehaviour</code>（key 选择器 + 红点 GameObject + 可选数字 Text）。</p>
+        <p>基类 <code>OnViewOpen</code> 自动收集并绑定 —— <strong>窗口代码一行都不用写</strong>。</p>
+        <p>key 在 Inspector 用<strong>下拉选择器</strong>从已注册树里选（复用 LocKey / AudioEvent 的「只能选不给手填」做法），拼错不可能。</p>
+      </div>
+    </div>
+    <div class="layer l2">
+      <div class="lbl">L2<br>基类方法<br><span style="font-weight:400">代码驱动</span></div>
+      <div class="body">
+        <p>在 <code>AbsUISystem</code> 新增 <code>#region 红点</code>（与「热键 / 部件窗口」同级分块）：</p>
+        <pre><span class="c">// 绑定：自动跟随刷新，Close 自动解绑</span>
+<span class="k">protected</span> <span class="k">void</span> BindRedDot(RedDotKey key, GameObject dot);
+<span class="k">protected</span> <span class="k">void</span> BindRedDot(RedDotKey key, GameObject dot, Text count);
+<span class="k">protected</span> <span class="k">void</span> BindRedDot(RedDotKey key, RedDotBehaviour b);
+<span class="k">protected</span> <span class="k">void</span> UnbindRedDot(RedDotKey key);
+
+<span class="c">// 查询 / 消费（何时清除由业务决定）</span>
+<span class="k">protected</span> <span class="k">bool</span> IsRedDotActive(RedDotKey key);
+<span class="k">protected</span> <span class="k">void</span> ConsumeRedDot(RedDotKey key);</pre>
+        <p>因为挂在 <code>AbsUISystem</code>，<strong>窗口 / HUD / 弹窗全部自动获得</strong>，无需每处重复实现。</p>
+      </div>
+    </div>
+    <div class="layer l3">
+      <div class="lbl">L3<br>显式查询<br><span style="font-weight:400">逃生舱</span></div>
+      <div class="body">
+        <p>需要精细布局时，窗口 <code>OnViewUpdate</code> 里直接 <code>RedDotManager.IsActive(key)</code> / <code>GetCount(key)</code>。</p>
+      </div>
+    </div>
+    <div class="warn">
+      <strong>关键取舍：</strong>刷新用<strong>事件订阅（变更才刷）</strong>而非每帧轮询 —— 避免每帧 N 次 <code>SetActive</code>；<code>OnViewOpen</code> 全量刷新兜底。退订必须与 <code>Binder</code> 置空同在 <code>OnViewClose</code>，否则窗口关了还在收事件（悬空 View）。
+    </div>
+  </div>
+
+  <h2>③ 宿主窗口实际长什么样</h2>
+  <div class="card">
+    <pre><span class="k">public class</span> MailWindow : BaseWindowSystem&lt;MailBinder&gt;
+{
+    <span class="k">public override string</span> PrefabKey =&gt; <span class="s">"UI/MailWindow.prefab"</span>;
+
+    <span class="k">public override void</span> OnViewOpen(<span class="k">params object</span>[] args)
+    {
+        <span class="k">base</span>.OnViewOpen();              <span class="c">// ← 已自动收集并绑定预制体上全部 RedDotBehaviour</span>
+        Binder.CloseButton.onClick.AddListener(() =&gt; UIManager.Close&lt;MailWindow&gt;());
+
+        ConsumeRedDot(RedDotKeys.Mail);      <span class="c">// 打开邮件 = 已读 → 清红点（业务决定）</span>
+    }
+    <span class="c">// 预制体上的红点无需任何代码：L1 自动绑定 + 基类自动刷新</span>
+}</pre>
+    <p class="note">不写 <code>BindRedDot</code> 也能工作（L1）；只有<strong>动态生成的列表项</strong>红点才需要 L2。</p>
+  </div>
+
+  <!-- ===== 交互演示 ===== -->
+  <h2>④ 交互演示：聚合是怎么亮的</h2>
+  <div class="card">
+    <p class="sub">点「+1 / 标记」切换叶子状态，观察父节点向上聚合（Mail 走 <b>Count</b> 求和，Quest / Shop 走 <b>Bool</b> 任一子亮即亮）。右侧是宿主 UI 上对应按钮的红点表现。</p>
+    <div class="grid2">
+      <div>
+        <div class="tree-node"><span class="dot" id="d_Mail"></span><span class="name">Mail</span><span class="mode">Count</span><span class="badge zero" id="b_Mail">0</span></div>
+        <div class="tree-node leaf"><span class="dot" id="d_Mail_System"></span><span class="name">Mail_System</span><span class="mode">Count</span><span class="badge zero" id="b_Mail_System">0</span><button class="toggle" onclick="bump('Mail_System',1)">+1</button><button class="toggle" onclick="bump('Mail_System',-1)">-1</button></div>
+        <div class="tree-node leaf"><span class="dot" id="d_Mail_Private"></span><span class="name">Mail_Private</span><span class="mode">Count</span><span class="badge zero" id="b_Mail_Private">0</span><button class="toggle" onclick="bump('Mail_Private',1)">+1</button><button class="toggle" onclick="bump('Mail_Private',-1)">-1</button></div>
+        <div class="tree-node"><span class="dot" id="d_Quest"></span><span class="name">Quest</span><span class="mode">Bool</span></div>
+        <div class="tree-node leaf"><span class="dot" id="d_Quest_Daily"></span><span class="name">Quest_Daily</span><span class="mode">Bool</span><button class="toggle" onclick="flip('Quest_Daily')">标记/清除</button></div>
+        <div class="tree-node leaf"><span class="dot" id="d_Quest_Main"></span><span class="name">Quest_Main</span><span class="mode">Bool</span><button class="toggle" onclick="flip('Quest_Main')">标记/清除</button></div>
+        <div class="tree-node"><span class="dot" id="d_Shop"></span><span class="name">Shop</span><span class="mode">Bool</span></div>
+        <div class="tree-node leaf"><span class="dot" id="d_Shop_New"></span><span class="name">Shop_New</span><span class="mode">Bool</span><button class="toggle" onclick="flip('Shop_New')">标记/清除</button></div>
+      </div>
+      <div>
+        <p class="sub" style="margin-top:0">宿主 UI（红点由窗口 System 刷新）：</p>
+        <div class="ui-btn">📬 邮件<span class="corner-badge zero" id="ui_Mail">0</span></div>
+        <div class="ui-btn">📜 任务<span class="corner-dot hide" id="ui_Quest"></span></div>
+        <div class="ui-btn">🛒 商店<span class="corner-dot hide" id="ui_Shop"></span></div>
+        <p class="sub" style="margin-top:18px">打开「邮件」窗口 → <span class="kbd">ConsumeRedDot(RedDotKeys.Mail)</span> → 子树全清 → 红点消失。</p>
+        <button class="toggle" onclick="clearAll()">模拟「打开邮件」</button>
+        <button class="toggle" onclick="resetAll()">重置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 全流程 ===== -->
+  <h2>⑤ 全流程：数据怎么流</h2>
+  <div class="card">
+    <div class="stage"><div class="num"><span>0</span></div><div class="box">
+      <h3>定义期 · 树结构注册</h3>
+      <p>代码流式注册：<code>key / 父 / 模式(Bool|Count)</code> → <code>RedDotTree</code> 挂进 <code>RedDotManager</code>。<b>不进 Blob</b>（结构小、低频、需运行时可变）。</p>
+    </div></div>
+    <div class="connector">↓</div>
+    <div class="stage"><div class="num"><span>1</span></div><div class="box" style="border-left-color:var(--green)">
+      <h3>运行期 · 玩法标记叶子（A3）</h3>
+      <p><code>RedDotManager.Mark(key)</code> · <code>SetCount(key,n)</code> · <code>Clear(key)</code>。</p>
+      <p class="note">⚠ 红点态<b>跨帧持久</b>，不能用单帧 <code>EventMessage</code> 承载；可桥接（玩法发消息 → 系统里转 Mark），与 <code>OpenGuide</code> 同链路。</p>
+    </div></div>
+    <div class="connector">↓</div>
+    <div class="stage"><div class="num"><span>2</span></div><div class="box">
+      <h3>聚合 · 向上传播</h3>
+      <p>Bool：父 active = 任一子 active；Count：父值 = Σ子值（或 Max，按节点配）。变更触发 <code>OnChanged</code>。</p>
+    </div></div>
+    <div class="connector">↓</div>
+    <div class="stage"><div class="num"><span>3</span></div><div class="box" style="border-left-color:var(--amber)">
+      <h3>表现期 · UI 消费（B9）</h3>
+      <p>L1 预制体 <code>RedDotBehaviour</code> 自动绑定（零代码）→ L2 基类 <code>BindRedDot</code> → L3 显式查询。</p>
+      <p>刷新时机：<code>OnViewOpen</code> 全量 + <code>OnChanged</code> 增量；<code>OnViewClose</code> 解绑。</p>
+    </div></div>
+    <div class="connector">↓</div>
+    <div class="stage"><div class="num"><span>4</span></div><div class="box" style="border-left-color:var(--red)">
+      <h3>清除 · 消费即灭</h3>
+      <p>窗口 <code>OnViewOpen</code> 调 <code>ConsumeRedDot(key)</code>（业务决定）→ 向上重算 → 红点灭。跨会话「已读」由游戏经 <code>SaveManager</code> 持久。</p>
+    </div></div>
+  </div>
+
+  <!-- ===== 决策 ===== -->
+  <h2>⑥ 决策状态</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>决策</th><th>结论</th><th>说明</th></tr>
+      <tr><td>D1</td><td>树结构来源</td><td class="rec">代码流式注册</td><td>快、类型安全，v1 不做可视化编辑器</td></tr>
+      <tr><td>D2</td><td>状态类型</td><td class="rec">Bool + Count 双模式</td><td>邮件要数字、任务只要点</td></tr>
+      <tr><td>D3</td><td>UI 消费</td><td class="rec">三层（L1 零代码为主）</td><td><b>本版细化</b>：刷新改由 System 驱动，非 MonoBehaviour 轮询</td></tr>
+      <tr><td>D4</td><td>编辑器 / 调试</td><td class="rec">v1 运行时只读状态窗</td><td>先看「哪个节点亮了」，定义编辑器留 v2</td></tr>
+      <tr><td>D5</td><td>键类型安全</td><td class="rec"><code>RedDotKey</code> 结构体（代码侧零字符串）</td><td>预制体侧序列化为字符串 + Inspector 下拉选择器（取自注册树），绑定时校验</td></tr>
+    </table>
+    <h3>还需你拍板的新问题</h3>
+    <table>
+      <tr><th>#</th><th>问题</th><th>我的建议</th></tr>
+      <tr><td><b>U1</b></td><td><code>RedDotBehaviour</code> 要不要进 <code>ComponentBinderTable</code> 生成链路（让 <code>Binder.MailRedDot</code> 可访问）？</td><td class="rec">做成可选登记 —— L1 自动绑定不依赖它，但想代码访问时能拿到强类型引用</td></tr>
+      <tr><td><b>U2</b></td><td>「打开窗口自动清红点」要不要做成<strong>声明式</strong>（Behaviour 上勾 <code>ConsumeOnOpen</code>）？</td><td class="rec">提供开关，<b>默认关</b> —— 清除是业务决策，框架不替游戏决定</td></tr>
+      <tr><td><b>U3</b></td><td>红点要不要覆盖内嵌 UI（原 <code>BaseWindowPart</code> 子部件）？</td><td class="rec">要 —— 内嵌 UI 同样有 View。**但链路已统一**（`BaseWindowPart` / `AbsParentBaseWindowSystem` 已删除，全部收归 <code>AbsUISystem</code>），region <b>只需加一次</b>，V5 自动消解</td></tr>
+    </table>
+    <p class="note">✅ 原「两处都要加」的问题已不存在：<code>2026-10-16</code> UI 链路统一（方案 D）后所有 UI 都是 <code>AbsUISystem</code> 子类，红点 region 只改基类即可全覆盖。详见 <a href="../31-窗口系统.md">31-窗口系统</a>第三节。</p>
+  </div>
+</div>
+
+<script>
+  const state = { Mail_System:0, Mail_Private:0, Quest_Daily:false, Quest_Main:false, Shop_New:false };
+  function recompute(){
+    const mail = state.Mail_System + state.Mail_Private;
+    setNode('Mail', mail>0, mail);
+    setNode('Mail_System', state.Mail_System>0, state.Mail_System);
+    setNode('Mail_Private', state.Mail_Private>0, state.Mail_Private);
+    const quest = state.Quest_Daily || state.Quest_Main;
+    setNode('Quest', quest, 0); setNode('Quest_Daily', state.Quest_Daily, 0); setNode('Quest_Main', state.Quest_Main, 0);
+    setNode('Shop', state.Shop_New, 0); setNode('Shop_New', state.Shop_New, 0);
+    uiBadge('Mail', mail); uiDot('Quest', quest); uiDot('Shop', state.Shop_New);
+  }
+  function setNode(id,on,count){
+    document.getElementById('d_'+id).classList.toggle('on', !!on);
+    const b=document.getElementById('b_'+id);
+    if(b){ b.textContent=count; b.classList.toggle('zero', !(count>0)); }
+  }
+  function uiBadge(id,count){ const e=document.getElementById('ui_'+id); e.textContent=count; e.classList.toggle('zero', !(count>0)); }
+  function uiDot(id,on){ document.getElementById('ui_'+id).classList.toggle('hide', !on); }
+  function flip(k){ state[k]=!state[k]; recompute(); }
+  function bump(k,d){ state[k]=Math.max(0, state[k]+d); recompute(); }
+  function clearAll(){ state.Mail_System=0; state.Mail_Private=0; recompute(); }
+  function resetAll(){ state.Mail_System=0; state.Mail_Private=0; state.Quest_Daily=false; state.Quest_Main=false; state.Shop_New=false; recompute(); }
+  recompute();
+</script>
+</body>
+</html>

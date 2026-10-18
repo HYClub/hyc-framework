@@ -65,20 +65,18 @@ public class MyCutsceneDirector : CutsceneDirector
 {
     private PlayableDirector _director;
 
-    // 1. 用配置表解析 id → AssetKey
+    // 1. 用配置表解析 id → AssetKey（门面是唯一查询入口；未命中抛 KeyNotFoundException）
     public override void Play(long id)
     {
-        if (ConfigManager.TryGet<CutsceneRow>(id, out var row))
+        ref var row = ref ConfigManager.CutsceneRow.GetByID(id);   // ⛔ 必须 ref 接收（EA0001）
+        Enqueue(new Cutscene
         {
-            Enqueue(new Cutscene
-            {
-                Id = id,
-                Name = row.Name,
-                AssetKey = row.AssetKey,
-                Loop = row.Loop,
-                OnFinished = () => Debug.Log($"cut {id} done"),
-            });
-        }
+            Id = id,
+            Name = row.Name,
+            AssetKey = row.AssetKey,
+            Loop = row.Loop,
+            OnFinished = () => Debug.Log($"cut {id} done"),
+        });
     }
 
     // 2. 真正播放

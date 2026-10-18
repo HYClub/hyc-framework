@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using HYC.Framework.Audio;
+using HYC.Framework.UI;
 
 namespace HYC.Framework.Runtime
 {
@@ -58,6 +59,17 @@ namespace HYC.Framework.Runtime
             /// <summary>命中后归到的音量分组 id（见 <see cref="audioGroups"/>，0 = Master）。</summary>
             public int channel = AudioChannelId.Sfx;
         }
+
+        // ---- UI 层级（数据驱动，项目级；在 HYC Settings → UI/层级 增删改名、拖动排序）----
+
+        /// <summary>
+        /// UI 层表。<b>顺序即层级</b>（下标 0 在最底，越往后越靠上）：决定 Canvas 的 sortingOrder
+        /// 与 Hierarchy 里的兄弟顺序。三枚行为标记（<see cref="UILayerDef.hud"/> /
+        /// <see cref="UILayerDef.blockInput"/> / <see cref="UILayerDef.hideOnHideAll"/>）替代了
+        /// UIManager 里原先按层名写死的判断，改名 / 插层后群体行为跟随层本身。
+        /// 需要编译期常量时，用设置页「保存并生成」产出的 <c>{命名空间root}.ui.UILayer</c> 静态类。
+        /// </summary>
+        public List<UILayerDef> uiLayers = UILayerTable.DefaultTable();
 
         private static FrameworkSettings _instance;
 

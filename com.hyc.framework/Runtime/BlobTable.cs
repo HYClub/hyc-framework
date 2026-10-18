@@ -86,7 +86,7 @@ namespace HYC.Framework.Config
         }
 
         /// <summary>
-        /// 按 id 取行序（走 Id 索引，不拷行）。供 <see cref="ConfigManager"/> 的 ref 访问与存在性判断使用。
+        /// 按 id 取行序（走 Id 索引，不拷行）。供 <see cref="ConfigRegistry"/> 的 ref 访问与存在性判断使用。
         /// 找不到 / 越界返回 false（<paramref name="index"/> = -1）。
         /// </summary>
         public bool TryGetIndex(long id, out int index)
@@ -120,6 +120,15 @@ namespace HYC.Framework.Config
         }
 
         public BlobArray<TRow> Rows => _ref.IsCreated ? _ref.Value.Rows : default;
+
+        /// <summary>
+        /// 底层 Blob 引用的值拷贝（同程序集内部通道，非公开 API）——供
+        /// <see cref="ConfigRegistry"/> 的取行助手经 <c>BlobAssetReference.Value</c> 指针派生链拿行 ref：
+        /// ref 形参派生的返回 ref 只能绑 ref local（CS8347/CS8168），字典取出的表做不到，
+        /// 必须改从指针派生（<c>Value</c> 与 BlobArray 索引器均为
+        /// <c>UnsafeUtility.AsRef/ArrayElementAsRef(void*)</c> 实现，Blobs.cs 源码实证）。
+        /// </summary>
+        internal BlobAssetReference<BlobRoot<TRow>> BlobRef => _ref;
 
         public void Dispose()
         {

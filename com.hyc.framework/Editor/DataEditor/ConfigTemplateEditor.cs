@@ -47,41 +47,20 @@ namespace HYC.Framework.Config.Editor
             var tplNow = mTarget.targetObject as ConfigTemplate;
             var classValid = true;
 
-            // 页签切换（「字段」页签 tooltip 承载字段类型 / 导出 / 检查说明）
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            mActiveTab = GUILayout.Toolbar(mActiveTab, new[]
-            {
-                new GUIContent("基础", "显示名 / 类名（改名）/ 基类 / 图标。"),
-                new GUIContent("字段",
-                    "字段类型选“配置引用…”可从所有已注册配置类型中选择，生成资产引用字段。\n" +
-                    "字段“导出”决定客户端/服务器类型包含的字段；“检查”配置在字段检查配置页。"),
-                new GUIContent("字段检查配置"),
-                new GUIContent("导出")
-            }, EditorStyles.toolbarButton);
-            EditorGUILayout.EndHorizontal();
+            // 常驻头部区（原「基础」页内容，取消切页；绘制在滚动区之外，恒定点在顶部）
+            DrawBasicHeader();
 
-            EditorGUILayout.Space(4);
+            EditorGUILayout.Space(8);
 
-            mScroll = EditorGUILayout.BeginScrollView(mScroll);
+            // 无切页：字段表就是全部内容（「导出」「字段检查配置」两页均已并入这张表）
+            mScroll = EditorGUILayout.BeginScrollView(mScroll, GUILayout.ExpandHeight(true));
 
-            if (mActiveTab == 0)
-            {
-                DrawBasicTab();
-            }
-            else if (mActiveTab == 1)
-            {
-                DrawFieldsTab(ref classValid);
-            }
-            else if (mActiveTab == 2)
-            {
-                DrawChecksTab();
-            }
-            else
-            {
-                DrawExportTab();
-            }
+            DrawFieldsTab(ref classValid);
 
             EditorGUILayout.EndScrollView();
+
+            // 静态提示（常驻底部，不随中间滚动；滚动区高度由 ExpandHeight 动态自适应）
+            DrawPageHints();
 
             // 错误汇总（公共区）
             var tplErrors = new List<string>();
@@ -159,8 +138,7 @@ namespace HYC.Framework.Config.Editor
 
             EditorGUILayout.Space(4);
 
-            // 右下角：生成代码 + 保存模板（最底部）
-            GUILayout.FlexibleSpace();
+            // 右下角：生成代码 + 保存模板（最底部；滚动区已 ExpandHeight 填充，此处无需再推）
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("生成代码", GUILayout.Width(90)))
@@ -174,10 +152,8 @@ namespace HYC.Framework.Config.Editor
             mTarget.ApplyModifiedProperties();
         }
 
-        private int mActiveTab;
-
-        /// <summary>基础页：左侧 88×88 可点击图标 + 右侧显示名/类名（改名）/基类。</summary>
-        private void DrawBasicTab()
+        /// <summary>常驻头部区：左侧 88×88 可点击图标 + 右侧显示名 / 类名（改名）/ 基类模板。绘制在滚动区之外，固定常驻。</summary>
+        private void DrawBasicHeader()
         {
             var tpl = mTarget.targetObject as ConfigTemplate;
             if (tpl == null)
@@ -275,7 +251,26 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        /// <summary>字段页：字段列表（含导出目标 + 范围）。</summary>
+        /// <summary>页面静态提示（常驻底部，不随中间滚动）。</summary>
+        private void DrawPageHints()
+        {
+            EditorGUILayout.HelpBox(
+                "每侧下拉：直接导出(具体类型，如 直接导出(Int)) / 转字符串(string) / string 的 BlobString 或 FixedString 容量 / " +
+                "配置引用取成员(默认 ID) / 资源对象导出 名字、路径、Addressable 地址 / 不导出(该侧不含此字段)。",
+                MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "「检查」列：一个下拉三选一（非空 / 非0 / 范围），各自再选 Info / Warning / Error。" +
+                "非空 只对可能为空的类型（字符串 / 引用 / 资源对象 / 行为树）出现——值类型永远有值，无从判空；" +
+                "非0 与 范围 只对数值类型可用（均与生成器的发射条件一致），不支持的项菜单里不出现。" +
+                "选「范围」后才出现 Min/Max；三个检查互斥，选一项自动清掉其余。",
+                MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "资源/Prefab 字段只能导出 名字 / 路径 / AA地址（选 AA地址 须已在 Addressables 标记，否则导出空串、运行期才报错）；" +
+                "音频字段导出的是带前缀 key（clip:<AA地址> / wwise:<事件名>），默认 BlobString（变长、不截断）。",
+                MessageType.Warning);
+        }
+
+        /// <summary>字段列表（含两侧导出 + 检查 + 范围值）。</summary>
         private void DrawFieldsTab(ref bool classValid)
         {
             var tpl = mTarget.targetObject as ConfigTemplate;
@@ -284,79 +279,10 @@ namespace HYC.Framework.Config.Editor
 
             classValid = ConfigTemplateCodeGen.IsValidIdentifier(mTarget.FindProperty("className").stringValue);
 
-            EditorGUILayout.LabelField("字段列表（基类字段只读）", EditorStyles.boldLabel);
             DrawMergedFieldTable();
         }
 
-        /// <summary>字段检查配置页：每字段 非空/非0/范围 × 级别。</summary>
-        private void DrawChecksTab()
-        {
-            var tpl = mTarget.targetObject as ConfigTemplate;
-            if (tpl == null)
-                return;
-
-            EditorGUILayout.LabelField("字段检查配置", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
-            var allFields = ConfigTemplateCodeGen.GetAllFields(tpl, out _);
-
-            // 表头
-            var headerRect = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
-            var w = headerRect.width;
-            EditorGUI.LabelField(new Rect(headerRect.x, headerRect.y, w * 0.30f, headerRect.height), "字段", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + w * 0.30f, headerRect.y, w * 0.16f, headerRect.height), "非空", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + w * 0.46f, headerRect.y, w * 0.16f, headerRect.height), "非0", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + w * 0.62f, headerRect.y, w * 0.16f, headerRect.height), "范围", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + w * 0.78f, headerRect.y, w * 0.22f, headerRect.height), "范围值(Min~Max)", EditorStyles.boldLabel);
-
-            EditorGUILayout.Space(2);
-
-            var lineH = EditorGUIUtility.singleLineHeight + 2;
-            var levelNames = new[] { "不检查", "Info", "Warning", "Error" };
-
-            // 遍历自身字段（检查配置只对自身可编辑字段生效）
-            for (var i = 0; i < mFieldsProp.arraySize; i++)
-            {
-                var prop = mFieldsProp.GetArrayElementAtIndex(i);
-                var nameProp = prop.FindPropertyRelative("name");
-                var notEmptyProp = prop.FindPropertyRelative("notEmptyCheck");
-                var notZeroProp = prop.FindPropertyRelative("notZeroCheck");
-                var rangeProp = prop.FindPropertyRelative("rangeCheck");
-                var hasRangeProp = prop.FindPropertyRelative("hasRange");
-                var minProp = prop.FindPropertyRelative("minValue");
-                var maxProp = prop.FindPropertyRelative("maxValue");
-
-                var row = EditorGUILayout.GetControlRect(true, lineH);
-                EditorGUI.LabelField(new Rect(row.x, row.y, row.width * 0.30f, row.height), nameProp.stringValue);
-
-                DrawLevelPopup(new Rect(row.x + row.width * 0.30f, row.y, row.width * 0.16f - 2, row.height), notEmptyProp, levelNames);
-                DrawLevelPopup(new Rect(row.x + row.width * 0.46f, row.y, row.width * 0.16f - 2, row.height), notZeroProp, levelNames);
-                DrawLevelPopup(new Rect(row.x + row.width * 0.62f, row.y, row.width * 0.16f - 2, row.height), rangeProp, levelNames);
-
-                // 范围值
-                var rangeRect = new Rect(row.x + row.width * 0.78f, row.y, row.width * 0.22f, row.height);
-                if (hasRangeProp.boolValue)
-                {
-                    EditorGUI.LabelField(new Rect(rangeRect.x, rangeRect.y, 28, rangeRect.height), "Min", EditorStyles.miniLabel);
-                    EditorGUI.FloatField(new Rect(rangeRect.x + 26, rangeRect.y, rangeRect.width * 0.35f, rangeRect.height), minProp.floatValue);
-                    EditorGUI.LabelField(new Rect(rangeRect.x + rangeRect.width * 0.35f + 30, rangeRect.y, 30, rangeRect.height), "Max", EditorStyles.miniLabel);
-                    EditorGUI.FloatField(new Rect(rangeRect.x + rangeRect.width * 0.35f + 58, rangeRect.y, rangeRect.width * 0.3f, rangeRect.height), maxProp.floatValue);
-                }
-                else
-                {
-                    EditorGUI.LabelField(rangeRect, "未启用（勾选范围级别后可用）", EditorStyles.miniLabel);
-                }
-            }
-
-            EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(
-                "每项检查可独立选择级别：不检查 / Info / Warning / Error。\n" +
-                "选择\u201c范围\u201d级别后需在字段页设置 Min/Max 值。",
-                MessageType.Info);
-        }
-
-        // ---------- “导出”页：每字段 客户端/服务端 导出设置 ----------
-
+        // ---------- 字段列表：客户端/服务端 导出 + 检查 ----------
         private class ExportOption
         {
             public string Label;
@@ -374,83 +300,6 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
-        private void DrawExportTab()
-        {
-            var tpl = mTarget.targetObject as ConfigTemplate;
-            if (tpl == null)
-                return;
-
-            EditorGUILayout.LabelField("导出设置（客户端/服务端分别选择导出取值），只影响生成的数据", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
-            // 表头：字段名 | 类型 | 客户端导出 | 服务端导出
-            var headerRect = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
-            var w = headerRect.width;
-            var nameW = w * 0.26f;
-            var typeW = w * 0.20f;
-            var rest = w - nameW - typeW;
-            var colW = rest * 0.5f;
-            EditorGUI.LabelField(new Rect(headerRect.x, headerRect.y, nameW, headerRect.height), "字段名", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + nameW, headerRect.y, typeW, headerRect.height), "类型", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + nameW + typeW, headerRect.y, colW, headerRect.height), "客户端导出", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.x + nameW + typeW + colW, headerRect.y, colW, headerRect.height), "服务端导出", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
-            var lineH = EditorGUIUtility.singleLineHeight + 2;
-            for (var i = 0; i < mFieldsProp.arraySize; i++)
-            {
-                if (tpl.fields == null || i >= tpl.fields.Count)
-                    continue;
-                var prop = mFieldsProp.GetArrayElementAtIndex(i);
-                var f = tpl.fields[i];
-                if (f == null)
-                    continue;
-
-                var row = EditorGUILayout.GetControlRect(true, lineH);
-                var x = row.x;
-                EditorGUI.LabelField(new Rect(x, row.y, nameW, row.height), f.name);
-                EditorGUI.LabelField(new Rect(x + nameW, row.y, typeW, row.height), FieldTypeLabel(f));
-
-                var clientX = x + nameW + typeW;
-                // 导出目标：客户端 0 / 服务器 1 / 两者 2
-                var clientEnabled = f.exportTarget != ConfigExportTarget.Server;
-                var serverEnabled = f.exportTarget != ConfigExportTarget.Client;
-                var feas = ConfigTemplateCodeGen.GetExportFeasibility(f);
-                DrawSideExportPopup(prop, f, true, new Rect(clientX, row.y, colW - 2, row.height), clientEnabled, feas.ClientBroken);
-                DrawSideExportPopup(prop, f, false, new Rect(clientX + colW, row.y, colW - 2, row.height), serverEnabled, feas.ServerBroken);
-            }
-
-                EditorGUILayout.Space(4);
-
-            // 导出可行性红字汇总（与生成校验一致）：哪些字段“直接导出”不可导，指出是哪一侧 + 建议
-            for (var i = 0; i < mFieldsProp.arraySize; i++)
-            {
-                if (tpl.fields == null || i >= tpl.fields.Count)
-                    continue;
-                var f = tpl.fields[i];
-                if (f == null)
-                    continue;
-                var msg = ConfigTemplateCodeGen.ExportFeasibilityMessage(f);
-                if (msg != null)
-                    EditorGUILayout.HelpBox(msg, MessageType.Error);
-            }
-
-            EditorGUILayout.HelpBox(
-                "每一侧可选：直接导出（默认） / 转字符串 / string 的 BlobString 或 FixedString 容量 / " +
-                "配置引用取成员(ID/GUID/标量字段) / 资源对象导出 名字、路径、Addressable 地址。\n" +
-                "FixedString 生成代码用官方 new FixedStringN(source) 初始化，超长抛异常不静默截断。",
-                MessageType.Info);
-            EditorGUILayout.HelpBox(
-                "资源/Prefab 字段（Object 等）：只能导出 名字 / 路径 / AA地址，不能直接把对象序列化进 Blob。" +
-                "选「AA地址」时请确保该资源已在 Addressables 标记，否则导出空串（运行时才报错）。",
-                MessageType.Warning);
-            EditorGUILayout.HelpBox(
-                "音频字段（框架/音频）导出的是带前缀的字符串 key：clip:<Addressables地址> 走框架默认后端、" +
-                "wwise:<事件名> 走 Wwise。运行时由 Audio.Play(ref) 按前缀路由，再交给 Addressables 加载，" +
-                "所以这里填的是 key 而不是 clip 名；默认 BlobString（变长、不截断）。",
-                MessageType.Info);
-        }
-
         private void DrawSideExportPopup(SerializedProperty fieldProp, ConfigTemplateField f, bool client, Rect rect, bool enabled, bool broken)
         {
             var oldEnabled = GUI.enabled;
@@ -466,20 +315,39 @@ namespace HYC.Framework.Config.Editor
             var memberProp = setProp.FindPropertyRelative("memberName");
             var sizeProp = setProp.FindPropertyRelative("fixedStringSize");
 
-            var opts = BuildExportOptions(f);
-            var labels = new string[opts.Count];
+            var opts = BuildExportOptions(f, client);
             var currentMode = modeProp.intValue;
             var currentMember = memberProp.stringValue ?? "";
             var currentSize = sizeProp.intValue;
             var cur = 0;
+            var matched = false;
             for (var j = 0; j < opts.Count; j++)
             {
-                labels[j] = opts[j].Label;
                 if ((int)opts[j].Mode == currentMode
                     && string.Equals(opts[j].Member, currentMember)
                     && (opts[j].Mode != ConfigFieldExportMode.FixedString || (int)opts[j].Size == currentSize))
+                {
                     cur = j;
+                    matched = true;
+                    break;
+                }
             }
+
+            // 孤儿兜底：当前存档的 mode/member 在选项里找不到（典型：旧版「直接导出(整对象)」等被移除的项），
+            // 追加一个反映真实存储值的合成项，避免 Popup 误把首项当当前值展示。
+            if (!matched)
+            {
+                var orphan = new ExportOption(
+                    $"(旧设置: {(ConfigFieldExportMode)currentMode}{(string.IsNullOrEmpty(currentMember) ? "" : "·" + currentMember)})",
+                    (ConfigFieldExportMode)currentMode, currentMember,
+                    (ConfigFixedStringSize)currentSize);
+                cur = opts.Count;
+                opts.Add(orphan);
+            }
+
+            var labels = new string[opts.Count];
+            for (var j = 0; j < opts.Count; j++)
+                labels[j] = opts[j].Label;
 
             EditorGUI.BeginChangeCheck();
             var idx = EditorGUI.Popup(rect, cur, labels);
@@ -495,17 +363,291 @@ namespace HYC.Framework.Config.Editor
             GUI.enabled = oldEnabled;
         }
 
-        private static List<ExportOption> BuildExportOptions(ConfigTemplateField f)
+        /// <summary>单项检查（互斥三选一）。</summary>
+        private enum CheckKind
+        {
+            None,
+            NotEmpty,
+            NotZero,
+            Range,
+        }
+
+        /// <summary>
+        /// 读取当前生效的唯一检查项。三项互斥，但历史存档可能多项同时非 None（互斥前的遗留），
+        /// 按 非空 &gt; 非0 &gt; 范围 取一项展示，用户下一次选择时自动归零其余。
+        /// notEmptyAllowed = 该字段类型是否支持「非空」（值类型没有空态，遗留的非空设置按不存在处理）。
+        /// </summary>
+        private static (CheckKind kind, ConfigCheckLevel level) ReadCheckState(SerializedProperty fieldProp, bool notEmptyAllowed)
+        {
+            var e = notEmptyAllowed ? (ConfigCheckLevel)fieldProp.FindPropertyRelative("notEmptyCheck").intValue : ConfigCheckLevel.None;
+            var z = (ConfigCheckLevel)fieldProp.FindPropertyRelative("notZeroCheck").intValue;
+            var r = (ConfigCheckLevel)fieldProp.FindPropertyRelative("rangeCheck").intValue;
+            if (e != ConfigCheckLevel.None) return (CheckKind.NotEmpty, e);
+            if (z != ConfigCheckLevel.None) return (CheckKind.NotZero, z);
+            if (r != ConfigCheckLevel.None) return (CheckKind.Range, r);
+            return (CheckKind.None, ConfigCheckLevel.None);
+        }
+
+        /// <summary>检查按钮文案（如「非0 · Warn」「范围 · Err」「不检查」）。</summary>
+        private static string CheckLabel(CheckKind kind, ConfigCheckLevel level)
+        {
+            if (kind == CheckKind.None) return "不检查";
+            var name = kind == CheckKind.NotEmpty ? "非空" : kind == CheckKind.NotZero ? "非0" : "范围";
+            var lv = level == ConfigCheckLevel.Info ? "Info"
+                : level == ConfigCheckLevel.Warning ? "Warn" : "Err";
+            return $"{name} · {lv}";
+        }
+
+        // 检查列布局常量（下拉 96 / Min·Max 输入框 56；空间不足时的收缩下限）
+        private const float CheckDropdownW = 96f;
+        private const float CheckDropdownWMin = 64f;
+        private const float MmLabelW = 20f;
+        private const float MmGap = 4f;
+        private const float MmFieldW = 56f;
+        private const float MmFieldWMin = 40f;
+
+        /// <summary>
+        /// 检查列布局：下拉按钮宽 + （选了「范围」时）Min/Max 输入框宽。一套计算、下拉与 Min/Max 两边共用，保证永不错位。
+        /// 空间充足：下拉 96 + 输入框 56×2；不足时输入框先收缩到 40，再让下拉收缩（保底 64，仍够放「范围 · Err」短文案）。
+        /// </summary>
+        private static (float dropdownW, float fieldW) CheckCellLayout(Rect checkRect, bool showMinMax)
+        {
+            var availW = checkRect.width - 2f;
+            if (!showMinMax)
+                return (Mathf.Min(CheckDropdownW, availW), 0f);
+            var fieldW = MmFieldW;
+            var mmGroup = 2f * MmLabelW + 3f * MmGap + 2f * fieldW;
+            if (CheckDropdownW + 8f + mmGroup <= availW)
+                return (CheckDropdownW, fieldW);
+            fieldW = MmFieldWMin;
+            mmGroup = 2f * MmLabelW + 3f * MmGap + 2f * fieldW;
+            return (Mathf.Clamp(availW - 8f - mmGroup, CheckDropdownWMin, CheckDropdownW), fieldW);
+        }
+
+        // 检查下拉按级别着色的样式缓存：克隆 EditorStyles.miniPullDown —— 3 参 DropdownButton 内部默认正是它，
+        // 克隆后仅替换文字色，背景/边距/字体与不着色时完全一致（深浅主题下都只动文字，不碰控件底）
+        private static GUIStyle sCheckStyleInfo;
+        private static GUIStyle sCheckStyleWarn;
+        private static GUIStyle sCheckStyleErr;
+
+        private static GUIStyle CheckLevelStyle(ref GUIStyle cache, Color text)
+        {
+            if (cache == null)
+            {
+                cache = new GUIStyle(EditorStyles.miniPullDown);
+                cache.normal.textColor = text;
+                cache.hover.textColor = text;
+                cache.active.textColor = text;
+            }
+            return cache;
+        }
+
+        /// <summary>
+        /// 检查下拉：一个按钮，点开 = 二级菜单——顶层 不检查 / 非空 / 非0 / 范围，各项再出子菜单选级别。
+        /// 可选性按字段类型决定（与生成器发射条件一致）：
+        /// 非空 只对「可能为空」的类型（字符串族 / 配置引用 / Unity 对象族 / 行为树）有意义——值类型永远有值，无从判空；
+        /// 非0 与 范围 只对数值类型有意义。不支持的项在菜单里根本不渲染，从入口上就选不出无效组合。
+        /// 按钮文字按级别着色（Info 蓝灰 / Warning 琥珀 / Error 红；不检查用默认色）。
+        /// </summary>
+        private void DrawCheckDropdown(Rect rect, SerializedProperty fieldProp, bool supportsNotEmpty, bool isNumeric, CheckKind kind, ConfigCheckLevel level)
+        {
+            var showMinMax = kind == CheckKind.Range && isNumeric;
+            var btnW = CheckCellLayout(rect, showMinMax).dropdownW;
+            var btnRect = new Rect(rect.x, rect.y, btnW, rect.height);
+            var content = new GUIContent($"{CheckLabel(kind, level)} ▾");
+
+            bool clicked;
+            if (level == ConfigCheckLevel.Info)
+                clicked = EditorGUI.DropdownButton(btnRect, content, FocusType.Keyboard,
+                    CheckLevelStyle(ref sCheckStyleInfo, new Color(0.62f, 0.72f, 0.85f)));
+            else if (level == ConfigCheckLevel.Warning)
+                clicked = EditorGUI.DropdownButton(btnRect, content, FocusType.Keyboard,
+                    CheckLevelStyle(ref sCheckStyleWarn, new Color(0.89f, 0.75f, 0.54f)));
+            else if (level == ConfigCheckLevel.Error)
+                clicked = EditorGUI.DropdownButton(btnRect, content, FocusType.Keyboard,
+                    CheckLevelStyle(ref sCheckStyleErr, new Color(0.89f, 0.54f, 0.54f)));
+            else
+                clicked = EditorGUI.DropdownButton(btnRect, content, FocusType.Keyboard);
+
+            if (clicked)
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("不检查"), kind == CheckKind.None,
+                    () => ApplyCheck(fieldProp, CheckKind.None, ConfigCheckLevel.None));
+
+                if (supportsNotEmpty)
+                    AddCheckLevelItems(menu, fieldProp, "非空", CheckKind.NotEmpty, kind, level);
+                if (isNumeric)
+                {
+                    // 只有数值类型才有 非0 / 范围（生成器也只在这时才发射对应校验）
+                    AddCheckLevelItems(menu, fieldProp, "非0", CheckKind.NotZero, kind, level);
+                    AddCheckLevelItems(menu, fieldProp, "范围", CheckKind.Range, kind, level);
+                }
+                menu.DropDown(btnRect);
+            }
+        }
+
+        private void AddCheckLevelItems(GenericMenu menu, SerializedProperty fieldProp, string title,
+            CheckKind kind, CheckKind curKind, ConfigCheckLevel curLevel)
+        {
+            var levels = new[]
+            {
+                ("Info", ConfigCheckLevel.Info),
+                ("Warning", ConfigCheckLevel.Warning),
+                ("Error", ConfigCheckLevel.Error),
+            };
+            foreach (var pair in levels)
+            {
+                var lvl = pair.Item2;
+                menu.AddItem(new GUIContent($"{title}/{pair.Item1}"), curKind == kind && curLevel == lvl,
+                    () => ApplyCheck(fieldProp, kind, lvl));
+            }
+        }
+
+        /// <summary>落盘：选中的那项写级别、其余置 None（互斥三选一）；hasRange 随「范围」选择开关。</summary>
+        private void ApplyCheck(SerializedProperty fieldProp, CheckKind kind, ConfigCheckLevel level)
+        {
+            fieldProp.FindPropertyRelative("notEmptyCheck").intValue
+                = kind == CheckKind.NotEmpty ? (int)level : (int)ConfigCheckLevel.None;
+            fieldProp.FindPropertyRelative("notZeroCheck").intValue
+                = kind == CheckKind.NotZero ? (int)level : (int)ConfigCheckLevel.None;
+            fieldProp.FindPropertyRelative("rangeCheck").intValue
+                = kind == CheckKind.Range ? (int)level : (int)ConfigCheckLevel.None;
+            fieldProp.FindPropertyRelative("hasRange").boolValue = kind == CheckKind.Range;
+            mTarget.ApplyModifiedProperties();
+        }
+
+        /// <summary>类型变更后清掉新类型不支持的检查项（非0 / 范围 只对数值类型发射；非空 只对可能为空的类型有意义，留着等于设了不生效）。</summary>
+        private static void NormalizeChecksForType(SerializedProperty fieldProp)
+        {
+            var type = (ConfigFieldType)fieldProp.FindPropertyRelative("type").intValue;
+            var zp = fieldProp.FindPropertyRelative("notZeroCheck");
+            var rp = fieldProp.FindPropertyRelative("rangeCheck");
+            var ep = fieldProp.FindPropertyRelative("notEmptyCheck");
+            if (!IsNumericType(type))
+            {
+                // 非0 / 范围 只对数值类型发射，其余类型清掉
+                if (zp.intValue != (int)ConfigCheckLevel.None)
+                    zp.intValue = (int)ConfigCheckLevel.None;
+                if (rp.intValue != (int)ConfigCheckLevel.None)
+                    rp.intValue = (int)ConfigCheckLevel.None;
+                var rangeProp = fieldProp.FindPropertyRelative("hasRange");
+                if (rangeProp.boolValue)
+                    rangeProp.boolValue = false;
+            }
+            // 值类型（含数值）没有「空」态——遗留的非空设置在此清掉（数值类型的「必须有值」语义由「非0」承载）
+            if (!SupportsNotEmpty(type) && ep.intValue != (int)ConfigCheckLevel.None)
+                ep.intValue = (int)ConfigCheckLevel.None;
+        }
+
+        /// <summary>字段类型变更后的联动复位：两侧导出设置按新类型复位 + 清掉新类型不支持的检查项。</summary>
+        private static void OnFieldTypeChanged(SerializedProperty fieldProp)
+        {
+            DefaultExportSettings(fieldProp);
+            NormalizeChecksForType(fieldProp);
+        }
+
+        /// <summary>值类型在「直接导出」选项里展示的短类型名（如 直接导出(Int) / 直接导出(Vector3)）。</summary>
+        private static string ValueTypeName(ConfigFieldType t)
+        {
+            switch (t)
+            {
+                case ConfigFieldType.Int: return "Int";
+                case ConfigFieldType.Long: return "Long";
+                case ConfigFieldType.Float: return "Float";
+                case ConfigFieldType.Double: return "Double";
+                case ConfigFieldType.Short: return "Short";
+                case ConfigFieldType.Byte: return "Byte";
+                case ConfigFieldType.UInt: return "UInt";
+                case ConfigFieldType.Char: return "Char";
+                case ConfigFieldType.Decimal: return "Decimal";
+                case ConfigFieldType.Bool: return "Bool";
+                case ConfigFieldType.Enum: return "Enum";
+                case ConfigFieldType.BehaviourTree: return "Long";
+                case ConfigFieldType.Vector2: return "Vector2";
+                case ConfigFieldType.Vector3: return "Vector3";
+                case ConfigFieldType.Vector4: return "Vector4";
+                case ConfigFieldType.Vector2Int: return "Vector2Int";
+                case ConfigFieldType.Vector3Int: return "Vector3Int";
+                case ConfigFieldType.Quaternion: return "Quaternion";
+                case ConfigFieldType.Color: return "Color";
+                case ConfigFieldType.Color32: return "Color32";
+                case ConfigFieldType.Rect: return "Rect";
+                case ConfigFieldType.RectInt: return "RectInt";
+                case ConfigFieldType.RectOffset: return "RectOffset";
+                case ConfigFieldType.Bounds: return "Bounds";
+                case ConfigFieldType.BoundsInt: return "BoundsInt";
+                case ConfigFieldType.Gradient: return "Gradient";
+                case ConfigFieldType.AnimationCurve: return "AnimationCurve";
+                case ConfigFieldType.LayerMask: return "LayerMask";
+                default: return "值";
+            }
+        }
+
+        /// <summary>某字段类型在每侧导出设置里的「默认 mode/member/size」。</summary>
+        /// <remarks>
+        /// 默认值按字段类型落：
+        /// - 引用其他配置（Reference）→ 一律默认导出成员 ID（取 ID 标量成员）；
+        /// - 值类型 → 默认直接导出本身类型（下拉里显式写出类型名，如 直接导出(Int)）；
+        /// - 资源/对象 → 默认导出名字；音频 key → 默认 BlobString；字符串系 → 直接导出(string)。
+        /// List 结构的默认与元素类型一致：List&lt;Reference&gt; 仍是取成员 ID，List&lt;值&gt; 仍是直接导出。
+        /// </remarks>
+        private static (ConfigFieldExportMode mode, string member, ConfigFixedStringSize size) DefaultExportMode(ConfigFieldType type, bool client)
+        {
+            // 服务器侧 Unity 不可 JSON 类型：默认即不导出（见 IsServerUnsupportedType / BuildExportOptions）。
+            if (!client && IsServerUnsupportedType(type))
+                return (ConfigFieldExportMode.None, "", ConfigFixedStringSize.Size128);
+            if (type == ConfigFieldType.Reference)
+                return (ConfigFieldExportMode.Member, "ID", ConfigFixedStringSize.Size128);
+            if (IsAssetExportType(type))
+                return (ConfigFieldExportMode.AssetName, "", ConfigFixedStringSize.Size128);
+            if (type == ConfigFieldType.AudioEvent)
+                return (ConfigFieldExportMode.BlobString, "", ConfigFixedStringSize.Size128);
+            if (type == ConfigFieldType.String || type == ConfigFieldType.LocalizedKey || type == ConfigFieldType.Addressable)
+                return (ConfigFieldExportMode.Direct, "", ConfigFixedStringSize.Size128);
+            // 数值 / 枚举 / 布尔 / 结构 / 行为树 / …：直接导出自身类型
+            return (ConfigFieldExportMode.Direct, "", ConfigFixedStringSize.Size128);
+        }
+
+        /// <summary>按字段当前类型，把两侧导出设置复位为各自的默认值（与 <see cref="DefaultExportMode"/> 一致）。</summary>
+        private static void DefaultExportSettings(SerializedProperty fieldProp)
+        {
+            if (fieldProp == null) return;
+            var type = (ConfigFieldType)fieldProp.FindPropertyRelative("type").intValue;
+            DefaultSideExport(fieldProp.FindPropertyRelative("clientExport"), type, true);
+            DefaultSideExport(fieldProp.FindPropertyRelative("serverExport"), type, false);
+        }
+
+        private static void DefaultSideExport(SerializedProperty setting, ConfigFieldType type, bool client)
+        {
+            if (setting == null) return;
+            var (mode, member, size) = DefaultExportMode(type, client);
+            var m = setting.FindPropertyRelative("mode"); if (m != null) m.intValue = (int)mode;
+            var mem = setting.FindPropertyRelative("memberName"); if (mem != null) mem.stringValue = member ?? "";
+            var s = setting.FindPropertyRelative("fixedStringSize"); if (s != null) s.intValue = (int)size;
+        }
+
+        private static List<ExportOption> BuildExportOptions(ConfigTemplateField f, bool client)
         {
             var list = new List<ExportOption>();
             if (f == null)
                 return list;
 
+            // 服务器侧：Unity 对象引用族(Object 系，含自引用循环)与非数值结构(Color/Color32)
+            // 以及不可 JSON 序列化的 Gradient/AnimationCurve，服务器无法消费；
+            // 下拉因此只提供「不导出」一项，从源头杜绝服务器 JSON 自引用崩溃。
+            if (!client && IsServerUnsupportedType(f.type))
+            {
+                list.Add(new ExportOption("不导出", ConfigFieldExportMode.None));
+                return list;
+            }
+
             switch (f.type)
             {
                 case ConfigFieldType.Reference:
                 {
-                    list.Add(new ExportOption("直接导出(整对象)", ConfigFieldExportMode.Direct));
+                    // 默认首项：取成员 ID（引用字段一律默认导出 ID，见 DefaultExportMode）。
+                    list.Add(new ExportOption("取成员 ID (long)", ConfigFieldExportMode.Member, "ID"));
                     var refType = ResolveRefType(f.refTypeFullName);
                     if (refType != null)
                     {
@@ -514,6 +656,8 @@ namespace HYC.Framework.Config.Editor
                             var ft = fi.FieldType;
                             if (!IsScalarMemberType(ft))
                                 continue;
+                            if (string.Equals(fi.Name, "ID", StringComparison.Ordinal))
+                                continue; // ID 已作为首项
                             list.Add(new ExportOption($"取成员 {fi.Name} ({TypeShortName(ft)})", ConfigFieldExportMode.Member, fi.Name));
                         }
                     }
@@ -532,9 +676,7 @@ namespace HYC.Framework.Config.Editor
                     break;
                 case ConfigFieldType.AudioEvent:
                     // 音频 key 存带前缀的字符串（clip:<AA地址> / wwise:<事件名>），运行时按前缀路由。
-                    // BlobString 排第一并作为新建时的默认：变长存储无容量上限，而 key 长度不可预知，
-                    // 定长档位静默截断的风险不对等。「直接导出」与之等价（Blob 侧 IsStringLike
-                    // 会兜成 BlobString），保留是为了兼容已保存的旧设置。
+                    // BlobString 排第一：变长存储无容量上限，key 长度不可预知，定长档位静默截断风险不对等。
                     list.Add(new ExportOption("BlobString", ConfigFieldExportMode.BlobString));
                     list.Add(new ExportOption("直接导出(string)", ConfigFieldExportMode.Direct));
                     list.Add(new ExportOption("FixedString64Bytes", ConfigFieldExportMode.FixedString, "", ConfigFixedStringSize.Size64));
@@ -553,8 +695,8 @@ namespace HYC.Framework.Config.Editor
                         break;
                     }
 
-                    // 数值/布尔/枚举/行为树/Unity结构：默认 + 转字符串
-                    list.Add(new ExportOption("直接导出", ConfigFieldExportMode.Direct));
+                    // 数值/布尔/枚举/行为树/Unity结构：默认「直接导出(类型名)」+（可序列化则）转字符串
+                    list.Add(new ExportOption($"直接导出({ValueTypeName(f.type)})", ConfigFieldExportMode.Direct));
                     if (f.type == ConfigFieldType.Enum
                         || IsNumericType(f.type)
                         || f.type == ConfigFieldType.Bool
@@ -568,33 +710,22 @@ namespace HYC.Framework.Config.Editor
                 }
             }
 
-            if (list.Count == 0)
-                list.Add(new ExportOption("直接导出", ConfigFieldExportMode.Direct));
+            // 末尾统一追加「不导出」：该侧产物不包含此字段（见 ConfigFieldExportMode.None）。
+            list.Add(new ExportOption("不导出", ConfigFieldExportMode.None));
             return list;
         }
 
+        /// <summary>是否为 Unity 资源/对象引用族（可导出为 名字/路径/AA地址）。判定集合见 <see cref="ConfigFieldTypes.IsAssetRef"/>。</summary>
         private static bool IsAssetExportType(ConfigFieldType type)
-        {
-            switch (type)
-            {
-                case ConfigFieldType.Sprite:
-                case ConfigFieldType.Texture2D:
-                case ConfigFieldType.GameObject:
-                case ConfigFieldType.AudioClip:
-                case ConfigFieldType.Material:
-                case ConfigFieldType.Mesh:
-                case ConfigFieldType.PhysicMaterial:
-                case ConfigFieldType.Font:
-                case ConfigFieldType.Shader:
-                case ConfigFieldType.TextAsset:
-                case ConfigFieldType.Object:
-                case ConfigFieldType.AnimationClip:
-                case ConfigFieldType.AnimatorController:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+            => ConfigFieldTypes.IsAssetRef(type);
+
+        /// <summary>
+        /// 服务器 JSON 直接导出无意义的 Unity 类型（Object 引用族 + Color/Color32 + Gradient/AnimationCurve）。
+        /// 这些类型在服务器侧只提供「不导出」选项、且默认即不导出。
+        /// 判定集合见 <see cref="ConfigFieldTypes.IsServerUnsupported"/>（与生成期可行性校验共用）。
+        /// </summary>
+        private static bool IsServerUnsupportedType(ConfigFieldType type)
+            => ConfigFieldTypes.IsServerUnsupported(type);
 
         private static bool IsVectorStructType(ConfigFieldType type)
         {
@@ -639,16 +770,6 @@ namespace HYC.Framework.Config.Editor
             if (t == typeof(char)) return "char";
             if (t == typeof(decimal)) return "decimal";
             return t.Name;
-        }
-
-        /// <summary>级别下拉（不检查/Info/Warning/Error）。</summary>
-        private void DrawLevelPopup(Rect rect, SerializedProperty levelProp, string[] levelNames)
-        {
-            var idx = Mathf.Clamp(levelProp.enumValueIndex, 0, levelNames.Length - 1);
-            EditorGUI.BeginChangeCheck();
-            idx = EditorGUI.Popup(rect, idx, levelNames);
-            if (EditorGUI.EndChangeCheck())
-                levelProp.enumValueIndex = idx;
         }
 
         /// <summary>
@@ -757,8 +878,9 @@ namespace HYC.Framework.Config.Editor
                 return;
             }
 
-            var lineH = EditorGUIUtility.singleLineHeight + 2;
-            var rowH = lineH * 2; // 双行：字段编辑 + 导出/检查
+            // 行高：控件 22px + 上下各 3px ≈ 28px（控件保持 22px——Popup 文本不竖排挤成一团）
+            var lineH = EditorGUIUtility.singleLineHeight + 10f;
+            const float headerH = 30f; // 表头深色带高度（原型提案：18 → 30）
 
             // 基类是否有未生成的（需要红色提示）
             var chainHasUngenerated = false;
@@ -777,16 +899,30 @@ namespace HYC.Framework.Config.Editor
                 EditorGUILayout.Space(2);
             }
 
-            // 表头
-            var headerRect = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
-            var (hName, hDesc, hType, hList, hExport, hRange) = ColumnWidths(headerRect.width, headerRect.y, headerRect.height);
-            EditorGUI.LabelField(hName, "字段名", EditorStyles.boldLabel);
-            EditorGUI.LabelField(hDesc, "描述", EditorStyles.boldLabel);
-            EditorGUI.LabelField(hType, "类型", EditorStyles.boldLabel);
-            EditorGUI.LabelField(hList, "列表", EditorStyles.boldLabel);
-            EditorGUI.LabelField(hExport, "导出", EditorStyles.boldLabel);
-            EditorGUI.LabelField(hRange, "范围", EditorStyles.boldLabel);
-            EditorGUI.LabelField(new Rect(headerRect.xMax - 60, headerRect.y, 60, headerRect.height), "操作", EditorStyles.boldLabel);
+            // 表头：深色底带（比行底更深一档）+ 底部 1px 分隔线——与数据行拉开层次，不再「裸贴」在第一行上。
+            // 深浅主题分别取色：浅色主题不能用深色带（整片糊黑），用同档浅灰。
+            var headerRect = EditorGUILayout.GetControlRect(true, headerH);
+            GUIDrawer.FillRect(headerRect, EditorGUIUtility.isProSkin
+                ? new Color(0.11f, 0.11f, 0.11f, 1f)     // 深色主题 #1c1c1c
+                : new Color(0.78f, 0.78f, 0.78f, 1f));  // 浅色主题同档灰
+            GUIDrawer.FillRect(new Rect(headerRect.x, headerRect.yMax - 1, headerRect.width, 1),
+                EditorGUIUtility.isProSkin
+                    ? new Color(0.06f, 0.06f, 0.06f, 1f)
+                    : new Color(0.55f, 0.55f, 0.55f, 1f));
+            var opsW = OpsWidth(headerRect.width);
+            var (hName, hDesc, hType, hList, hExportC, hExportS, hCheck) = ColumnWidths(headerRect.width, headerRect.y, headerRect.height);
+            var oldHeaderContent = GUI.contentColor;
+            if (EditorGUIUtility.isProSkin)
+                GUI.contentColor = new Color(0.79f, 0.79f, 0.79f); // 表头文字比行文字略暗一档
+            EditorGUI.LabelField(CellRect(hName, hName.y, hName.height), "字段名", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hDesc, hDesc.y, hDesc.height), "描述", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hType, hType.y, hType.height), "类型", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hList, hList.y, hList.height), "列表", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hExportC, hExportC.y, hExportC.height), "客户端导出", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hExportS, hExportS.y, hExportS.height), "服务端导出", EditorStyles.boldLabel);
+            EditorGUI.LabelField(CellRect(hCheck, hCheck.y, hCheck.height), "检查", EditorStyles.boldLabel);
+            EditorGUI.LabelField(new Rect(headerRect.xMax - opsW, headerRect.y, opsW, headerRect.height), "操作", HeaderOpsStyle());
+            GUI.contentColor = oldHeaderContent;
 
             // 基类字段行（只读）
             for (var i = chain.Count - 1; i >= 0; i--)
@@ -794,15 +930,18 @@ namespace HYC.Framework.Config.Editor
                 foreach (var f in chain[i].fields)
                 {
                     var row = EditorGUILayout.GetControlRect(true, lineH);
+                    DrawRowDecoration(row); // hover 高亮（纯装饰，绘在控件之下）
                     DrawReadOnlyFieldRow(row, chain[i].className, f);
                 }
             }
 
             if (chain.Count > 0)
             {
-                EditorGUILayout.Space(2);
-                GUIDrawer.FillRect(EditorGUILayout.GetControlRect(true, 1));
-                EditorGUILayout.Space(2);
+                // 基类字段（只读）与自身字段之间的横向分割线（2px 中灰，深浅主题下都清晰）
+                EditorGUILayout.Space(5);
+                GUIDrawer.FillRect(EditorGUILayout.GetControlRect(true, 2),
+                    new Color(0.55f, 0.55f, 0.55f, 0.9f));
+                EditorGUILayout.Space(5);
             }
 
             // 自身字段行（主行单行 + 可选展开明细）
@@ -810,6 +949,7 @@ namespace HYC.Framework.Config.Editor
             {
                 var index = i;
                 var row = EditorGUILayout.GetControlRect(true, lineH);
+                DrawRowDecoration(row);
                 DrawEditableFieldRow(row, index);
 
                 // 展开明细区
@@ -817,75 +957,128 @@ namespace HYC.Framework.Config.Editor
                 {
                     var detailProp = mFieldsProp.GetArrayElementAtIndex(index);
                     DrawExpandedFieldDetail(detailProp);
-                    EditorGUILayout.Space(2);
+                    EditorGUILayout.Space(4);
                 }
             }
 
             // 添加按钮
-            EditorGUILayout.Space(2);
+            EditorGUILayout.Space(6);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("+ 添加字段", GUILayout.Width(90)))
+            if (GUILayout.Button("+ 添加字段", GUILayout.Width(100)))
             {
                 AddEmptyField();
             }
             EditorGUILayout.EndHorizontal();
         }
 
-        private (Rect, Rect, Rect, Rect, Rect, Rect) ColumnWidths(float total, float y, float height)
+        /// <summary>
+        /// 行装饰：hover 高亮。纯装饰绘制——不产生控件、不改控件集合，IMGUI 每帧集合一致性不受影响。
+        /// </summary>
+        private void DrawRowDecoration(Rect row)
         {
-            const float opsW = 60f; // 上移/下移/删除 按钮区
-            var avail = total - opsW;
+            if (row.Contains(Event.current.mousePosition))
+                GUIDrawer.FillRect(row, EditorGUIUtility.isProSkin
+                    ? new Color(1f, 1f, 1f, 0.05f)
+                    : new Color(0f, 0f, 0f, 0.04f));
+        }
+
+        // 单元格文字内边距：左 6 / 右 4——字不贴列边，列与列之间留缝。
+        // 表头标签、只读行标签、可编辑行控件共用一套（字段名列另让出箭头位，列表勾选框贴列起点）。
+        private const float CellPadL = 6f;
+        private const float CellPadR = 4f;
+
+        /// <summary>单元格内容 rect：列内左右留内边距；列宽不足两距之和时保底 1px（窄窗口不出负宽）。</summary>
+        private static Rect CellRect(Rect column, float y, float height) =>
+            new Rect(column.x + CellPadL, y, Mathf.Max(1f, column.width - CellPadL - CellPadR), height);
+
+        private static GUIStyle sHeaderOps;
+
+        /// <summary>表头「操作」列样式：加粗 + 居中（与其它表头共用 boldLabel 字体，仅对齐方式不同）。</summary>
+        private static GUIStyle HeaderOpsStyle()
+        {
+            if (sHeaderOps == null)
+            {
+                sHeaderOps = new GUIStyle(EditorStyles.boldLabel);
+                sHeaderOps.alignment = TextAnchor.MiddleCenter;
+            }
+            return sHeaderOps;
+        }
+
+        /// <summary>操作列宽度：三个 22px 按钮 + 2×4px 间距 = 74px 保底；宽面板按 7% 增长。</summary>
+        private static float OpsWidth(float total)
+        {
+            return Mathf.Max(74f, total * 0.07f);
+        }
+
+        private (Rect, Rect, Rect, Rect, Rect, Rect, Rect) ColumnWidths(float total, float y, float height)
+        {
+            var opsW = OpsWidth(total);
             var x = 0f;
-            var name = new Rect(x, y, avail * 0.10f, height); x += name.width;   // 字段名
-            var desc = new Rect(x, y, avail * 0.12f, height); x += desc.width;   // 描述
-            var type = new Rect(x, y, avail * 0.085f, height); x += type.width;  // 类型
-            var list = new Rect(x, y, avail * 0.03f, height); x += list.width;   // 列表
-            var export = new Rect(x, y, avail * 0.16f, height); x += export.width; // 导出
-            var range = new Rect(x, y, avail - x + avail * 0f, height); // 剩余给范围
-            range = new Rect(x, y, avail - x, height);
+            var name = new Rect(x, y, total * 0.12f, height); x += name.width;      // 字段名
+            var desc = new Rect(x, y, total * 0.18f, height); x += desc.width;      // 描述
+            var type = new Rect(x, y, total * 0.11f, height); x += type.width;      // 类型
+            var list = new Rect(x, y, total * 0.04f, height); x += list.width;      // 列表
+            var exportC = new Rect(x, y, total * 0.125f, height); x += exportC.width; // 客户端导出
+            var exportS = new Rect(x, y, total * 0.125f, height); x += exportS.width; // 服务端导出
             var ops = new Rect(total - opsW, y, opsW, height);
-            return (name, desc, type, list, export, range);
+            // 检查列吃掉剩余宽度（≈23%）：需同时容纳检查下拉(96px) + Min/Max 输入框(56px×2 + 标签)。
+            // 比原型提案的 20% 略宽——Min/Max 56px 放不下时实施上会收缩，与提案「宽输入框」意图冲突
+            var check = new Rect(x, y, Mathf.Max(140f, ops.x - x), height);
+            return (name, desc, type, list, exportC, exportS, check);
+        }
+
+        // 基类只读行置灰样式（缓存克隆；绝对灰色，深浅主题下都可读）
+        private static GUIStyle sReadOnlyLabel;
+        private static GUIStyle sReadOnlyMini;
+
+        private static void EnsureReadOnlyStyles()
+        {
+            if (sReadOnlyLabel == null)
+            {
+                sReadOnlyLabel = new GUIStyle(EditorStyles.label);
+                sReadOnlyLabel.normal.textColor = new Color(0.49f, 0.49f, 0.49f); // #7d7d7d
+            }
+            if (sReadOnlyMini == null)
+            {
+                sReadOnlyMini = new GUIStyle(EditorStyles.miniLabel);
+                sReadOnlyMini.normal.textColor = new Color(0.34f, 0.34f, 0.34f); // #565656 淡印
+            }
         }
 
         private void DrawReadOnlyFieldRow(Rect row, string sourceClass, ConfigTemplateField f)
         {
-            var (nameR, descR, typeR, listR, _, _) = ColumnWidths(row.width, row.y, row.height);
+            EnsureReadOnlyStyles();
+            var (nameR, descR, typeR, listR, _, _, _) = ColumnWidths(row.width, row.y, row.height);
 
-            // 基类字段：只读（label 样式），与可编辑的输入框区分
-            EditorGUI.LabelField(nameR, f.name);
-            EditorGUI.LabelField(descR, f.description);
+            // 基类字段：只读（label 样式）且整行置灰——与可编辑的输入框明确区分
+            EditorGUI.LabelField(CellRect(nameR, nameR.y, nameR.height), f.name, sReadOnlyLabel);
+            EditorGUI.LabelField(CellRect(descR, descR.y, descR.height), f.description, sReadOnlyLabel);
 
             // 类型 + 来源标注（放在类型列内，不超出窗口）
             var typeLabel = FieldTypeLabel(f);
             var srcLabel = $"({sourceClass})";
-            var srcWidth = GUI.skin.label.CalcSize(new GUIContent(srcLabel)).x + 4;
-            var typeWidth = typeR.width - srcWidth;
+            var srcWidth = sReadOnlyMini.CalcSize(new GUIContent(srcLabel)).x + 4;
+            var typeCell = CellRect(typeR, typeR.y, typeR.height);
+            var typeWidth = typeCell.width - srcWidth;
             if (typeWidth < 30)
                 typeWidth = 30;
-            EditorGUI.LabelField(new Rect(typeR.x, typeR.y, typeWidth, typeR.height), typeLabel);
-            EditorGUI.LabelField(new Rect(typeR.x + typeWidth, typeR.y, srcWidth, typeR.height), srcLabel, EditorStyles.miniLabel);
+            EditorGUI.LabelField(new Rect(typeCell.x, typeCell.y, typeWidth, typeCell.height), typeLabel, sReadOnlyLabel);
+            EditorGUI.LabelField(new Rect(typeCell.x + typeWidth, typeCell.y, srcWidth, typeCell.height), srcLabel, sReadOnlyMini);
 
-            EditorGUI.LabelField(listR, f.isList ? "List" : "");
+            EditorGUI.LabelField(CellRect(listR, listR.y, listR.height), f.isList ? "List" : "", sReadOnlyLabel);
         }
 
-        /// <summary>是否为数值类型（可配 Min/Max 范围）。</summary>
+        /// <summary>是否为数值类型（可配 Min/Max 范围、可判非0）。</summary>
         private static bool IsNumericType(ConfigFieldType type)
-        {
-            switch (type)
-            {
-                case ConfigFieldType.Int:
-                case ConfigFieldType.Long:
-                case ConfigFieldType.Float:
-                case ConfigFieldType.Double:
-                case ConfigFieldType.Short:
-                case ConfigFieldType.Byte:
-                case ConfigFieldType.UInt:
-                case ConfigFieldType.Decimal:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+            => ConfigFieldTypes.IsNumeric(type);
+
+        /// <summary>
+        /// 该字段类型是否支持「非空」检查——即字段存在真正的「空」态（null / 空串）。
+        /// 判定集合见 <see cref="ConfigFieldTypes.SupportsNotEmpty"/>（与生成器共用同一份，
+        /// 保证「UI 可选性 ↔ 生成器发射条件」永不漂移）。
+        /// </summary>
+        private static bool SupportsNotEmpty(ConfigFieldType type)
+            => ConfigFieldTypes.SupportsNotEmpty(type);
 
         private void DrawEditableFieldRow(Rect row, int index)
         {
@@ -896,27 +1089,32 @@ namespace HYC.Framework.Config.Editor
             var listProp = prop.FindPropertyRelative("isList");
             var refProp = prop.FindPropertyRelative("refTypeFullName");
             var enumProp = prop.FindPropertyRelative("enumRefClassName");
-            var exportProp = prop.FindPropertyRelative("exportTarget");
 
-            var lineH = EditorGUIUtility.singleLineHeight;
-            var ctrlY = row.y + (lineH - 16) * 0.5f; // 16px 控件垂直居中
+            const float ctrlH = 22f; // 控件统一高度（原型提案：随行高一起放宽，16 → 22）
+            var ctrlY = row.y + (row.height - ctrlH) * 0.5f; // 垂直居中
 
             // 展开箭头
             var expanded = mExpandedFields.Contains(index);
-            if (GUI.Button(new Rect(row.x + 2, ctrlY, 16, 16), expanded ? "▼" : "▶", EditorStyles.label))
+            if (GUI.Button(new Rect(row.x + 2, ctrlY, ctrlH, ctrlH), expanded ? "▼" : "▶", EditorStyles.label))
             {
                 if (expanded) mExpandedFields.Remove(index);
                 else mExpandedFields.Add(index);
             }
 
-            var (nameR, descR, typeR, listR, exportR, _) = ColumnWidths(row.width, row.y, lineH);
-            // 行首让出箭头宽度
-            var shiftX = 20f;
-            var nameRect = new Rect(nameR.x + shiftX, ctrlY, nameR.width - shiftX - 2, 16);
-            var descRect = new Rect(descR.x + shiftX, ctrlY, descR.width - 2, 16);
-            var typeRect = new Rect(typeR.x + shiftX, ctrlY, typeR.width - 2, 16);
-            var listRect = new Rect(listR.x + shiftX, ctrlY, 16, 16);
-            var exportRect = new Rect(exportR.x + shiftX, ctrlY, exportR.width - 2, 16);
+            var (nameR, descR, typeR, listR, exportCR, exportSR, checkR) = ColumnWidths(row.width, row.y, row.height);
+            // 行首让出箭头宽度：只有字段名列让位，其余列与表头严格对齐
+            // （此前所有列统一 +20px、表头不动，造成「列和内容对不上」的错位）
+            var nameRect = new Rect(nameR.x + 20f, ctrlY, nameR.width - 20f - 2, ctrlH);
+            var descRect = CellRect(descR, ctrlY, ctrlH);
+            var typeRect = CellRect(typeR, ctrlY, ctrlH);
+            var listRect = new Rect(listR.x, ctrlY, ctrlH, ctrlH);
+            var exportCRect = CellRect(exportCR, ctrlY, ctrlH);
+            var exportSRect = CellRect(exportSR, ctrlY, ctrlH);
+            var checkRect = CellRect(checkR, ctrlY, ctrlH);
+
+            // 该字段的 ConfigTemplateField 对象（导出下拉需要按字段类型算选项与可行性）
+            var tpl = mTarget.targetObject as ConfigTemplate;
+            var f = tpl != null && tpl.fields != null && index < tpl.fields.Count ? tpl.fields[index] : null;
 
             // 字段名：非法标识符或重复时标红
             var nameValid = ConfigTemplateCodeGen.IsValidIdentifier(nameProp.stringValue) && !IsDuplicateFieldName(index);
@@ -931,7 +1129,7 @@ namespace HYC.Framework.Config.Editor
             var oldContent = GUI.contentColor;
             if (nameValid && (refMissing || enumMissing))
             {
-                var bg = new Rect(row.x, row.y, row.width, lineH);
+                var bg = new Rect(row.x, row.y, row.width, row.height);
                 GUI.color = new Color(1f, 0.55f, 0.55f, 0.25f);
                 GUI.DrawTexture(bg, EditorGUIUtility.whiteTexture);
                 GUI.color = Color.white;
@@ -947,73 +1145,84 @@ namespace HYC.Framework.Config.Editor
             GUI.contentColor = oldContent;
 
             descProp.stringValue = EditorGUI.TextField(descRect, descProp.stringValue);
-            DrawTypeField(typeRect, typeProp, refProp, enumProp, exportProp);
+            DrawTypeField(typeRect, typeProp, refProp, enumProp, prop);
+
+            // 列表开关切换时两侧导出设置按新形态复位默认（List<引用> 仍默认取成员 ID）
+            var oldList = listProp.boolValue;
             listProp.boolValue = EditorGUI.Toggle(listRect, listProp.boolValue);
+            if (oldList != listProp.boolValue)
+                DefaultExportSettings(prop);
 
-            // 导出下拉（主行）
-            var exportNames = new[] { "客户端", "服务器", "两者" };
-            var exportIdx = Mathf.Clamp(exportProp.enumValueIndex, 0, 2);
-            EditorGUI.BeginChangeCheck();
-            exportIdx = EditorGUI.Popup(exportRect, exportIdx, exportNames);
-            if (EditorGUI.EndChangeCheck())
-                exportProp.enumValueIndex = exportIdx;
+            // 客户端导出 / 服务端导出 两列：各自独立的 mode 下拉（含「不导出」）
+            // ★ IMGUI 控件集合必须每帧一致：f 暂缺也照常绘制（下拉退化为当前值的合成项），不可条件跳过
+            var feas = ConfigTemplateCodeGen.GetExportFeasibility(f);
+            DrawSideExportPopup(prop, f, true, exportCRect, true, feas.ClientBroken);
+            DrawSideExportPopup(prop, f, false, exportSRect, true, feas.ServerBroken);
 
-            // 操作按钮（右侧，16px 高垂直居中）
-            var btnW = 20f;
-            if (GUI.Button(new Rect(row.width - 60, ctrlY, btnW, 16), "↑"))
+            // 检查列：一个下拉三选一（非空 / 非0 / 范围），各自再选级别
+            var ftypeNow = (ConfigFieldType)typeProp.intValue;
+            var isNumeric = IsNumericType(ftypeNow);
+            var supportsNotEmpty = SupportsNotEmpty(ftypeNow);
+            var (checkKind, checkLevel) = ReadCheckState(prop, supportsNotEmpty);
+            DrawCheckDropdown(checkRect, prop, supportsNotEmpty, isNumeric, checkKind, checkLevel);
+
+            // 选了「范围」才出现 Min/Max（紧贴下拉右侧；未选范围时这格只有下拉按钮）。
+            // 下拉宽与 Min/Max 输入框宽共用 CheckCellLayout 一套让步规则，保证两边永不错位
+            if (checkKind == CheckKind.Range && isNumeric)
+            {
+                var minProp = prop.FindPropertyRelative("minValue");
+                var maxProp = prop.FindPropertyRelative("maxValue");
+                var (ddW, fieldW) = CheckCellLayout(checkRect, true);
+                var mx = checkRect.x + ddW + 8f;
+                EditorGUI.LabelField(new Rect(mx, ctrlY, MmLabelW, ctrlH), "Min", EditorStyles.miniLabel);
+                minProp.floatValue = EditorGUI.FloatField(new Rect(mx + MmLabelW + MmGap, ctrlY, fieldW, ctrlH), minProp.floatValue);
+                EditorGUI.LabelField(new Rect(mx + MmLabelW + MmGap + fieldW + MmGap, ctrlY, MmLabelW, ctrlH), "Max", EditorStyles.miniLabel);
+                maxProp.floatValue = EditorGUI.FloatField(
+                    new Rect(mx + 2f * (MmLabelW + MmGap) + fieldW + MmGap, ctrlY, fieldW, ctrlH), maxProp.floatValue);
+            }
+
+            // 操作按钮（22px，在操作列内居中）
+            var opsW = OpsWidth(row.width);
+            var btnW = 22f;
+            var btnGap = 4f;
+            var groupW = btnW * 3f + btnGap * 2f; // 74
+            var bx = row.xMax - opsW + Mathf.Max(0f, (opsW - groupW) * 0.5f);
+            if (GUI.Button(new Rect(bx, ctrlY, btnW, ctrlH), "↑"))
                 MoveOwnField(index, -1);
-            if (GUI.Button(new Rect(row.width - 40, ctrlY, btnW, 16), "↓"))
+            if (GUI.Button(new Rect(bx + btnW + btnGap, ctrlY, btnW, ctrlH), "↓"))
                 MoveOwnField(index, 1);
-            if (GUI.Button(new Rect(row.width - 20, ctrlY, btnW, 16), "×"))
+            if (GUI.Button(new Rect(bx + 2f * (btnW + btnGap), ctrlY, btnW, ctrlH), "×"))
                 DeleteOwnField(index);
         }
 
         private readonly List<int> mExpandedFields = new List<int>();
 
-        /// <summary>展开明细区：字段描述 + 范围(Min/Max) + 引用信息。</summary>
+        /// <summary>展开明细区：字段描述 + 只读 + 关联参数（范围已内联到主行「范围」列）。</summary>
         private void DrawExpandedFieldDetail(SerializedProperty prop)
         {
             var typeProp = prop.FindPropertyRelative("type");
             var descProp = prop.FindPropertyRelative("description");
-            var hasRangeProp = prop.FindPropertyRelative("hasRange");
-            var minProp = prop.FindPropertyRelative("minValue");
-            var maxProp = prop.FindPropertyRelative("maxValue");
             var readOnlyProp = prop.FindPropertyRelative("readOnly");
-            var isNumeric = IsNumericType((ConfigFieldType)typeProp.intValue);
 
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("描述", GUILayout.Width(50));
+            EditorGUILayout.LabelField("描述", GUILayout.Width(56));
             descProp.stringValue = EditorGUILayout.TextField(descProp.stringValue);
             EditorGUILayout.EndHorizontal();
 
+            EditorGUILayout.Space(2);
+
             // 只读：数据编辑器里禁用该字段输入（典型：基类 ID/GUID）
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("只读", GUILayout.Width(50));
-            readOnlyProp.boolValue = EditorGUILayout.Toggle(readOnlyProp.boolValue, GUILayout.Width(20));
+            EditorGUILayout.LabelField("只读", GUILayout.Width(56));
+            readOnlyProp.boolValue = EditorGUILayout.Toggle(readOnlyProp.boolValue, GUILayout.Width(22));
             EditorGUILayout.LabelField("勾选后数据编辑器中该字段不可编辑（仅影响展示，不影响发号/导出）", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
 
+            EditorGUILayout.Space(2);
+
             // 关联参数：条件显示（满足全部条件才在配置面板绘制本字段）
             DrawVisibilityBlock(prop);
-
-            if (isNumeric)
-            {
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField("范围", GUILayout.Width(50));
-                hasRangeProp.boolValue = EditorGUILayout.Toggle(hasRangeProp.boolValue, GUILayout.Width(20));
-                if (hasRangeProp.boolValue)
-                {
-                    minProp.floatValue = EditorGUILayout.FloatField(minProp.floatValue, GUILayout.Width(60));
-                    EditorGUILayout.LabelField("~", GUILayout.Width(14));
-                    maxProp.floatValue = EditorGUILayout.FloatField(maxProp.floatValue, GUILayout.Width(60));
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("未启用", EditorStyles.miniLabel);
-                }
-                EditorGUILayout.EndHorizontal();
-            }
 
             if (IsAssetExportType((ConfigFieldType)typeProp.intValue))
             {
@@ -1049,7 +1258,7 @@ namespace HYC.Framework.Config.Editor
             var candidates = CollectConditionTargets(selfName);
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("关联参数", GUILayout.Width(50));
+            EditorGUILayout.LabelField("关联参数", GUILayout.Width(56));
             EditorGUILayout.LabelField("满足全部条件才在配置面板显示本字段", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
 
@@ -1284,7 +1493,6 @@ namespace HYC.Framework.Config.Editor
             f.FindPropertyRelative("isList").boolValue = false;
             f.FindPropertyRelative("refTypeFullName").stringValue = "";
             f.FindPropertyRelative("enumRefClassName").stringValue = "";
-            f.FindPropertyRelative("exportTarget").intValue = (int)ConfigExportTarget.Both;
             f.FindPropertyRelative("readOnly").boolValue = false;
             f.FindPropertyRelative("hasRange").boolValue = false;
             f.FindPropertyRelative("minValue").floatValue = 0f;
@@ -1292,8 +1500,8 @@ namespace HYC.Framework.Config.Editor
             f.FindPropertyRelative("notEmptyCheck").intValue = (int)ConfigCheckLevel.None;
             f.FindPropertyRelative("notZeroCheck").intValue = (int)ConfigCheckLevel.None;
             f.FindPropertyRelative("rangeCheck").intValue = (int)ConfigCheckLevel.None;
-            ResetExportSetting(f.FindPropertyRelative("clientExport"));
-            ResetExportSetting(f.FindPropertyRelative("serverExport"));
+            // 两侧导出设置按字段默认复位（值类型→直接导出自身类型；引用→取成员 ID；资源→名字；…）
+            DefaultExportSettings(f);
 
             // 关联条件列表复位为空：arraySize++ 会复制上一个元素的 visibility
             // （条件行连目标字段一起被抄过来），与上方逐属性复位同一范式。
@@ -1302,18 +1510,6 @@ namespace HYC.Framework.Config.Editor
                 visibility.arraySize = 0;
 
             mTarget.ApplyModifiedProperties();
-        }
-
-        /// <summary>导出设置子对象复位为默认（Direct / 空成员名 / Size128），与 <see cref="ConfigFieldExportSetting"/> 默认值一致。</summary>
-        private static void ResetExportSetting(SerializedProperty setting)
-        {
-            if (setting == null) return;
-            var mode = setting.FindPropertyRelative("mode");
-            if (mode != null) mode.intValue = (int)ConfigFieldExportMode.Direct;
-            var member = setting.FindPropertyRelative("memberName");
-            if (member != null) member.stringValue = "";
-            var size = setting.FindPropertyRelative("fixedStringSize");
-            if (size != null) size.intValue = (int)ConfigFixedStringSize.Size128;
         }
 
         /// <summary>默认字段名 newField；与既有字段（含继承链）重名则递增数字后缀，避免生成即报「字段名重复」。</summary>
@@ -1470,7 +1666,7 @@ namespace HYC.Framework.Config.Editor
             { ConfigFieldType.LocalizedKey, "多语言/多语言Key" },
         };
 
-        private void DrawTypeField(Rect rect, SerializedProperty typeProp, SerializedProperty refProp, SerializedProperty enumProp, SerializedProperty exportProp)
+        private void DrawTypeField(Rect rect, SerializedProperty typeProp, SerializedProperty refProp, SerializedProperty enumProp, SerializedProperty fieldProp)
         {
             var type = (ConfigFieldType)typeProp.intValue;
 
@@ -1507,12 +1703,19 @@ namespace HYC.Framework.Config.Editor
                     var path = $"{kv.Value}/{item}";
                     menu.AddItem(new GUIContent(path), type == item, () =>
                     {
+                        var oldType = (ConfigFieldType)typeProp.intValue;
                         typeProp.intValue = (int)item;
                         refProp.stringValue = "";
                         enumProp.stringValue = "";
-                        // 多语言 key 默认导出到客户端，用户可改
+                        // 类型变了：两侧导出设置按新类型复位默认（引用→取成员ID；值类型→直接导出自身类型；…）
+                        if (oldType != item)
+                            OnFieldTypeChanged(fieldProp);
+                        // 多语言 key 只进客户端：服务端置「不导出」，用户可改
                         if (item == ConfigFieldType.LocalizedKey)
-                            exportProp.enumValueIndex = (int)ConfigExportTarget.Client;
+                        {
+                            var srv = fieldProp.FindPropertyRelative("serverExport").FindPropertyRelative("mode");
+                            if (srv != null) srv.intValue = (int)ConfigFieldExportMode.None;
+                        }
                         mTarget.ApplyModifiedProperties();
                     });
                 }
@@ -1531,9 +1734,13 @@ namespace HYC.Framework.Config.Editor
                     menu.AddItem(new GUIContent($"引用/配置引用/{display} ({cfgType.Name})"),
                         type == ConfigFieldType.Reference && refProp.stringValue == cfgType.AssemblyQualifiedName, () =>
                         {
+                            var oldType = (ConfigFieldType)typeProp.intValue;
                             typeProp.intValue = (int)ConfigFieldType.Reference;
                             refProp.stringValue = cfgType.AssemblyQualifiedName;
                             enumProp.stringValue = "";
+                            // 类型变了：两侧导出设置复位默认（引用→取成员 ID）
+                            if (oldType != ConfigFieldType.Reference)
+                                DefaultExportSettings(fieldProp);
                             mTarget.ApplyModifiedProperties();
                         });
                 }
@@ -1549,9 +1756,13 @@ namespace HYC.Framework.Config.Editor
                     menu.AddItem(new GUIContent($"引用/枚举引用/{display} ({e.className})"),
                         type == ConfigFieldType.Enum && enumProp.stringValue == e.className, () =>
                         {
+                            var oldType = (ConfigFieldType)typeProp.intValue;
                             typeProp.intValue = (int)ConfigFieldType.Enum;
                             enumProp.stringValue = e.className;
                             refProp.stringValue = "";
+                            // 类型变了：两侧导出设置复位默认（枚举→直接导出 Enum(int)）
+                            if (oldType != ConfigFieldType.Enum)
+                                DefaultExportSettings(fieldProp);
                             mTarget.ApplyModifiedProperties();
                         });
                 }

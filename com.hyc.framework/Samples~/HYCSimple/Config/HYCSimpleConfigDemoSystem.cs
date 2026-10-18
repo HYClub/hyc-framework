@@ -2,11 +2,11 @@
 //  HYCSimple · 配置系统示例 · 运行时演示（数据文件驱动）
 //  演示「配置 = 数据」：真实项目里这张表来自 Excel/CSV → 导出 blob。
 //  本例把一份真实物品数据放在 Config/Resources/items.csv，运行期读取后
-//  Build 成 ConfigBlobTable<HycSimpleItemRow> 并注册进 ConfigManager，再读取验证。
+//  Build 成 ConfigBlobTable<HycSimpleItemRow> 并注册进 ConfigRegistry，再读取验证。
 //  这样示例就不再是「代码里手敲 3 行」，而是真正从外部数据加载真实配置。
 //
 //  ⚠️ 刻意标了 [DisableAutoCreation]：示例 System 若自动进宿主工程的 World，会悄悄
-//     往 ConfigManager 里注册示例表、改写其他静态单例，干扰宿主。
+//     往 ConfigRegistry 里注册示例表、改写其他静态单例，干扰宿主。
 //     改由 HYCSimpleSceneBootstrap（用户显式挂到场景才生效）手动 Update。
 // =============================================================================
 using System;
@@ -44,14 +44,14 @@ namespace HYC.Simple
 
             // 3) 建表并注册（ConfigBlobTable<TRow>.Build 接受任意 unmanaged 行）
             var table = ConfigBlobTable<HycSimpleItemRow>.Build(rows, index);
-            ConfigManager.Register(table);
+            ConfigRegistry.Register(table);
 
             // 4) 读取验证
-            Debug.Log($"[HYCSimple] 配置表加载：{rows.Count} 行，已注册到 ConfigManager（HycSimpleItemRow）。");
-            if (ConfigManager.TryGet<HycSimpleItemRow>(1002, out var cfg))
+            Debug.Log($"[HYCSimple] 配置表加载：{rows.Count} 行，已注册到 ConfigRegistry（HycSimpleItemRow）。");
+            if (ConfigRegistry.TryGet<HycSimpleItemRow>(1002, out var cfg))
                 Debug.Log($"[HYCSimple] 配置演示：查 Id=1002 → " +
                           $"Price={cfg.Price} StackMax={cfg.StackMax} Weight={cfg.Weight} Rarity={cfg.Rarity} Category={cfg.Category}");
-            Debug.Log($"[HYCSimple] 配置表总行数 GetRowCount = {ConfigManager.GetRowCount<HycSimpleItemRow>()}");
+            Debug.Log($"[HYCSimple] 配置表总行数 GetRowCount = {ConfigRegistry.GetRowCount<HycSimpleItemRow>()}");
         }
 
         /// <summary>从 Resources/items.csv 读取（跨编辑器/真机稳定）。列：Id,Name,Price,StackMax,Weight,Rarity,Category。</summary>

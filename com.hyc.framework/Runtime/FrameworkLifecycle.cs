@@ -4,7 +4,7 @@
 // 说明: 进程级静态资源的统一收口 + World 销毁钩子
 //
 // 为什么需要这个文件：
-//   框架的 Manager(BTManager / ConfigManager / LocalizationManager ...) 是
+//   框架的 Manager(BTManager / ConfigRegistry / LocalizationManager ...) 是
 //   **进程级静态单例**，但它们持有的 native 容器(NativeHashMap / NativeArray /
 //   BlobAssetReference) 有真正的生命周期。以前每个 Manager 各写一个 DisposeAll，
 //   却**没有任何地方调用它们** —— 于是 Persistent 分配的内存一直泄漏到进程结束，
@@ -47,7 +47,7 @@ namespace HYC.Framework
             BTGameNodeRegistry.Clear();
 
             // 配置：ConfigBlobTable 实现 IDisposable，Clear() 内部会释放 blob 与索引
-            ConfigManager.Clear();
+            ConfigRegistry.Clear();
 
             // 有意**不**清 LocalizationManager：它持有的是「本地化文本数据」而非原生资源，
             // 且已经自带「Reload 失败保留原数据」的保护。World 销毁后数据仍在，

@@ -70,8 +70,8 @@ namespace HYC.Framework.BT.Editor
             // 2. 生成类名(英文稳定: CustomNode{subType}, 避免中文/重复)
             var className = $"CustomNode_{subType}";
 
-            // 3. 目录
-            string dir = "Assets/BTTrees/Nodes";
+            // 3. 目录（生成代码统一收口到总根下，见 GeneratedPaths）
+            string dir = GeneratedPaths.BTNodes;
             if (!Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 

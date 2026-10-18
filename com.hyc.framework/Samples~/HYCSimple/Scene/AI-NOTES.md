@@ -44,10 +44,10 @@
    // 1) 本地化：真实项目由 FrameworkBootstrap.InitializeAsync → EnsureBootDataLoaded 自动加载；
    //    要换目录热更时才手动 LocalizationManager.Reload(目录)（目录判断见雷区 3/6）。
    // 2) 行为树：BTBlobLoader.LoadAll() —— 内部已走 StreamingAssets 抽象，跨端无需平台代码。
-   // 3) 配置：生成的 XxxBlobSystem 会自动 Register；也可手动 ConfigManager.Register
+   // 3) 配置：生成的 XxxBlobSystem 会自动 Register（低层 ConfigRegistry.Register，宿主禁手写）
    ```
 3. **玩法/UI 上场（A2/A3/B9）**：此后实体挂 `RunningBT` 即被 `BTInterpreterSystem` 驱动，
-   `ConfigManager.Get` 随时查表，`LocalizedTMP` 随 `SetLanguage` 刷新。
+   门面 `{ns}.ConfigManager.{Type}.GetByID(id)` 随时查表，`LocalizedTMP` 随 `SetLanguage` 刷新。
 
 ---
 
@@ -57,7 +57,7 @@
    会让 `BTInterpreterSystem` 把 `RunState.Result` 置 `Failed`（树未注册）。**数据阶段先跑完**。
 2. **示例系统默认不自动运行**：`HYCSimple*DemoSystem` 全部标了 `[DisableAutoCreation]`，
    Unity **不会**自动把它们拉进任何 World（包括默认世界）——这是刻意设计，不是缺陷。
-   原因：它们会写**进程级静态单例**（`LocalizationManager` / `ConfigManager` / `BTManager`），
+   原因：它们会写**进程级静态单例**（`LocalizationManager` / `ConfigRegistry` / `BTManager`），
    一旦自启就会污染宿主工程已加载的数据（真实事故：示例把宿主的 18 条本地化 key 洗成示例的 3 条，
    宿主主菜单全线 `未找到Key : xxx`，且因每帧兜底而**反复导入都无法恢复**）。
    所以唯一入口是本目录的 `HYCSimpleSceneBootstrap`：
@@ -93,3 +93,22 @@
 - [ ] **跨端回归（出 WebGL / Android 包必做）**：引导入口换成 `await FrameworkBootstrap.InitializeAsync("World")`
       后出包，确认 Loc / BT / Config 均正常加载；编辑器里跑通不代表真机 OK
       （编辑器走 `BTAutoRegisterOnPlay` 自动注册，真机没有这条路）。
+
+---
+
+## 五、Scene Content 示例（场景内容物）
+
+本目录另含场景内容物系统的最小闭环演示：
+
+- `HYCSimpleSpawnPoint` —— **标记组件（B 来源）**：实现 `HYC.Framework.SceneContent.ISceneContentMarker`，
+  挂在关卡 prefab 上即被 `SceneContentAuthoring` 自动发现，导出时写进 Blob。
+- `HYCSimpleSceneContentSpawner` —— **运行期生成注入点**：实现 `ISceneContentSpawner`，按 `contentTypeId`
+  决定生成什么（示例只打日志，真实项目生成 prefab/entity）。
+- `HYCSimpleSceneContentDemo` —— 把「注册解析器 + 加载 Blob」演示进场景。
+
+### 接入要点
+- 关卡 prefab 挂 `SceneContentAuthoring`（`levelId` 须与导出文件名、运行期 `Load(levelId, …)` 一致）。
+- 编辑器导出前，游戏须注册 prefab→id 解析器（`SceneContentResolvers.Register`，一次性，编辑器期）。
+  示例用 `#if UNITY_EDITOR` 包裹，避免 player 构建引用 Editor 程序集。
+- 运行期在**场景加载完成**后调 `SceneContentLoader.Load(levelId, spawner)` 即可生成全部内容。
+- 真实项目 `DemoResolver` 的 `name.GetHashCode()` 仅示例，应接配置表 / 常量映射保证跨会话稳定。

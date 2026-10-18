@@ -14,7 +14,7 @@ namespace HYC.Simple.Config
     /// </summary>
     public struct HycSimpleItemRow
     {
-        public long Id;        // 主键（ConfigManager 按它查表）
+        public long Id;        // 主键（ConfigRegistry 按它查表）
         public int Price;      // 价格
         public int StackMax;   // 最大堆叠
         public float Weight;   // 重量

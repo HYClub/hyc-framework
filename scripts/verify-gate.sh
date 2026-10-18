@@ -16,6 +16,7 @@
 #   5. 包内 .cs 是否存在中文主菜单路径（菜单英文化是既定约定）
 #   6. 非泛型声明是否带了 where 约束（CS0080，沙箱禁 csc 时只能静态抓）
 #   7. [InitializeOnLoad] 是否修饰在 class 上（CS0592，同上）
+#   8. Documentation~/README.md 自称的「共 N 篇」== 实际 .md 数（防新增文档后索引停在旧数字）
 #
 # 用法：
 #   bash scripts/verify-gate.sh
@@ -327,6 +328,26 @@ if [ -z "$iol" ]; then
 else
   bad "CS0592 风险："
   echo "$iol" | sed 's/^/         /'
+fi
+
+# ─────────────────────────────────────────────────────────────
+head_ "7. 文档索引计数一致性"
+# ─────────────────────────────────────────────────────────────
+# Documentation~/README.md 自称「共 N 篇」，N 必须等于该目录 .md 总数减 README 自身。
+# 已漂移过一次（写 29 篇、实际 33 篇）：新增文档后没人回去改数字，索引就成了错的导航。
+DOC_README="$PKG/Documentation~/README.md"
+if [ ! -f "$DOC_README" ]; then
+  bad "缺少 $DOC_README"
+else
+  declared_docs=$(grep -oE '共[[:space:]]*[0-9]+[[:space:]]*篇' "$DOC_README" | head -1 | grep -oE '[0-9]+')
+  actual_docs=$(( $(ls "$PKG/Documentation~/"*.md 2>/dev/null | wc -l | tr -d ' ') - 1 ))
+  if [ -z "$declared_docs" ]; then
+    bad "无法从 $DOC_README 解析「共 N 篇」（格式可能变了）"
+  elif [ "$declared_docs" = "$actual_docs" ]; then
+    pass "文档篇数一致（$actual_docs 篇，不含 README 自身）"
+  else
+    bad "文档篇数不一致：声明 $declared_docs 篇，实际 $actual_docs 篇 → 更新 $DOC_README"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@
 1. **建目录资产**：Project 右键 `HYC Framework/Attributes/Attribute Catalog`，加条目（key/type/默认/min/max）。
    或在菜单 `HYC Framework/Attributes/Attribute Catalog Editor` 打开独立面板编辑（类型感知表格 + 「属性组」分页，见下）。
 2. **（可选）建属性组**：菜单 `HYC Framework/Attributes/Attribute Set`，绑定 catalog，勾选"这个实体要哪些属性"。保存时 `OnValidate` 自动烘 `values`。
-3. **生成访问器**：在 Catalog 编辑器点「生成属性访问器」→ 向导生成到 `Assets/HYC/Generated/Attributes/`（默认前缀 `Game`）。
+3. **生成访问器**：在 Catalog 编辑器点「生成属性访问器」→ 向导生成到 `Assets/HYC/Generated/Attr/`（默认前缀 `Game`）。
 4. **实体挂引用**：实体加 `AttributeSetRef { asset = 你的Set }`。进 Play 后 `AttributeInitSystem` 自动 `AddBuffer<AttributeValue>` + 灌值。
    或手动 `AttributeInitializer.InitFromSet(em, e, set)`。
 5. **玩法读写**：`var bag = new GameAttrBag(em, e); int hp = bag.GetInt(GameAttrKey.HP);`

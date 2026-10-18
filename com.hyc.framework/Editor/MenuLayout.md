@@ -3,7 +3,7 @@
 > 本文件是**菜单结构的唯一真源**。改动任何 `[MenuItem("HYC Framework/...")]` 时，
 > 必须同步更新本文件与引用了该路径的文档，否则会留下失效路径。
 >
-> 最后核对：2026-10-13
+> 最后核对：2026-10-19
 
 ---
 
@@ -49,7 +49,10 @@ HYC Framework/
 │   ├── Data Editor              填表                                pri 2
 │   ├── Reissue Duplicate IDs   复制重复 ID 手动重派发（兜底）         pri 3
 │   ├── Regenerate All Config Code  一键重生成全部配置代码            pri 4
-│   └── Apply Template Icons    手动应用模板图标到 Project 窗口（兜底）  pri 5
+│   ├── Apply Template Icons    手动应用模板图标到 Project 窗口（兜底）  pri 5
+│   ├── Check All Config Data   全量数据检查（纯检查不落盘，CI 可用）    pri 6
+│   ├── Import Excel...          Excel → 模板/配置导入窗口            pri 7
+│   └── Migrate Generated Code  旧生成目录 → Assets/HYC/Generated/ 一键搬迁（有残留才可用） pri 8
 ├── BT/                行为树
 │   ├── BT Editor                可视化编辑器（画布）               pri 10
 │   ├── Export Blob (For Build)  导出 Blob 供真机加载（打包必做）    pri 11
@@ -76,11 +79,19 @@ HYC Framework/
 ├── Audio/             音频（Addressables / Wwise）
 │   ├── Audio Manager                                              pri 60
 │   └── Export Catalog Blob                                       pri 61
+├── Scene Content/     场景内容物（关卡描述器 / 标记组件 / Blob 加载）
+│   ├── Scene Content Window                                      pri 70
+│   ├── Export All Blobs                                          pri 71
+│   └── Export Blob (Selected)                                    pri 72
+├── Cinemachine/       相机装配（虚拟相机 rig：大脑 + 多机位）
+│   ├── Rig Editor      机位编辑器（窗口直改 rig prefab）          pri 80
+│   └── New Rig        新建 rig prefab（默认四机位）               pri 81
 │   ══════════════ ② 通用工具（偶尔用）══════════════
-├── Tools/             与具体子系统无关的通用资产工具
-│   └── Assets/
-│       ├── Show Dependents                                        pri 100
-│       └── Clean Missing References                               pri 101
+├── Tools/             与具体子系统无关的通用工具
+│   ├── Assets/
+│   │   ├── Show Dependents                                        pri 100
+│   │   └── Clean Missing References                               pri 101
+│   └── Red Dot Viewer   红点树只读状态查看（运行时调试用）           pri 102
 │   ══════════════ ③ 项目级（低频，装一次/改配置）══════════════
 ├── Settings/          框架设置
 │   └── Project Settings                                           pri 200
@@ -88,7 +99,7 @@ HYC Framework/
     └── Import HYCSimple                                           pri 210
 
 > **三档之间的分隔线不是画出来的，是priority 差 ≥ 11 自动生成的**：
-> `Talent(51) → Tools(100)` 差 49、`Tools(101) → Settings(200)` 差 99 ⇒ 恰好两处分隔线。
+> `Cinemachine(81) → Tools(100)` 差 19、`Tools(102) → Settings(200)` 差 98 ⇒ 恰好两处分隔线。
 > 档内相邻差均 ≤ 10 ⇒ 档内不画线。**不要随意改动这些数值**，改前先读本文档第一、二节。
 ```
 
@@ -100,6 +111,16 @@ Tools/Tests/
 └── Show Public API Diff
 ```
 
+### Project 窗口右键菜单（CONTEXT，不进 HYC 树）
+
+```
+Project 窗口右键 ConfigTemplate 资产
+└── Export Excel          模板 → .xlsx（3 行表头 + 数据行，见 doc12 §九）
+```
+
+CONTEXT 菜单挂在资产类型上、随右键出现，不属于「HYC Framework/」常驻功能树，
+故不占三档 priority，只在项内显式给 110 避免与 Unity 自带项混排。
+新增/删除 CONTEXT 项同样要更新本文件与对应文档。
 ### 已知例外：`Samples/` 下的 3 个中文项
 
 `HYC Framework/Samples/` 下的三个示例创建入口**保留中文**

@@ -1,17 +1,18 @@
 {
   "name": "HYC.Framework.Editor",
   "rootNamespace": "HYC.Framework",
-  "references": [
-    "HYC.Framework.Runtime",
-    "Unity.Entities",
-    "Unity.Collections",
-    "UnityEditor.UI",
-    "UnityEditor.Timeline",
-    "Unity.Addressables",
-    "Unity.ResourceManager",
-    "Newtonsoft.Json",
-    "Unity.Addressables.Editor"
-  ],
+    "references": [
+        "HYC.Framework.Runtime",
+        "Unity.Entities",
+        "Unity.Collections",
+        "UnityEditor.UI",
+        "UnityEditor.Timeline",
+        "Unity.Addressables",
+        "Unity.ResourceManager",
+        "Newtonsoft.Json",
+        "Unity.Addressables.Editor",
+        "Unity.Cinemachine"
+    ],
   "includePlatforms": [
     "Editor"
   ],

@@ -301,9 +301,10 @@ namespace HYC.Framework.Runtime
         /// <summary>确保场景有 EventSystem（uGUI 点击前置）。已存在则跳过。</summary>
         protected virtual void EnsureEventSystem()
         {
+            // EventSystem.current 仅在「有已启用实例」时非空，已覆盖「场景里已有 EventSystem」这一情况；
+            // 此前的 FindObjectOfType<EventSystem> 是冗余的，且会把「挂在激活物体上但组件被关掉」的
+            // 情况误判为已就绪（于是不创建、点击全失效）——去掉后该边界反而被修正。
             if (EventSystem.current != null)
-                return;
-            if (UnityEngine.Object.FindObjectOfType<EventSystem>() != null)
                 return;
 
             var go = new GameObject("EventSystem");
@@ -320,6 +321,8 @@ namespace HYC.Framework.Runtime
         /// </summary>
         protected virtual Camera EnsureUICamera()
         {
+            // 采用场景内既有的 UICamera（历史约定名）。这里是引导期**单次**调用，
+            // 全场景按名查找的成本可接受；但宿主若改了相机命名，应覆写本方法接入自有相机栈。
             var existing = GameObject.Find("UICamera");
             var cam = existing != null ? existing.GetComponent<Camera>() : null;
             if (cam == null)

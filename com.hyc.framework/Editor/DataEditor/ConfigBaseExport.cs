@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using UnityEditor;
 using UnityEngine;
 
@@ -40,8 +41,11 @@ namespace HYC.Framework.Config.Editor
             var errors = CheckData(data);
             if (errors.Count > 0)
             {
-                BuildErrorWindow.OpenWindow(errors);
-                return false;
+                // data 可能为 Unity 伪 null（已销毁）——生成的 Check 有 data==null 分支即预期此事；
+                // 用 Unity 的 == 判定后再取 name，避免上下文字符串自身抛 NRE
+                BuildErrorWindow.Report(errors, data == null ? ClassName : $"导出 {data.name}");
+                if (HasBlockingError(errors))
+                    return false;
             }
 
             var ok = true;
@@ -70,14 +74,15 @@ namespace HYC.Framework.Config.Editor
                     }
                     Directory.CreateDirectory(dir);
 
-                    // 先逐个检查（任一行失败即中止、不落盘），再统一构建 Blob 文件
+                    // 先逐个检查（Error 级才中止、不落盘；Info/Warning 仅展示），再统一构建 Blob 文件
                     for (var i = 0; i < all.Count; i++)
                     {
                         var errs = CheckData(all[i]);
                         if (errs.Count > 0)
                         {
-                            BuildErrorWindow.OpenWindow(errs);
-                            return false;
+                            BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                            if (HasBlockingError(errs))
+                                return false;
                         }
                     }
                     WriteClientBlob(dir, all);
@@ -87,16 +92,19 @@ namespace HYC.Framework.Config.Editor
                     var dir = ConfigDataSettings.ClientExportDir;
                     if (string.IsNullOrEmpty(dir)) return false;
                     Directory.CreateDirectory(dir);
+                    // 检查与落盘分离：第 N 行失败时不能留下前 N-1 行的部分产物（与 Blob 路径同形态）
                     for (var i = 0; i < all.Count; i++)
                     {
                         var errs = CheckData(all[i]);
                         if (errs.Count > 0)
                         {
-                            BuildErrorWindow.OpenWindow(errs);
-                            return false;
+                            BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                            if (HasBlockingError(errs))
+                                return false;
                         }
-                        WriteJson(dir, all[i].name + ".json", CreateClientDto(all[i]));
                     }
+                    for (var i = 0; i < all.Count; i++)
+                        WriteJson(dir, all[i].name + ".json", CreateClientDto(all[i]));
                 }
             }
 
@@ -111,11 +119,13 @@ namespace HYC.Framework.Config.Editor
                     var errs = CheckData(all[i]);
                     if (errs.Count > 0)
                     {
-                        BuildErrorWindow.OpenWindow(errs);
-                        return false;
+                        BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                        if (HasBlockingError(errs))
+                            return false;
                     }
-                    list.Add(CreateServerDto(all[i]));
                 }
+                for (var i = 0; i < all.Count; i++)
+                    list.Add(CreateServerDto(all[i]));
                 WriteJson(dir, ClassName + ".json", list);
             }
 
@@ -174,7 +184,20 @@ namespace HYC.Framework.Config.Editor
         private static void WriteJson(string dir, string fileName, object payload)
         {
             Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, fileName), JsonConvert.SerializeObject(payload, Formatting.Indented));
+            // 容错序列化：① 自引用循环（遗留的 Unity 对象字段等）不再抛异常中断整文件导出，
+            //   而是忽略循环边（ReferenceLoopHandling.Ignore）；② 其余无法序列化的成员由 Error 回调
+            //   跳过并告警，避免单条脏数据拖垮整批服务器/客户端 JSON 导出。
+            var settings = new JsonSerializerSettings
+            {
+                Formatting = Formatting.Indented,
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                Error = (sender, args) =>
+                {
+                    Debug.LogWarning($"[Config] 导出 {fileName} 时跳过无法序列化的成员：{args.ErrorContext.Path} - {args.ErrorContext.Error.Message}");
+                    args.ErrorContext.Handled = true;
+                }
+            };
+            File.WriteAllText(Path.Combine(dir, fileName), JsonConvert.SerializeObject(payload, settings));
         }
 
         // ---------- 派生钩子（生成的 XxxExport 按需覆写） ----------
@@ -184,6 +207,19 @@ namespace HYC.Framework.Config.Editor
         /// 默认返回空——框架级 ConfigBase 的 ID/GUID 无检查规则（发号/查重由 ConfigIdService 负责）。
         /// </summary>
         protected virtual List<CheckError> CheckData(ConfigBase data) => new List<CheckError>();
+
+        /// <summary>
+        /// 检查入口（<see cref="CheckData"/> 的公开包装）：供 <see cref="ConfigCheckService"/>
+        /// 等不经导出管线直接检查的路径调用。virtual 签名不变——生成的派生类无需随之重生成。
+        /// </summary>
+        public List<CheckError> Check(ConfigBase data) => CheckData(data);
+
+        /// <summary>
+        /// 是否含 Error 级错误：**只有 Error 中止导出**，Info/Warning 仅开窗展示不阻断
+        /// （与 SD 导出前置检查语义一致——提示性/警告性问题不拦截数据产出）。
+        /// </summary>
+        protected static bool HasBlockingError(List<CheckError> errors) =>
+            errors.Exists(e => e.Level == CheckErrorLevel.Error);
 
         /// <summary>客户端 DTO 投影（侧类型继承链已含基类字段，一次 From 整链投影）。</summary>
         protected abstract object CreateClientDto(ConfigBase data);

@@ -252,6 +252,15 @@ namespace HYC.Framework.Config.Editor
             if (issues.Count == 0)
                 return true;
 
+            // 批模式（CI）：DisplayDialogComplex 不渲染，落 Console 并中止——
+            // 静默取消只会让 CI 看到"导出失败"而看不到原因
+            if (Application.isBatchMode)
+            {
+                foreach (var i in issues)
+                    Debug.LogError($"[ConfigId] ID/GUID 问题（{context}）：{i.AssetName}：{i.Reason}");
+                return false;
+            }
+
             var lines = issues.Take(8).Select(i => $"  - {i.AssetName}：{i.Reason}").ToList();
             if (issues.Count > 8)
                 lines.Add($"  ... 共 {issues.Count} 处问题");
