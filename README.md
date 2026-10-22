@@ -1,3 +1,6 @@
+> [!WARNING]
+> **持续开发中** · 当前为非稳定版本，如需抢先体验请通过 [GitHub Issues](https://github.com/HYClub/hyc-framework/issues) 联系作者
+
 # HYC Framework
 
 > 一套基于 **Unity 2022.3**、以 **DOTS / ECS 数据驱动** 为核心的轻量级游戏开发框架。  
@@ -5,7 +8,8 @@
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.0.4-orange)
+![Version](https://img.shields.io/badge/Version-3.0.0-orange)
+[![官网](https://img.shields.io/badge/官网-framework.game.huoyue.club-8a63d2?style=flat&logo=googlechrome&logoColor=white)](https://framework.game.huoyue.club/)
 
 ---
 
