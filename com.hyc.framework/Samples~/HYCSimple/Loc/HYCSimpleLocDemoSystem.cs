@@ -2,11 +2,9 @@
 //  HYCSimple · 本地化示例 · 运行时演示
 //  演示 Reload → GetText → SetLanguage → HasKey → 带参格式化。
 //
-//  ⚠️ 刻意标了 [DisableAutoCreation]（血泪教训）：
-//  示例 System 一旦被 Unity 自动拉进宿主工程的 World，就会在宿主毫不知情的情况下
-//  改写框架的**进程级静态单例**（LocalizationManager / ConfigRegistry / BTManager）。
-//  最典型的一次事故：本系统在第一次 OnUpdate 时把宿主的本地化表 Reload 成示例的
-//  3 条数据，宿主主菜单全线变成「未找到Key : xxx」，且每帧自愈性覆盖，极难排查。
+//  ⚠️ 刻意标了 [DisableAutoCreation]（示例不得偷偷自启）：
+//  框架的 Manager（Localization / Config / BT）是**进程级静态单例**；示例 System 一旦被
+//  Unity 自动拉进宿主工程的 World，就会在宿主毫无察觉的情况下改写它们。
 //  所以示例默认**不自动运行**，改由 HYCSimpleSceneBootstrap（用户显式挂到场景才生效）
 //  手动 Update；基本的宿主安全守卫见 HYCSimpleLocSampleData.CanTakeOver。
 // =============================================================================

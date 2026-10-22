@@ -21,7 +21,7 @@ namespace HYC.Framework.BT
         // 子树运行态缓存: 按 (实体, 子树ID) 持久化跨帧状态(SubTree 节点复用, 使 Wait/CooldownGate/Until* 等跨帧延续)
         private static readonly Dictionary<(Entity, long), BTRunState> _subStates = new Dictionary<(Entity, long), BTRunState>();
         // 节点级跨帧执行态: 按 (实体, 树ID) 持久化, 索引 = 节点在 Blob 数组的位置
-        // 对应 NodeCanvas 每个节点实例的 Status + 装饰器字段 + outConnections.Reset()
+        // 内容 = 上一帧结果 + 组合/装饰节点跨帧字段(见 BTNodeRuntimeState)
         private static readonly Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>> _nodeStates = new Dictionary<(Entity, long), NativeArray<BTNodeRuntimeState>>();
         private static bool _initialized;
 
@@ -95,7 +95,7 @@ namespace HYC.Framework.BT
             s_removeKeys.Clear();
         }
 
-        // ---- 节点级跨帧执行态(对应 NodeCanvas 节点实例 Status + 装饰器字段) ----
+        // ---- 节点级跨帧执行态 ----
 
         /// <summary>获取/创建某实体某树的 per-node 执行态数组(长度 = 节点数, 零初始化)。</summary>
         public static NativeArray<BTNodeRuntimeState> GetNodeStates(Entity entity, long treeId, int nodeCount)
@@ -121,13 +121,13 @@ namespace HYC.Framework.BT
             return arr;
         }
 
-        /// <summary>清零某节点及其全部子孙的执行态(对应 NodeCanvas outConnections.Reset())。</summary>
+        /// <summary>清零某节点及其全部子孙的执行态。</summary>
         public static void ResetNode(Entity entity, long treeId, BTRootBlob* tree, int nodeIndex)
         {
             if (!_nodeStates.TryGetValue((entity, treeId), out var arr)) return;
             if (nodeIndex < 0 || nodeIndex >= arr.Length) return;
 
-            // G1: 中断清理钩子(对应 NodeCanvas ActionTask.OnStop)
+            // 中断清理钩子
             // 若该自定义节点仍处于 Running 就被复位, 回调其 OnStop(true) 释放占用资源
             var st = arr[nodeIndex];
             if (st.Status == BTNodeState.Running)

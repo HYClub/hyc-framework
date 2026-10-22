@@ -1,0 +1,24 @@
+{
+  "name": "HYCSimple.Input.Editor",
+  "rootNamespace": "HYC.Simple.Input.Editor",
+  "references": [
+    "HYC.Framework.Runtime",
+    "HYC.Framework.Editor",
+    "HYCSimple",
+    "Unity.Entities",
+    "Unity.Collections",
+    "Unity.Mathematics",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

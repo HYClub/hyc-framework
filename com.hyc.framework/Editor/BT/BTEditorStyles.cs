@@ -1,12 +1,12 @@
 // ============================================================
 // HYC Framework - BT 模块(Editor)
 // 文件: Editor/BT/BTEditorStyles.cs
-// 说明: BT 编辑器视觉常量与样式(零 using NodeCanvas/ParadoxNotion)。
+// 说明: BT 编辑器视觉常量与样式(程序化纹理 + 深色主题调色板)。
 //       ★ 圆角卡片 / 端口圆点 / 状态角标等几何形状均**程序化生成纹理**:
-//         - RoundedBoxTexture : 4x 超采样 + SDF 抗锯齿 + mipmap(替代 NodeCanvas 9-slice .psd)
-//         - AACircleTexture   : SDF 抗锯齿实心圆(替代 NodeCanvas Circle.png 硬边圆)
+//         - RoundedBoxTexture : 4x 超采样 + SDF 抗锯齿 + mipmap
+//         - AACircleTexture   : SDF 抗锯齿实心圆
 //         => 解决了旧 9-slice 拉伸的色块瑕疵与硬边锯齿(详见 Documentation~/84-BT-编辑器视觉重构.md)。
-//       ★ 仅保留两张 NodeCanvas 原版纹理(Editor/BT/Styles/Textures/, 用户自有资产):
+//       ★ 仅保留两张纹理(Editor/BT/Styles/Textures/, 随包提供):
 //         - Bezier.psd       : 连线贝塞尔的纹理参数(Handles.DrawBezier)
 //         - WindowShadow.psd : 小地图(minimap)节点阴影(NodeShadowStyle)
 // ============================================================
@@ -16,10 +16,10 @@ using UnityEngine;
 
 namespace HYC.Framework.BT.Editor
 {
-    /// <summary>BT 编辑器视觉常量与样式(程序化纹理 + 深色主题调色板, 不引用 ParadoxNotion/NodeCanvas)。</summary>
+    /// <summary>BT 编辑器视觉常量与样式(程序化纹理 + 深色主题调色板)。</summary>
     public static class BTEditorStyles
     {
-        // ---- 状态色(★自定义深色主题★: 与 BTEditor-UI-Prototype.html 一致, 不再沿用 NodeCanvas 黄/绿/红) ----
+        // ---- 状态色(★自定义深色主题★: 与 BTEditor-UI-Prototype.html 一致) ----
         public static readonly Color StatusFailure  = new Color(0.937f, 0.267f, 0.267f); // #ef4444
         public static readonly Color StatusSuccess  = new Color(0.133f, 0.773f, 0.369f); // #22c55e
         public static readonly Color StatusRunning  = new Color(0.431f, 0.659f, 0.996f); // #6ea8fe
@@ -44,7 +44,7 @@ namespace HYC.Framework.BT.Editor
         public static readonly Color CatEnd       = new Color(0.392f, 0.455f, 0.545f); // #64748b
         public static readonly Color CatCustom    = new Color(0.655f, 0.545f, 0.980f); // #a78bfa
 
-        // 连线静止(非激活)灰, 对应 NodeCanvas Colors.Grey(0.3f)
+        // 连线静止(非激活)灰
         public static readonly Color ConnectionInactive = new Color(0.3f, 0.3f, 0.3f);
         // 连线激活/选中: Resting 浅蓝
         public static readonly Color ConnectionActive   = StatusResting;
@@ -52,17 +52,17 @@ namespace HYC.Framework.BT.Editor
         // 选中节点整体染色, 对应 Editor.Node: GUI.color = new Color(0.9,0.9,1)
         public static readonly Color SelectedTint = new Color(0.9f, 0.9f, 1f);
 
-        // ---- 几何常量(对应 NodeCanvas) ----
-        public const float GRID     = 20f;   // GRID_SIZE
-        public const float RIGIDITY = 0.8f;  // Prefs.connectionsMLT 默认值
-        public const float CONN_SIZE = 3f;    // Connection.defaultSize
-        public const float PORT_OFFSET = 6f;  // Editor.Node: portOffset=6
+        // ---- 几何常量 ----
+        public const float GRID     = 20f;   // 网格步长
+        public const float RIGIDITY = 0.8f;  // 连线曲率默认值
+        public const float CONN_SIZE = 3f;    // 连线粗细
+        public const float PORT_OFFSET = 6f;  // 输出端口下凸 6px
         public const float PORT_SIZE = 12f;  // GUIPort 12x12
         public const float PORT_END  = 16f;  // 连线末端圆 16x16
 
         public static Color Grey(float v) => new Color(v, v, v);
 
-        /// <summary>HYC BTNodeState → NodeCanvas 状态色。</summary>
+        /// <summary>HYC BTNodeState → 状态色。</summary>
         public static Color StatusColor(BTNodeState state)
         {
             switch (state)
@@ -230,14 +230,14 @@ namespace HYC.Framework.BT.Editor
         }
 
         // ============================================================
-        //  原版纹理加载(Packages/com.hyc.framework/Editor/BT/Styles/Textures/)
+        //  纹理加载(Editor/BT/Styles/Textures/)
         // ============================================================
         private const string TexPath = "Packages/com.hyc.framework/Editor/BT/Styles/Textures/";
 
         private static Texture2D LoadTex(string file)
         {
             var t = AssetDatabase.LoadAssetAtPath<Texture2D>(TexPath + file);
-            if (t == null) Debug.LogError($"[BTEditorStyles] 缺少纹理 {TexPath}{file} —— 节点将回退为纯色。请确认 Editor/BT/Styles/Textures/ 下的 NodeCanvas 原版纹理齐全。");
+            if (t == null) Debug.LogError($"[BTEditorStyles] 缺少纹理 {TexPath}{file} —— 节点将回退为纯色。请确认 Editor/BT/Styles/Textures/ 下的纹理齐全。");
             return t;
         }
 
@@ -247,12 +247,12 @@ namespace HYC.Framework.BT.Editor
         public static Texture2D BezierTexture       => _bezier       ?? (_bezier       = LoadTex("Bezier.psd"));
 
         // ============================================================
-        //  GUIStyle(数值逐项取自 StyleSheetDark.asset)
+        //  GUIStyle(数值逐项取自样式表)
         // ============================================================
         private static GUIStyle _shadowStyle;
 
-        /// <summary>节点阴影(StyleSheet.windowShadow): WindowShadow.psd, border 10, overflow(9,7,10,10)。
-        /// 直接画在 node.rect 上(overflow 负责外扩), 无需手工偏移 —— 与原版 Styles.Draw(node.rect, windowShadow) 一致。</summary>
+        /// <summary>节点阴影: WindowShadow.psd, border 10, overflow(9,7,10,10)。
+        /// 直接画在 node.rect 上(overflow 负责外扩), 无需手工偏移。</summary>
         public static GUIStyle NodeShadowStyle
         {
             get

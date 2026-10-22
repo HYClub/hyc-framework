@@ -42,5 +42,11 @@ namespace HYC.Framework.Editor
 
         /// <summary>BT 自定义节点代码（原 <c>Assets/BTTrees/Nodes</c>，与 BT 资产目录分离）。</summary>
         public const string BTNodes = Root + "/BT/Nodes";
+
+        /// <summary>场景内容标记组件 + 类型 id 常量表（见 <c>SceneContentTypeCodeGen</c>）。</summary>
+        public const string SceneContent = Root + "/SceneContent";
+
+        /// <summary>相机装配的机位访问器（每个 rig prefab 一个 <c>{名字}Cameras.g.cs</c>）。</summary>
+        public const string Cinemachine = Root + "/Cinemachine";
     }
 }

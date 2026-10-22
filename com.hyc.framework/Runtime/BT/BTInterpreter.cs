@@ -4,11 +4,10 @@
 // 说明: 行为树解释器 - 遍历执行 Blob 树(核心调度逻辑)
 //       只做调度, 重计算由动作节点下沉到游戏层
 //
-//       状态模型(重写 NodeCanvas 版):
+//       状态模型:
 //       - 节点静态数据 = Blob(不可变)
 //       - 节点跨帧执行态 = BTNodeRuntimeState(BTManager 按 (实体,树ID) 持久化)
 //       - 组合/装饰节点读写本节点执行态续跑; 切换子节点时 ResetNode 清零整个分支
-//         (对应 NodeCanvas 的 node.status + outConnections.Reset())
 // ============================================================
 
 using Unity.Collections;
@@ -36,7 +35,7 @@ namespace HYC.Framework.BT
         // 运行统计(自增, 调试用): 总执行次数
         public long TotalExecutions;
 
-        // G4: Tick 降频累计器(配合 RunningBT.TickInterval, 0 表示每帧执行)
+        // Tick 降频累计器(配合 RunningBT.TickInterval, 0 表示每帧执行)
         public float TickAccum;
     }
 
@@ -87,7 +86,7 @@ namespace HYC.Framework.BT
             return longs[node.LongStart + i];
         }
 
-        /// <summary>复位某节点及其全部子孙的执行态(对应 NodeCanvas 的 outConnections.Reset())。</summary>
+        /// <summary>复位某节点及其全部子孙的执行态。</summary>
         private static void ResetNode(BTRootBlob* tree, ref BTContext ctx, int nodeIndex)
         {
             if (nodeIndex < 0 || nodeIndex >= tree->NodeCount) return;
@@ -166,7 +165,7 @@ namespace HYC.Framework.BT
                 case BTNodeType.RandomSequence:
                     return EvaluateRandomSequence(tree, nodeIndex, ref state, nodeStates, ref ctx);
 
-                // ---- 新增组合(NodeCanvas 移植, P2) ----
+                // ---- 新增组合 ----
                 case BTNodeType.FlipSelector:
                     return EvaluateFlipSelector(tree, nodeIndex, ref state, nodeStates, ref ctx);
                 case BTNodeType.UtilitySelector:
@@ -245,7 +244,7 @@ namespace HYC.Framework.BT
 
                 case BTNodeType.Conditional:
                 {
-                    // NodeCanvas ConditionalEvaluator 语义:
+                    // 语义:
                     // child0 = 条件, child1 = 被包子树
                     // Long[0] = 条件不满足时返回的状态(默认 Failed, 可设 Optional/Success)
                     // Long[1] = 是否 dynamic(每帧重估, 条件变假即中断子树)
@@ -284,7 +283,7 @@ namespace HYC.Framework.BT
                     return EvaluateNode(tree, bodyChild, ref state, nodeStates, ref ctx);
                 }
 
-                // ---- 新增装饰(NodeCanvas 移植, P3) ----
+                // ---- 新增装饰 ----
                 case BTNodeType.Timeout:
                     return EvaluateTimeout(tree, nodeIndex, ref state, nodeStates, ref ctx);
                 case BTNodeType.WaitUntil:
@@ -335,7 +334,7 @@ namespace HYC.Framework.BT
                     return EvaluateNode(tree, GetChild(tree, nodeIndex, 0), ref state, nodeStates, ref ctx);
                 }
 
-                // ---- 事件机制(G3, 对应 NodeCanvas SendEvent / CheckEvent) ----
+                // ---- 事件机制 ----
                 case BTNodeType.SendEvent:
                 {
                     ulong evKey = (ulong)GetNodeLong(tree, nodeIndex, 0, 0);
@@ -427,7 +426,7 @@ namespace HYC.Framework.BT
         // ================================================================
 
         /// <summary>
-        /// Sequence(NodeCanvas Sequencer): 顺序执行, 子节点 Failed 则短路。
+        /// Sequence: 顺序执行, 子节点 Failed 则短路。
         /// Long[0] bit0 = dynamic: 每帧从 0 重估高优先级子节点, 切换时复位被顶掉的子节点。
         /// </summary>
         private static BTNodeState EvaluateSequence(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -462,7 +461,7 @@ namespace HYC.Framework.BT
                     nodeStates[nodeIndex] = ns;
                     return BTNodeState.Failed;
                 }
-                // Optional: 忽略成败, 继续下一个子节点(NodeCanvas 语义)
+                // Optional: 忽略成败, 继续下一个子节点
             }
 
             ns.Current = 0;
@@ -471,7 +470,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Selector(NodeCanvas Selector): 选择执行, 子节点 Success 则短路。
+        /// Selector: 选择执行, 子节点 Success 则短路。
         /// Long[0] bit0 = dynamic: 每帧从 0 重估高优先级子节点, 切换时复位被顶掉的子节点。
         /// </summary>
         private static BTNodeState EvaluateSelector(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -506,7 +505,7 @@ namespace HYC.Framework.BT
                     nodeStates[nodeIndex] = ns;
                     return BTNodeState.Success;
                 }
-                // Optional: 忽略成败, 继续下一个子节点(NodeCanvas 语义)
+                // Optional: 忽略成败, 继续下一个子节点
             }
 
             ns.Current = 0;
@@ -515,7 +514,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Timeout(NodeCanvas): 子节点 Running 超过设定秒数则复位并返回 Failed。
+        /// Timeout: 子节点 Running 超过设定秒数则复位并返回 Failed。
         /// 计时器为本节点局部(存 Elapsed, 不进黑板); 子节点非 Running 时清零。
         /// </summary>
         private static BTNodeState EvaluateTimeout(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -548,7 +547,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// WaitUntil(NodeCanvas): child0=条件, child1=被包子树(可选)。
+        /// WaitUntil: child0=条件, child1=被包子树(可选)。
         /// 条件未满足前持续 Running; 满足后执行子树(无子树时返回 Success)。
         /// </summary>
         private static BTNodeState EvaluateWaitUntil(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -572,7 +571,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Guard(NodeCanvas): 同一实体同一 token 的 Guard 互斥。
+        /// Guard: 同一实体同一 token 的 Guard 互斥。
         /// 锁只在子节点 Running 期间持有; 子节点终结或被复位时释放。
         /// </summary>
         private static BTNodeState EvaluateGuard(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -613,7 +612,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Interruptor(NodeCanvas): child0=条件, child1=被包。
+        /// Interruptor: child0=条件, child1=被包。
         /// 条件为假时执行子树; 条件为真且子树 Running 时中断(复位)并返回 Failed。
         /// </summary>
         private static BTNodeState EvaluateInterruptor(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -631,7 +630,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Filter(NodeCanvas): 冷却(子节点终结后进入冷却)或限次(最多执行 N 次)。
+        /// Filter: 冷却(子节点终结后进入冷却)或限次(最多执行 N 次)。
         /// Long[0]=模式 0冷却/1限次; Float[0]=冷却秒或次数(Long[1]=键); Long[2]=policy; Long[3]=被过滤时返 Optional
         /// </summary>
         private static BTNodeState EvaluateFilter(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -680,7 +679,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Iterator(NodeCanvas): 按列表长度逐个执行子节点, 当前索引写入黑板供游戏层取元素。
+        /// Iterator: 按列表长度逐个执行子节点, 当前索引写入黑板供游戏层取元素。
         /// Long[0]=长度键(0=用 Long[1] 字面); Long[2]=终止(0无 1首成功 2首失败); Long[3]=索引写入键
         /// </summary>
         private static BTNodeState EvaluateIterator(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -719,7 +718,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Monitor(NodeCanvas): 监测被包子节点状态, 命中时执行监测动作。
+        /// Monitor: 监测被包子节点状态, 命中时执行监测动作。
         /// child0=被包, child1=动作; Long[0]=监测状态(0失败 1成功 10任意); Long[1]=返回模式(0原始 1动作)
         /// </summary>
         private static BTNodeState EvaluateMonitor(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -756,7 +755,7 @@ namespace HYC.Framework.BT
             return newStatus;
         }
 
-        /// <summary>Optional(NodeCanvas): 正常执行子节点, 但返回 Optional(父组合忽略其成败)。</summary>
+        /// <summary>Optional: 正常执行子节点, 但返回 Optional(父组合忽略其成败)。</summary>
         private static BTNodeState EvaluateOptional(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
                                                     NativeArray<BTNodeRuntimeState> nodeStates, ref BTContext ctx)
         {
@@ -767,7 +766,7 @@ namespace HYC.Framework.BT
             return r == BTNodeState.Running ? BTNodeState.Running : BTNodeState.Optional;
         }
 
-        /// <summary>Remapper(NodeCanvas): 把子节点 Success/Failed 重映射为指定状态。</summary>
+        /// <summary>Remapper: 把子节点 Success/Failed 重映射为指定状态。</summary>
         private static BTNodeState EvaluateRemapper(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
                                                     NativeArray<BTNodeRuntimeState> nodeStates, ref BTContext ctx)
         {
@@ -783,7 +782,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// FlipSelector(NodeCanvas FlipSelector): 成功的子节点"移到末尾", 使之前失败过的子节点优先再试。
+        /// FlipSelector: 成功的子节点"移到末尾", 使之前失败过的子节点优先再试。
         /// 实现: 用旋转起点 offset 表达队列旋转(不改动 Blob 顺序); 起点持久化在 Current。
         /// </summary>
         private static BTNodeState EvaluateFlipSelector(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -827,7 +826,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// UtilitySelector(NodeCanvas PrioritySelector 工具AI): 按权重(utility)选子节点。
+        /// UtilitySelector: 按权重(utility)选子节点。
         /// Long[N] = dynamic: 每帧重估最高权子节点, 切换时复位旧子节点。
         /// </summary>
         private static BTNodeState EvaluateUtilitySelector(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -855,7 +854,7 @@ namespace HYC.Framework.BT
                 return EvaluateNode(tree, GetChild(tree, nodeIndex, best), ref state, nodeStates, ref ctx);
             }
 
-            // 非 dynamic: 按权重降序遍历(确定性, 等价 NodeCanvas 的一次排序)
+            // 非 dynamic: 按权重降序遍历(确定性)
             if (count > 16) count = 16;
             var order = stackalloc int[16];
             for (int i = 0; i < count; i++) order[i] = i;
@@ -890,7 +889,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// ProbabilitySelector(NodeCanvas): 按权重概率选子节点, 失败则换下一个。
+        /// ProbabilitySelector: 按权重概率选子节点, 失败则换下一个。
         /// 首跑掷一次骰子存 Elapsed; 已失败子节点标记存 MaskA; failChance 在 Float[N](键 Long[N])。
         /// </summary>
         private static BTNodeState EvaluateProbabilitySelector(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -942,8 +941,8 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// StepSequencer(NodeCanvas StepIterator): 每次执行只跑一个子节点并返回其状态。
-        /// 注: NodeCanvas 在 reset 时步进; HYC 的 ResetNode 会清零状态, 故改为"子节点终结即步进"。
+        /// StepSequencer: 每次执行只跑一个子节点并返回其状态。
+        /// 注: 子节点终结即步进(ResetNode 会清零状态, 不能依赖 reset 时机)。
         /// </summary>
         private static BTNodeState EvaluateStepSequencer(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
                                                          NativeArray<BTNodeRuntimeState> nodeStates, ref BTContext ctx)
@@ -963,7 +962,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Switch(NodeCanvas Switch): 按 int case 选择一个子节点执行。
+        /// Switch: 按 int case 选择一个子节点执行。
         /// Long[0]=case 黑板键(0=用 Long[1] 字面), Long[2]=dynamic, Long[3]=越界模式(0=取模循环, 1=返 Failure)
         /// </summary>
         private static BTNodeState EvaluateSwitch(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -997,7 +996,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// BinarySelector(NodeCanvas): child0=条件子树, child1=条件真, child2=条件假。
+        /// BinarySelector: child0=条件子树, child1=条件真, child2=条件假。
         /// Long[0] = dynamic: 每帧重估条件, 结果变化时复位另一侧子节点。
         /// </summary>
         private static BTNodeState EvaluateBinarySelector(BTRootBlob* tree, int nodeIndex, ref BTRunState state,
@@ -1024,7 +1023,7 @@ namespace HYC.Framework.BT
         }
 
         /// <summary>
-        /// Parallel(NodeCanvas Parallel): 每帧执行全部子节点, 按策略汇总。
+        /// Parallel: 每帧执行全部子节点, 按策略汇总。
         /// Long[0] = policy(0=FirstFailure, 1=FirstSuccess, 2=FirstSuccessOrFailure)
         /// Long[1] = dynamic(已完成的子节点重复执行)
         /// 状态: MaskA = finishedConnections 位掩码, Iteration = finishedConnectionsCount
@@ -1075,7 +1074,7 @@ namespace HYC.Framework.BT
             {
                 nodeStates[nodeIndex] = ns;
                 // FirstFailure→Success, FirstSuccess→Failure;
-                // FirstSuccessOrFailure 与 NodeCanvas 一致: 不自发终结, 落回 Running
+                // FirstSuccessOrFailure: 不自发终结, 落回 Running
                 return policy == 0 ? BTNodeState.Success
                      : policy == 1 ? BTNodeState.Failed
                      : BTNodeState.Running;

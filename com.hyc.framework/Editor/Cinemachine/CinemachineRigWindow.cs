@@ -35,7 +35,7 @@ namespace HYC.Framework.Cinemachine.Editor
         private Vector2 _detailScroll;
 
         // 组件移除延后到 OnGUI 末尾执行：避免边遍历边销毁导致同帧控件集合错位
-        private readonly List<Object> _pendingDestroy = new List<Object>();
+        private readonly List<UnityEngine.Object> _pendingDestroy = new List<UnityEngine.Object>();
 
         // ---------- 菜单 ----------
 
@@ -73,6 +73,7 @@ namespace HYC.Framework.Cinemachine.Editor
             }
 
             AssetDatabase.ImportAsset(path);
+            CinemachineRigAccessorCodeGen.GenerateFromAsset(path);
             Debug.Log("[HYC.Cinemachine] 已新建 rig：" + path);
 
             var window = GetWindow<CinemachineRigWindow>("Camera Rig Editor");
@@ -145,6 +146,8 @@ namespace HYC.Framework.Cinemachine.Editor
             _showMore = false;
             _dirty = false;
             UpdateTitle();
+            // 打开即对齐访问器：prefab 在窗口外被改过也不会留旧类
+            CinemachineRigAccessorCodeGen.Generate(_rigRoot, path);
             Repaint();
         }
 
@@ -185,9 +188,27 @@ namespace HYC.Framework.Cinemachine.Editor
         {
             if (_rigRoot == null || string.IsNullOrEmpty(_rigPath))
                 return;
+            SyncCameraTags();
             PrefabUtility.SaveAsPrefabAsset(_rigRoot, _rigPath);
+            CinemachineRigAccessorCodeGen.Generate(_rigRoot, _rigPath);
             _dirty = false;
             UpdateTitle();
+        }
+
+        /// <summary>
+        /// 给缺标记的机位补 <see cref="CinemachineRigCameraTag"/>（老的 / 外部加的机位）。
+        /// 已有标记的不动——标记是「声明的类型」，比按组件反查更可信。
+        /// </summary>
+        private void SyncCameraTags()
+        {
+            var list = BuildCameraList();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var go = list[i];
+                if (go.GetComponent<CinemachineRigCameraTag>() != null)
+                    continue;
+                go.AddComponent<CinemachineRigCameraTag>().Kind = DetectKind(go);
+            }
         }
 
         private void MarkDirty()
@@ -472,11 +493,22 @@ namespace HYC.Framework.Cinemachine.Editor
             }
 
             var so = new SerializedObject(brain);
-            EditorGUILayout.PropertyField(so.FindPropertyRelative("UpdateMethod"));
-            EditorGUILayout.PropertyField(so.FindPropertyRelative("DefaultBlend.Style"));
-            EditorGUILayout.PropertyField(so.FindPropertyRelative("DefaultBlend.Time"));
+            DrawRigField(so, "UpdateMethod");
+            DrawRigField(so, "DefaultBlend.Style");
+            DrawRigField(so, "DefaultBlend.Time");
             if (so.ApplyModifiedProperties())
                 MarkDirty();
+        }
+
+        /// <summary>
+        /// 渲染 rig 级的一个序列化字段。<see cref="SerializedObject.FindProperty(string)"/>
+        /// 查不到（CM 升级改了字段名）时返回 null，此时跳过该项，不让面板抛异常。
+        /// </summary>
+        private static void DrawRigField(SerializedObject so, string propertyPath)
+        {
+            var prop = so.FindProperty(propertyPath);
+            if (prop != null)
+                EditorGUILayout.PropertyField(prop, true);
         }
 
         // ---------- 组件通用渲染 ----------
@@ -578,7 +610,7 @@ namespace HYC.Framework.Cinemachine.Editor
             if (src == null)
                 return;
 
-            var copy = Object.Instantiate(src, _rigRoot.transform);
+            var copy = UnityEngine.Object.Instantiate(src, _rigRoot.transform);
             copy.name = GameObjectUtility.GetUniqueNameForSibling(_rigRoot.transform, src.name);
             Undo.RegisterCreatedObjectUndo(copy, "HYC Duplicate Rig Camera");
 
@@ -656,11 +688,19 @@ namespace HYC.Framework.Cinemachine.Editor
             return list[_selected];
         }
 
-        /// <summary>按已有组件反查机位类型；非配方组合回落 <see cref="RigKind.ThirdPerson"/>（仅作下拉初值）。</summary>
+        /// <summary>
+        /// 反查机位类型：优先读 <see cref="CinemachineRigCameraTag"/> 的声明值（与运行期一致），
+        /// 没有标记才按已有组件反查配方；都不是则回落 <see cref="RigKind.ThirdPerson"/>。
+        /// </summary>
         private static RigKind DetectKind(GameObject go)
         {
             if (go == null)
                 return RigKind.ThirdPerson;
+
+            var tag = go.GetComponent<CinemachineRigCameraTag>();
+            if (tag != null)
+                return tag.Kind;
+
             for (int r = 0; r < RigKinds.All.Length; r++)
             {
                 var recipe = RigKinds.All[r];

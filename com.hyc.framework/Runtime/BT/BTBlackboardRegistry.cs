@@ -1,8 +1,8 @@
 // ============================================================
 // HYC Framework - BT 模块
 // 文件: Runtime/BT/BTBlackboardRegistry.cs
-// 说明: 黑板注册表(G2) - 解决"跨实体共享数据 / 全局黑板"需求
-//       对应 NodeCanvas 的 GlobalBlackboard + parentBlackboard 继承
+// 说明: 黑板注册表 - 解决"跨实体共享数据 / 全局黑板"需求
+//       由 BTInterpreterSystem 解析后填入 BTContext(实体私有 + 全局共享各一份)
 //
 //       设计: BTBlackboardRuntime 内部是 NativeHashMap 句柄(结构体拷贝即共享底层数据),
 //       因此"共享黑板"= 多处持有同一份结构体拷贝。本注册表负责集中登记与生命周期。

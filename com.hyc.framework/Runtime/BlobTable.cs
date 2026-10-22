@@ -24,8 +24,6 @@ namespace HYC.Framework.Config
         {
             var list = new List<TRow>();
             foreach (var r in rows) list.Add(r);
-            // 原来这里有一个 new NativeArray<TRow>(0, Allocator.Temp) 紧跟 Dispose，
-            // 纯重构残留：长度为 0、没有任何写入、立即释放，对结果零影响。已删除。
 
             var builder = new BlobBuilder(Allocator.Temp);
             ref var root = ref builder.ConstructRoot<BlobRoot<TRow>>();

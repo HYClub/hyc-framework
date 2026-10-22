@@ -2,7 +2,7 @@
 // HYC Framework - BT 模块(Editor)
 // 文件: Editor/BT/BTGraphWindow.cs
 // 说明: 行为树编辑器主窗口(宿主)。
-//       窗口本身不再自绘工具栏 —— 与 NodeCanvas 一致, 顶部工具栏 / 画布 /
+//       窗口本身不自绘工具栏 —— 顶部工具栏 / 画布 /
 //       minimap / 左栏(Explorer) / 浮动面板 全部由 BTGraphIMGUI(IMGUI)绘制。
 //       菜单: HYC Framework/BT/BT Editor
 // ============================================================
@@ -69,7 +69,7 @@ namespace HYC.Framework.BT.Editor
         private void Update()
         {
             // 编辑器调试桥: 仅当本窗口打开且处于 play 模式时, 让 BTManager 把节点运行态快照暴露给画布
-            // (供 DrawNode 显示状态高亮/图标, 对应 NodeCanvas play 模式的节点状态展示)。
+            // (供 DrawNode 显示状态高亮/图标, 即运行态的节点状态展示)。
             BTManager.EditorDebugEnabled = EditorApplication.isPlaying;
             if (EditorApplication.isPlaying)
                 Repaint();
@@ -100,7 +100,7 @@ namespace HYC.Framework.BT.Editor
         {
             rootVisualElement.Clear();
 
-            // 画布宿主: 0 UI Toolkit 装饰, 全部交给 IMGUI(对齐 NodeCanvas GraphEditor 的纯 IMGUI 画布)
+            // 画布宿主: 零 UI Toolkit 装饰, 全部交给 IMGUI
             _graphHost = new VisualElement();
             _graphHost.style.flexGrow = 1;
             _graphHost.style.flexBasis = 0;
@@ -185,7 +185,7 @@ namespace HYC.Framework.BT.Editor
 
             // 零节点树(临时树/新建树/清空画布后重开)统一走空画布引导态(见 DrawEmptyCanvasHint), 不预置 Root。
 
-            // NodeCanvas 风格 IMGUI 全手绘编辑器(工具栏 + 画布 + minimap + 左栏 + 底栏)
+            // IMGUI 全手绘编辑器(工具栏 + 画布 + minimap + 左栏 + 底栏)
             _graphIMGUI = new BTGraphIMGUI(tree);
             _graphIMGUI.OnRequestOpenTree = (t) => OpenTree(t);
             _graphIMGUI.OnRequestNewTree = CreateNewTree;

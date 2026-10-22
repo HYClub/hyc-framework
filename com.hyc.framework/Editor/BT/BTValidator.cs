@@ -97,7 +97,7 @@ namespace HYC.Framework.BT.Editor
                     issues.Add(new BTValidationIssue { IsError = true, Message = $"子树引用不存在: TreeId={targetId}" });
             }
 
-            // 5. 新增节点(NodeCanvas 移植)的结构/参数校验
+            // 5. 新增节点的结构/参数校验
             foreach (var n in tree.Nodes)
             {
                 int childCount = childrenMap.TryGetValue(n.NodeId, out var kids) ? kids.Count : 0;

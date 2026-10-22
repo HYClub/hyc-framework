@@ -43,7 +43,7 @@ namespace HYC.Framework.BT
         // child0 = 条件, child1 = 被包子树
         // Long[0] = 条件不满足时返回的状态(默认 Failed, 可为 Success/Optional)
         // Long[1] = dynamic: 每帧重估条件, 条件变假即中断子树
-        Conditional,    // 条件装饰(NodeCanvas ConditionalEvaluator 语义)
+        Conditional,    // 条件装饰
         TimeLimit,      // 超时限制: 子树运行超过 N 秒强制 Failed
 
         // ---- 条件节点(叶子, 判断) ----
@@ -57,7 +57,7 @@ namespace HYC.Framework.BT
         // ---- 特殊 ----
         SubTree,        // 子树引用: 执行另一棵树(参数 Long[0]=目标树ID)
 
-        // ---- 新增组合节点(NodeCanvas 移植, P2) ----
+        // ---- 新增组合节点 ----
         // 追加在 SubTree 之后: 保持已有枚举数值不变, 避免旧 BTTreeAsset 序列化错位
         // 旋转起点持久化在 Current; 成功的子节点"移到末尾"= 起点+1
         FlipSelector,        // 成功子节点移到末尾(失败过的优先再试)
@@ -72,7 +72,7 @@ namespace HYC.Framework.BT
         // child0=条件, child1=条件真, child2=条件假; Long[0]=dynamic
         BinarySelector,      // 二选一(按条件子树结果)
 
-        // ---- 新增装饰节点(NodeCanvas 移植, P3) ----
+        // ---- 新增装饰节点 ----
         // Float[0]=timeout 秒(Long[0]=黑板键); 子节点 Running 超时则复位并 Failed
         Timeout,
         // child0=条件, child1=被包子树(可选); 条件未满足前一直 Running
@@ -92,7 +92,7 @@ namespace HYC.Framework.BT
         // Long[0]=成功重映射(0=Failed 1=Success); Long[1]=失败重映射
         Remapper,
 
-        // ---- 事件机制(G3, 对应 NodeCanvas SendEvent / CheckEvent) ----
+        // ---- 事件机制 ----
         // Long[0]=事件 key 哈希; Long[1]=范围(0=本实体 1=全局)
         SendEvent,   // 抛事件(动作)
         // Long[0]=事件 key 哈希; Long[1]=是否消费(0=只查询 1=消费后返回成功)

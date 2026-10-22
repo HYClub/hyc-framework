@@ -6,9 +6,7 @@
 // 为什么需要这个文件：
 //   框架的 Manager(BTManager / ConfigRegistry / LocalizationManager ...) 是
 //   **进程级静态单例**，但它们持有的 native 容器(NativeHashMap / NativeArray /
-//   BlobAssetReference) 有真正的生命周期。以前每个 Manager 各写一个 DisposeAll，
-//   却**没有任何地方调用它们** —— 于是 Persistent 分配的内存一直泄漏到进程结束，
-//   关闭 Domain Reload 时还会留下失效句柄。
+//   BlobAssetReference) 有真正的生命周期，必须在 World 销毁时统一释放。
 //
 //   这里提供唯一收口，并挂一个空系统自动在 World 销毁时触发：
 //   - World.Dispose() 时 Unity 会销毁所有 system，FrameworkCleanupSystem.OnDestroy 随之执行；

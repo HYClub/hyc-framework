@@ -22,7 +22,7 @@ namespace HYC.Framework.Cinemachine.Editor
     /// </summary>
     internal static class CinemachineRigFactory
     {
-        /// <summary>新建 rig 时的默认机位（顺序即生成顺序，优先级 20/10/5/0 递减）。</summary>
+        /// <summary>新建 rig 时的默认机位（顺序即生成顺序，优先级 20/10/0/0 递减）。</summary>
         private static readonly RigKind[] s_DefaultKinds =
         {
             RigKind.FreeLook,
@@ -105,7 +105,7 @@ namespace HYC.Framework.Cinemachine.Editor
             finally
             {
                 if (root != null)
-                    Object.DestroyImmediate(root);
+                    UnityEngine.Object.DestroyImmediate(root);
                 EditorSceneManager.ClosePreviewScene(previewScene);
             }
         }
@@ -147,6 +147,12 @@ namespace HYC.Framework.Cinemachine.Editor
                         Undo.DestroyObjectImmediate(other);
                 }
             }
+
+            // 类型标记同步（运行期按类型切换机位靠它认人）
+            var tag = vcamGo.GetComponent<CinemachineRigCameraTag>();
+            if (tag == null)
+                tag = Undo.AddComponent<CinemachineRigCameraTag>(vcamGo);
+            tag.Kind = kind;
         }
 
         /// <summary>默认机位节点名（配方展示名去空格，如 FreeLook 环绕 → vcam_FreeLook）。</summary>

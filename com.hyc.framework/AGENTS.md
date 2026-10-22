@@ -135,8 +135,51 @@
 | 天赋树 | `Documentation~/53-天赋树.md` |
 | 设置窗口（配置式分组） | `Documentation~/91-设置窗口-配置式分组.md` |
 | 引导 / Bootstrap | `Documentation~/60-引导与世界-Bootstrap.md` |
+| 相机 / Cinemachine（装配 · 分屏 · 双世界） | `Documentation~/57-Cinemachine相机装配.md`、`58-Cinemachine进阶-接缝合成与双世界-设计.md`、`59-Cinemachine分屏与双世界-使用指南.md` |
+| 场景内容物 / SceneContent | `Documentation~/14-场景内容物-SceneContent.md` |
+| 输入与热键 / 输入组件化（Input） | `Documentation~/40-输入与热键.md`、`41-输入组件化.md` |
+| 同步 / Sync（帧同步 P1） | `Documentation~/61-同步-总览.md` |
+| 音频 / Audio | `Documentation~/55-音频用法.md` |
+| 过场 / Timeline | `Documentation~/50-过场-Timeline.md`、`51-自定义Timeline编辑器-设计.md` |
 | 编辑器工具链 / CI | `Documentation~/90-编辑器工具链.md`、`95-CI与本地验证.md` |
-| 示例（不编译） | `Samples~/HYCSimple/`（导入落 `Assets/HYCSimple/`；各模块含 `AI-NOTES.md`） |
+| 示例（不编译） | `Samples~/HYCSimple/`（导入落 `Assets/HYCSimple/`）：各模块含 `AI-NOTES.md` —— `Attr/`、`BT/`、`Config/`、`Loc/`、`Cinemachine/`、`Scene/`、`Input/` |
+
+## 8.1 模块要点（新增模块速记）
+
+> 仅收**反复踩坑、AI 高频会撞**的硬约束；细节与完整 API 一律见 §8 指针文档，**不在此展开**（避免与文档重复失真）。类名均已源码实证。
+
+### Cinemachine（相机装配 / 分屏 / 双世界）
+- **机位与 `Camera` 必须平级**：机位是位姿来源、Camera 是出图设备；把机位挂成 Camera 子物体 ⇒ Brain 每帧写回位姿经父子关系反喂机位 ⇒ 跟随机位发飘、固定机位原地不动。详见 `57/58/59`。
+- **多 rig 各带 Brain 必须分流输出通道**：CM3 的 Brain 从**全局**机位表挑优先级最高的（`IsValidChannel` 只看 `OutputChannel & ChannelMask`，不看层级）；两份 rig 都默认通道会挑到同一台机位 ⇒ 两半画面一模一样且不报错。`CinemachineViewSplitter.Register` 自动分配（第 1 份 `Default`、第 2 份 `Channel01`…）。
+- **`Camera.cullingMask` 是「掩码」不是「层号」**：传 `28` 得到 `0b11100` = 层 2/3/4 ⇒ 画面只有清屏色、零几何、不报任何错。必须 `1 << 28`；除 UI 层全看写 `~(1 << 5)`。同族 `Light.cullingMask`/`Camera.eventMask`。
+- **`Viewport`(`Camera.rect`) 与 `Composite` 不能混切**：`CinemachineDualView.SetSeam` 把 `RenderMode` 单向切成 `Composite`（2× 像素）且 `DowngradeToViewport` 回不来。要拼成连续画面必须 `Composite`（同垂直 FOV 下半屏 hFOV 被压窄 ⇒ 接缝错位）。
+- **`Priority = int` 才打开优先级**：`PrioritySettings.Enabled` 默认 false，只写 `Value` 会被当 0；`Priority = int` 的隐式转换会顺带打开 `Enabled`，直接用赋值。
+- `CinemachineDualVariant` 默认按**层名**解析，无名层要走 `SetLayers(层号,层号)`；`CinemachineRigBinder` 在 `Awake` 一次性扫描机位，晚加的机位需 `binder.Rescan()`。
+
+### SceneContent（场景内容物）
+- **编辑器期 prefab→id 解析器必须放样例自己的 Editor asmdef**：解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它（`#if UNITY_EDITOR` 包在运行时 asmdef 里照样 CS0234）。`SceneContentResolvers.Register` 一次性、编辑器期自注册；运行期 `SceneContentLoader.Load(levelId, spawner)` 只做加载。
+- 双来源合并：`SceneContentAuthoring` 实例条目 + `ISceneContentMarker`（标记组件，挂 prefab 即被自动发现）。`levelId` 须与导出文件名、运行期 `Load` 一致。
+- 写 entries 必须 Undo + SetDirty；blob ref 注意 EA0001、payload 复制显式 try/finally。
+
+### Input（输入组件化）
+- **每名玩家要独立 `InputActionAsset` 实例**：`Object.Instantiate(...)` 克隆；共享同一实例会让边沿（`justPressed`）与启用状态跨玩家串味。
+- **`UI/` 与 `Sense/` 各独立 asmdef**：两包互不可见，只引用 `HYC.Framework.Runtime`，靠 `InputMapWriterRegistry` 接口契约解耦（"按 map 分包"）。
+- 组件 + Writer 是 `InputComponentGenerator` 产物（文件头 `auto-generated`）：手改会被下次生成覆盖；改字段回源头（`InputComponentMapping`/`.inputactions`）重新生成。
+- 读取必须晚于 A0 写入：`InputComponentDriverSystem`（A0）每帧写进玩家实体；`RegisterHandler<TComp>` 回调在该玩家组件写完后即时触发。宿主查配置/输入一律走框架门面，禁调低层注册表（见 §2）。
+
+### Sync（帧同步 P1）
+- **边界铁律：同步层（传输 / 帧同步 / 状态同步）与输入采集严格分离**。`SampleLocal` 是留宿主的钩子；"输入采集桥"不属于同步任务。
+- `LockstepDriver`/`LockstepInputSystem<TInput>`/`LockstepLogicSystem`/`SyncBootstrap`/`SyncSessionSystem` + `ITransport`/`LoopbackTransport`/`BlitIO`/`SyncRandom`/`SyncTick`/`SyncRole`/`NetMessage` 已落地。P2 快照重连 / P3 状态同步 / P4 校验和 + Samples 未做。
+- 待决：`D1`(Install 钩子)/`D2`(双世界联调 harness)/`D5`(单输入系统铁律)；`D3` 断链监控已落地。
+
+### Audio（音频）
+- **四层架构（铁律分层）**：`IAudio` 门面 + 后端实现（`DefaultAudio` / `WwiseAudio`） + 目录资产（`AudioCatalogAsset` → `AudioCatalogBlob` / `AudioCatalogBlobSystem`） + 编辑器扫描（`AudioScanner` / `AudioManagerWindow`）。菜单 `HYC Framework/Audio/Audio Manager`(60) / `Export Catalog Blob`(61)。**写码前先读 `AudioBackend.cs`**（枚举 + 通道/前缀约定）。
+- **`AudioFieldAttribute`（AudioEvent 字段）**：挂在配置 / 数据字段上即音频事件引用；UI 要求**帧级精确单行**（用户硬约束：拒绝 Help-box 第二行回退方案）。
+- 事件名 hash 用 **FNV-1a**（`AudioRefPrefix` / `AudioChannelId` 承载），跨端一致；改 hash 手段会令已导出的引用串味。
+
+### Timeline（过场）
+- `HYC.Framework.Timeline`：`Cutscene`（过场数据）+ `CutsceneDirector`（播放驱动器）。设计见 `50-过场-Timeline.md` / `51-自定义Timeline编辑器-设计.md`；`CutsceneDirector` **已实现**（文档滞后，**以源码为准**）。
+- 过场是「数据驱动的一段播放」，不是 MonoBehaviour 时间轴；接入走框架引导期注册，别自写播放循环。
 
 ## 9. 编辑器 / 编译铁律（IMGUI · 关闭 · 命名 · 图标 · 实证）
 

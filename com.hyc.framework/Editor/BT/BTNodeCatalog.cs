@@ -1,9 +1,9 @@
 // ============================================================
 // HYC Framework - BT 模块(Editor)
 // 文件: Editor/BT/BTNodeCatalog.cs
-// 说明: 节点类型目录 - 显示名 / 分类 / NodeCanvas 配色
-//       供 E1 节点库侧边栏 与 E2 节点外观配色 共用(单一数据源)
-//       配色取自 NodeCanvas 运行时类特性([Color]/[Category]), 作为数据沿用
+// 说明: 节点类型目录 - 显示名 / 分类 / 配色
+//       供节点库侧边栏与节点外观配色共用(单一数据源)
+//       配色按分类沿用
 // ============================================================
 
 using System.Collections.Generic;
@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace HYC.Framework.BT.Editor
 {
-    /// <summary>节点分类(对应 NodeCanvas 的 Category, 用于节点库分组与配色分区)。</summary>
+    /// <summary>节点分类(用于节点库分组与配色分区)。</summary>
     public enum BTNodeCategory
     {
         Root,       // 入口/出口
@@ -23,7 +23,7 @@ namespace HYC.Framework.BT.Editor
     }
 
     /// <summary>
-    /// 节点类型目录。新增节点类型(P2/P3)时在此登记一条即可,
+    /// 节点类型目录。新增节点类型时在此登记一条即可,
     /// 节点库侧边栏与画布配色自动生效。
     /// </summary>
     public static class BTNodeCatalog
@@ -35,7 +35,7 @@ namespace HYC.Framework.BT.Editor
             public string ColorHex;
         }
 
-        // NodeCanvas 配色(源自其节点类 [Color] 特性)
+        // 分类配色
         private const string C_Sequencer = "bf7fff";   // Sequencer 紫
         private const string C_Selector = "b3ff7f";    // Selector 绿
         private const string C_Parallel = "ff64cb";    // Parallel 粉
@@ -57,7 +57,7 @@ namespace HYC.Framework.BT.Editor
             { BTNodeType.Parallel,        new Entry { Name = "并行 Parallel",        Category = BTNodeCategory.Composite, ColorHex = C_Parallel } },
             { BTNodeType.RandomSelector,  new Entry { Name = "随机选择",             Category = BTNodeCategory.Composite, ColorHex = C_Selector } },
             { BTNodeType.RandomSequence,  new Entry { Name = "随机顺序",             Category = BTNodeCategory.Composite, ColorHex = C_Sequencer } },
-            // 新增组合(P2, NodeCanvas 移植)
+            // 新增组合
             { BTNodeType.FlipSelector,        new Entry { Name = "翻转选择 FlipSelector",   Category = BTNodeCategory.Composite, ColorHex = C_Selector } },
             { BTNodeType.UtilitySelector,     new Entry { Name = "工具选择 Priority",       Category = BTNodeCategory.Composite, ColorHex = C_Selector } },
             { BTNodeType.ProbabilitySelector, new Entry { Name = "概率选择 Probability",    Category = BTNodeCategory.Composite, ColorHex = C_Selector } },
@@ -75,7 +75,7 @@ namespace HYC.Framework.BT.Editor
             { BTNodeType.CooldownGate,  new Entry { Name = "冷却门 Cooldown", Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
             { BTNodeType.Conditional,   new Entry { Name = "条件 Conditional", Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
             { BTNodeType.TimeLimit,     new Entry { Name = "超时 TimeLimit",  Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
-            // 新增装饰(P3, NodeCanvas 移植)
+            // 新增装饰
             { BTNodeType.Timeout,    new Entry { Name = "超时中断 Timeout",   Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
             { BTNodeType.WaitUntil,  new Entry { Name = "等待直到 WaitUntil", Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
             { BTNodeType.Guard,      new Entry { Name = "令牌守卫 Guard",     Category = BTNodeCategory.Decorator, ColorHex = C_Decorator } },
@@ -95,7 +95,7 @@ namespace HYC.Framework.BT.Editor
             { BTNodeType.NoOp,       new Entry { Name = "空操作",         Category = BTNodeCategory.Action, ColorHex = C_Action } },
             { BTNodeType.GameCustom, new Entry { Name = "自定义节点",     Category = BTNodeCategory.Action, ColorHex = C_Action } },
 
-            // 事件机制(G3)
+            // 事件机制
             { BTNodeType.CheckEvent, new Entry { Name = "事件判断 CheckEvent", Category = BTNodeCategory.Condition, ColorHex = C_Condition } },
             { BTNodeType.SendEvent,  new Entry { Name = "抛事件 SendEvent",   Category = BTNodeCategory.Action,    ColorHex = C_Action } },
 
@@ -151,7 +151,7 @@ namespace HYC.Framework.BT.Editor
     }
 
     /// <summary>
-    /// 拖拽载荷: 从节点库拖到画布时携带的节点描述(NodeCanvas 式"拖节点进画布")。
+    /// 拖拽载荷: 从节点库拖到画布时携带的节点描述。
     /// 单一数据源, BTGraphIMGUI 消费。
     /// </summary>
     public sealed class BTDragPayload

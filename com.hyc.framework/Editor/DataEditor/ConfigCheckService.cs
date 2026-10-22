@@ -5,12 +5,12 @@ using UnityEngine;
 namespace HYC.Framework.Config.Editor
 {
     /// <summary>
-    /// 配置数据全量检查（移植自 SD 的导出前置检查）：扫描配置根目录下全部配置资产，
+    /// 配置数据全量检查（导出前置检查）：扫描配置根目录下全部配置资产，
     /// 按类型实例化生成的 XxxExport 走 <see cref="ConfigBaseExport.Check"/> 链收集全部错误——
     /// 不落盘任何产物，纯检查。与导出路径共用同一套检查规则与错误窗口。
     /// <para>
-    /// 语义与 SD 一致：只有 Error 级算失败，Info/Warning 仅展示；批模式（CI）走 Console。
-    /// 除模板字段规则外还含 ID/GUID 查重（SD 全局检查「ID 冲突/ID 完整」的对等物）。
+    /// 语义：只有 Error 级算失败，Info/Warning 仅展示；批模式（CI）走 Console。
+    /// 除模板字段规则外还含 ID/GUID 查重（ID 冲突 / ID 完整性检查）。
     /// </para>
     /// </summary>
     public static class ConfigCheckService

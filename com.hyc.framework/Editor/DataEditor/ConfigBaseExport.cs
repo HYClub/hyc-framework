@@ -216,7 +216,7 @@ namespace HYC.Framework.Config.Editor
 
         /// <summary>
         /// 是否含 Error 级错误：**只有 Error 中止导出**，Info/Warning 仅开窗展示不阻断
-        /// （与 SD 导出前置检查语义一致——提示性/警告性问题不拦截数据产出）。
+        /// （与导出前置检查语义一致——提示性/警告性问题不拦截数据产出）。
         /// </summary>
         protected static bool HasBlockingError(List<CheckError> errors) =>
             errors.Exists(e => e.Level == CheckErrorLevel.Error);

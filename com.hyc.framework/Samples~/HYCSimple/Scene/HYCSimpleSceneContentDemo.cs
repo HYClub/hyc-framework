@@ -5,8 +5,11 @@ namespace HYC.Simple
 {
     /// <summary>
     /// 示例：演示运行期加载。真实项目把这段放到「关卡加载完成」的钩子里。
-    /// 解析器注册是<b>编辑器期</b>动作（导出 Blob 前需要），故用 #if UNITY_EDITOR 包裹，
-    /// 避免运行期（player 构建）引用 Editor 程序集。
+    /// <para>
+    /// 解析器注册不在这里：<c>ISceneContentPrefabResolver</c> 在框架 Editor 程序集，
+    /// 运行时 asmdef 引用不了它（编译期硬约束，与 <c>#if UNITY_EDITOR</c> 无关）——
+    /// 已改由 <c>Scene/Editor/DemoResolver.cs</c> 在编辑器期自注册。
+    /// </para>
     /// </summary>
     public class HYCSimpleSceneContentDemo : MonoBehaviour
     {
@@ -15,19 +18,7 @@ namespace HYC.Simple
 
         private void Start()
         {
-#if UNITY_EDITOR
-            HYC.Framework.SceneContent.Editor.SceneContentResolvers.Register(new DemoResolver());
-#endif
             SceneContentLoader.Load(levelId, new HYCSimpleSceneContentSpawner());
         }
-
-#if UNITY_EDITOR
-        // 示例解析器：直接按 prefab 名派生稳定 id。真实项目应接配置表 SpawnDef 或常量映射表。
-        private class DemoResolver : HYC.Framework.SceneContent.Editor.ISceneContentPrefabResolver
-        {
-            public int GetContentTypeId(GameObject prefab)
-                => prefab == null ? -1 : prefab.name.GetHashCode();
-        }
-#endif
     }
 }

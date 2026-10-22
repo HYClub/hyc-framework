@@ -927,6 +927,12 @@ namespace HYC.Framework.AudioEditor
         {
             // 仅做扫描导入，不隐式改动 Addressables 配置。
 
+            // 总览资产可能还没建（首次打开直接点扫描）：Load() 返回 null，
+            // 下游 EditorUtility.SetDirty(null) 会抛 ArgumentNullException。
+            // 与「创建总览」按钮同行为，自动建一个再扫，避免崩。
+            if (_catalog == null)
+                _catalog = AudioCatalogAssetLocator.LoadOrCreate();
+
             _lastScan = AudioScanner.Scan(_wwiseMetaOverride);
             int added = AudioScanner.ImportClips(_catalog, _lastScan.Clips);
             EditorUtility.SetDirty(_catalog);

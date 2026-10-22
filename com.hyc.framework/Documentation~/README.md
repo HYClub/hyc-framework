@@ -3,12 +3,12 @@
 > 对象：`com.hyc.framework/`（UPM 包 **v3.0.0**，Unity 2022.3）
 > 本目录位于**仓库根**（包外），仅作文档用途，不会被 Unity 当作资源导入。
 
-> ✅ **状态**：共 36 篇，全部基于仓库源码实测撰写（先读源码再写，不编造）。每篇深度 = 架构 + 关键类 + 用法 + 坑。最后更新：2026-10-19。
+> ✅ **状态**：共 40 篇，全部基于仓库源码实测撰写（先读源码再写，不编造）。每篇深度 = 架构 + 关键类 + 用法 + 坑。最后更新：2026-10-20。
 >
 > 🎯 **要动手做事 → 直接看 [02 操作手册（按任务）](./02-操作手册-按任务.md)**。
 > 其余各篇是「机制说明」，02 篇是「照着做的步骤」。
 
-> 📦 **包内示例（Samples~）**：含 **Attr / Config / BT / Loc / Scene** 五块接入示例，每块配 `AI-NOTES.md`（心智模型 / 端到端步骤 / 雷区 / 验证清单）。
+> 📦 **包内示例（Samples~）**：含 **Attr / Config / BT / Loc / Scene / Input / Cinemachine** 七块接入示例，每块配 `AI-NOTES.md`（心智模型 / 端到端步骤 / 雷区 / 验证清单）。
 > 示例自带 4 个菜单（导入后才出现）：`HYC Framework/Samples/` 下的
 > `Import HYCSimple` / `创建全部示例资产` / `BT/创建示例树并导出` / `Attr/创建示例属性资产`。
 > 引入二选一：① 官方 Package Manager **Samples → HYCSimple → Import**（落 `Assets/Samples/com.hyc.framework/<版本>/HYCSimple/`，需包已解析）；
@@ -76,6 +76,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [40-输入与热键](./40-输入与热键.md) | InputSystem 分发、Press/Hold、设备切换 |
+| [41-输入组件化](./41-输入组件化.md) | Input System action map 代码生成 → ECS `IComponentData`；驱动系统每帧写入玩家实体，宿主轮询取按键 / 摇杆状态 |
 | [50-过场-Timeline](./50-过场-Timeline.md) | CutsceneDirector、播放队列、接入自己的片段 |
 | [51-自定义Timeline编辑器-设计](./51-自定义Timeline编辑器-设计.md) | ⚠️ **规划中，尚未开发**：已锁定的编辑器设计方案与决策记录（类名/方法名均不存在，勿据此写依赖代码） |
 | [52-存档存储](./52-存档存储.md) | SaveManager 按类型存取、原子写、坏档备份、序列化器选型 |
@@ -83,8 +84,11 @@
 | [54-通用属性配置](./54-通用属性配置.md) | Attr：单一属性清单 / 代码生成 / 预设自动初始化 / 编辑器校验（ECS 版基础属性能力） |
 | [55-音频用法](./55-音频用法.md) | 音频子系统用法：`clip:` / `wwise:` 引用格式、AudioEvent 配置字段、音频总览、运行期 API、音量分组、后端切换 |
 | [56-红点树](./56-红点树.md) | 红点树用法：注册树 / 打标 / 三层 UI 消费（预制体零代码、动态列表、逃生舱）/ 已读 / 存档 / 调试窗口 |
-| [57-Cinemachine相机装配](./57-Cinemachine相机装配.md) | 相机 rig 一键生成（大脑+多机位）、Rig Editor 窗口直改 prefab、运行期 Addressables 实例化 + 目标绑定 |
+| [57-Cinemachine相机装配](./57-Cinemachine相机装配.md) | 相机 rig 一键生成（大脑+多机位）、Rig Editor 窗口直改 prefab、运行期 Addressables 实例化 + binder 绑挂点/切机位 + 生成的机位访问器类 + 同屏/分屏一键切换 |
+| [58-Cinemachine进阶-接缝合成与双世界-设计](./58-Cinemachine进阶-接缝合成与双世界-设计.md) | **原理与决策**：任意角度/弯曲/羽化接缝（双 RT + 合成 shader）、接缝驱动源、合并为单相机、双世界双表现、跨缝穿越；含《双影奇境》相机做法调研与证据分级。**待 Unity 编译验证** |
+| [59-Cinemachine分屏与双世界-使用指南](./59-Cinemachine分屏与双世界-使用指南.md) | **用法**：两条分屏路线怎么选、装配层级、`CinemachineDualView` / `ViewSplitter` / `SeamState` / `DualVariant` / `Tracker` / `Merge` API 速查、常见需求（Boss 分屏染色、压比例、斜切、香蕉变回旋镖）、11 条坑与验收清单 |
 | [60-引导与世界-Bootstrap](./60-引导与世界-Bootstrap.md) | Bootstrap、UpdateGroups、Simulation、Settings；**跨端数据加载契约（WebGL/Android 必须用 `InitializeAsync`）** |
+| [61-同步-总览](./61-同步-总览.md) | 帧同步（P1）：ITransport/Loopback、LockstepDriver 齐帧推进、`LockstepInputSystem<T>`/`LockstepLogicSystem` 继承接入、SyncRandom 确定性纪律；状态同步 P3 路线 |
 | [70-消息与日志](./70-消息与日志.md) | MessageEntity 单帧消息、Log 日志门面 |
 
 ### 行为树（BT）
@@ -107,4 +111,4 @@
 ### 速查索引
 | 文档 | 内容 |
 | --- | --- |
-| [100-文件与类索引](./100-文件与类索引.md) | **272 个 .cs 文件 ↔ 462 个类型**速查表（改脚本后必须更新它，数字由 `FileIndexAudit` 测试守护） |
+| [100-文件与类索引](./100-文件与类索引.md) | **323 个 .cs 文件 ↔ 546 个类型**速查表（改脚本后必须更新它，数字由 `FileIndexAudit` 测试守护） |

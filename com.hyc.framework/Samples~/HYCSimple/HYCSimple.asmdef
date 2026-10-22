@@ -4,7 +4,12 @@
   "references": [
     "Unity.Entities",
     "Unity.Collections",
-    "HYC.Framework.Runtime"
+    "Unity.Cinemachine",
+    "Unity.InputSystem",
+    "Unity.Mathematics",
+    "HYC.Framework.Runtime",
+    "HYC_Simple_Input_UI",
+    "HYC_Simple_Input_Sense"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

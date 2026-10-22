@@ -68,7 +68,7 @@ namespace HYC.Framework.Editor
             WarnIfPmCopyExists();   // 旧官方 PM 副本仍在会触发 CS0101，提前点出
 
             if (IsImported(dst))
-                Debug.Log("[HYC] 已导入 HYCSimple 样例（Attr / Config / BT / Loc / Scene）→ " + dst);
+                Debug.Log("[HYC] 已导入 HYCSimple 样例（Attr / Config / BT / Loc / Scene / Input / Cinemachine）→ " + dst);
             else
                 Debug.LogWarning("[HYC] 已拷贝样例到 " + dst + "，但 Unity 尚未导入其内容。" +
                                  "请菜单 Assets → Refresh，或重启 Unity 后再看。");
@@ -135,14 +135,23 @@ namespace HYC.Framework.Editor
             return abs.StartsWith(dataPath) ? "Assets" + abs.Substring(dataPath.Length) : null;
         }
 
+        /// <summary>
+        /// 递归拷贝，**连 .meta 一起拷**。
+        ///
+        /// <para><b>为什么必须拷 .meta（踩过）：</b>样例里的 <c>.unity</c> 场景是按 <b>GUID</b> 绑定脚本的
+        /// （场景 YAML 里 <c>m_Script: {fileID: 11500000, guid: 7b3e5c9a…}</c>，这个 GUID 就写在
+        /// <c>SameWorldSplitDemo.cs.meta</c> 里）。若跳过 .meta 让 Unity 重新生成，脚本 GUID 全变 ⇒
+        /// 打开场景每个 MonoBehaviour 都是 "Missing (Mono Script)"、Inspector 空白、运行起来什么都没发生，
+        /// 而且<b>不报任何编译错</b>，极难定位。</para>
+        ///
+        /// <para>连 .meta 一起拷还附带一个好处：**每次重导后 GUID 保持稳定**，
+        /// 宿主对样例资产的引用不会因为重导而失效。</para>
+        /// </summary>
         static void CopyDirectory(string src, string dst)
         {
             Directory.CreateDirectory(dst);
             foreach (var f in Directory.GetFiles(src))
-            {
-                if (f.EndsWith(".meta")) continue;   // 不拷源 .meta，交给 Unity 现生成
                 File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
-            }
             foreach (var d in Directory.GetDirectories(src))
                 CopyDirectory(d, Path.Combine(dst, Path.GetFileName(d)));
         }

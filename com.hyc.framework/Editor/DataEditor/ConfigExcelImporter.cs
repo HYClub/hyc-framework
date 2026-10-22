@@ -933,7 +933,7 @@ namespace HYC.Framework.Config.Editor
             foreach (var guid in AssetDatabase.FindAssets(name))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath(path);
+                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
                 if (asset != null && fieldType.IsInstanceOfType(asset))
                 {
                     value = asset;
@@ -1011,7 +1011,8 @@ namespace HYC.Framework.Config.Editor
     {
         private readonly Dictionary<string, string> _seen = new Dictionary<string, string>();
 
-        public void Add(string message) => Add(message, message);
+        /// <summary>按消息文本去重（相同文本的告警只留一条，避免逐行刷屏）。</summary>
+        public void Add(string message) => AddOnce(message, message);
 
         public void AddOnce(string key, string message)
         {

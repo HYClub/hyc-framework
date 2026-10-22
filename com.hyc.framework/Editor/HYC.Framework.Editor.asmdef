@@ -4,6 +4,7 @@
     "references": [
         "HYC.Framework.Runtime",
         "Unity.Entities",
+        "Unity.InputSystem",
         "Unity.Collections",
         "UnityEditor.UI",
         "UnityEditor.Timeline",

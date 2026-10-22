@@ -18,16 +18,29 @@ namespace HYC.Framework.SceneContent
         [Tooltip("关卡 id。导出文件名与运行期 SceneContentLoader.Load 的入参必须与之匹配。")]
         public int levelId;
 
+        /// <summary>是否同时导出服务端产物（无服务端的纯单机工程可关掉）。</summary>
+        [Tooltip("是否同时导出服务端产物（StreamingAssets/SceneContent/server/）。纯单机工程可关掉。")]
+        public bool exportServer = true;
+
         /// <summary>A. 显式实例条目：编辑器拖 prefab + 摆放 transform + 自定义参数（JSON）。</summary>
         [Tooltip("A. 显式实例条目：编辑器拖 prefab + 摆放 transform + 自定义参数（JSON）。")]
         public List<SceneContentEntry> entries = new List<SceneContentEntry>();
 
         /// <summary>
-        /// B. 自动发现自身及子物体上实现 <see cref="ISceneContentMarker"/> 的组件，转成统一条目数据。
-        /// <see cref="SceneContentEntryData.contentTypeId"/> 取自组件自身；
-        /// <see cref="SceneContentEntryData.payloadJson"/> 用 <see cref="JsonUtility"/> 序列化其序列化字段。
+        /// B. 自动发现自身及子物体上实现 <see cref="ISceneContentMarker"/> 的组件，转成统一条目数据（客户端侧）。
+        /// <see cref="SceneContentEntryData.contentTypeId"/> 取自组件自身。
         /// </summary>
-        public List<SceneContentEntryData> GetMarkerEntries()
+        public List<SceneContentEntryData> GetMarkerEntries() => GetMarkerEntries(SceneContentSide.Client);
+
+        /// <summary>
+        /// B. 自动发现自身及子物体上实现 <see cref="ISceneContentMarker"/> 的组件，转成统一条目数据。
+        /// <para>
+        /// payload 优先走 <see cref="ISceneContentMarkerPayload"/>（可按侧裁剪字段、把 GO 引用转成层级路径）；
+        /// 组件没实现该契约时退回 <see cref="JsonUtility.ToJson"/>，此时<b>不能有 GO/Transform 字段</b>
+        /// —— 那个 API 会写成 instanceID，跨会话不稳定。
+        /// </para>
+        /// </summary>
+        public List<SceneContentEntryData> GetMarkerEntries(SceneContentSide side)
         {
             var result = new List<SceneContentEntryData>();
             var markers = GetComponentsInChildren<Component>(true);
@@ -36,13 +49,16 @@ namespace HYC.Framework.SceneContent
                 if (c == null) continue;
                 if (!(c is ISceneContentMarker marker)) continue;
                 var t = c.transform;
+                var payload = c is ISceneContentMarkerPayload payloadProvider
+                    ? payloadProvider.ToPayloadJson(gameObject, side)
+                    : JsonUtility.ToJson(c);
                 result.Add(new SceneContentEntryData
                 {
                     contentTypeId = marker.ContentTypeId,
                     position = t.localPosition,
                     rotation = t.localRotation,
                     scale = t.localScale,
-                    payloadJson = JsonUtility.ToJson(c),
+                    payloadJson = payload,
                 });
             }
             return result;

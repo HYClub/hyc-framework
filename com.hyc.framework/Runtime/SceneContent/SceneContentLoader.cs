@@ -15,14 +15,19 @@ namespace HYC.Framework.SceneContent
     public static class SceneContentLoader
     {
         private const string BlobRelativeDir = "SceneContent/";
+        private const string ServerSubDir = "server/";
 
         /// <summary>
-        /// 从 StreamingAssets 读取 <c>SceneContent/&lt;levelId&gt;.blob</c> 并生成。
+        /// 从 StreamingAssets 读取 <c>SceneContent/&lt;levelId&gt;.blob</c>（客户端）或
+        /// <c>SceneContent/server/&lt;levelId&gt;.blob</c>（服务端）并生成。
         /// 需 StreamingAssets 已预取（走异步引导入口 <c>FrameworkBootstrap.InitializeAsync</c>）。
         /// </summary>
-        public static bool Load(int levelId, ISceneContentSpawner spawner)
+        /// <param name="side">读取哪一侧的产物，默认客户端。</param>
+        public static bool Load(int levelId, ISceneContentSpawner spawner,
+            SceneContentSide side = SceneContentSide.Client)
         {
-            var bytes = StreamingAssets.ReadBytes(BlobRelativeDir + levelId + ".blob");
+            var dir = side == SceneContentSide.Server ? BlobRelativeDir + ServerSubDir : BlobRelativeDir;
+            var bytes = StreamingAssets.ReadBytes(dir + levelId + ".blob");
             return LoadBytes(bytes, levelId, spawner);
         }
 
@@ -57,7 +62,13 @@ namespace HYC.Framework.SceneContent
                     {
                         for (int j = 0; j < payload.Length; j++)
                             na[j] = payload[j];
-                        spawner.Spawn(e.ContentTypeId, e.Position, e.Rotation, e.Scale, na);
+                        // Blob 里是扁平 float（见 SceneContentEntryBlob 注释），此处重组为 math 类型交给 spawner
+                        spawner.Spawn(
+                            e.ContentTypeId,
+                            new float3(e.PosX, e.PosY, e.PosZ),
+                            new quaternion(e.RotX, e.RotY, e.RotZ, e.RotW),
+                            new float3(e.ScaleX, e.ScaleY, e.ScaleZ),
+                            na);
                     }
                     finally
                     {

@@ -17,7 +17,7 @@
 
 ## 一、一句话心智模型
 
-- **编辑器**：在 `BTTreeAsset`（`CreateAssetMenu "HYC/BT/Tree"`）里画节点/连线，或用代码 `EnsureRootNode()` 程序化建树。
+- **编辑器**：用菜单 `HYC Framework/BT/New Tree` 建 `BTTreeAsset` 后画节点/连线，或用代码 `EnsureRootNode()` 程序化建树。
 - **导出**：`BTBlobExporter.ExportAll()`（菜单 `HYC Framework/BT/Export Blob (For Build)`）→ `Assets/StreamingAssets/BTBlob/*.blob` + `manifest.txt`。
 - **运行期**：`BTBlobLoader.LoadAll()` 把 blob 读回并 `BTManager.Register(treeId, blob)`。
 - **驱动**：给实体挂 `RunningBT { TreeId }`，框架自带 `BTInterpreterSystem : ISystem` 每帧 `Tick`，结果写回 `BTLastResult`。
@@ -42,7 +42,7 @@
    `GameCustom(1/2/3)` 的 `LongParams[0]` 即 subType，运行时去 `HYCSimpleEnemyBTNodes.cs` 找对应节点执行。
    ⚡ 或跑统一入口 `HYC Framework/Samples/创建全部示例资产`（同时生成 BT 树 + Attr 资产，见文首）。
 2. **画树**：必须有且仅有一个 `Root`，其余节点靠 `Connections`（Source→Target + PortIndex 决定子节点顺序）连成树。
-   节点类型见 `BTNodeType`（Root / Sequence / Selector / Wait / NoOp / Condition / GameCustom=128 …）。
+   节点类型见 `BTNodeType`（Root / Sequence / Selector / Wait / NoOp / Conditional / GameCustom=128 …）。
 3. **导出 Blob（打包必做）**：菜单 `HYC Framework/BT/Export Blob (For Build)`。
 4. **运行期加载 + 挂组件**：
    ```csharp
@@ -72,7 +72,7 @@
 1. **`BTTreeAsset` / `BTBlobBuilder` 是 Editor 程序集**：引用它们（建树/导出）的代码必须放 Editor 汇编
    （`Editor/` 子目录，或 `#if UNITY_EDITOR` 守卫）。运行期只用 `BTBlobLoader` / `BTManager` / `RunningBT` / `BTInterpreterSystem`（均 Runtime）。
 2. **连接即 children**：`BTConnectionData.PortIndex` 是源节点**输出端口序号**（Sequence 的第 0、1 个子节点），
-   导出时据此构造 children 顺序；漏连或 PortIndex 重复会导致导出失败（`BTBlobBuilder` 会校验并报错）。
+   导出时据此构造 children 顺序；**Root 漏连会导致导出失败**（`BTBlobBuilder.Validate` 校验非空 / 唯一 Root / Root 必须连出）；**PortIndex 重复不报错**，仅影响子节点排序。
 3. **`RunningBT.RunState`** 是 `BTRunState`（跨帧状态），用 `default` 即可；`TickInterval=0` 每帧，`>0` 按秒节流。
 4. **`BTManager.Register` 重复覆盖**：同 TreeId 再次注册会释放旧 blob；编辑器自动注册 + 运行期 LoadAll 都注册同 Id，无害。
 5. **`BTBlobLoader` 已跨端，游戏层零平台代码**：`Application.streamingAssetsPath` 在 **Android 是 APK 内（jar:）**、
@@ -89,7 +89,7 @@
    注意：自定义节点必须放在**运行时程序集**（不能只在 Editor），否则反射扫不到、节点变空操作。
 7. **命名须框架中立**：示例树用 `IsTargetInRange/Attack/Patrol` 这类通用 AI 语义；真实节点语义按使用方领域，但**框架样例不写具体玩法**（如某游戏的 `BossPhaseSwitch`）。
 8. **⚠️ 示例树 Id 必须避开业务常用 Id**：导出会写 `StreamingAssets/BTBlob/<treeId>.blob`，
-   用 `1001` 这类 Id 极易覆盖宿主工程自己的树（血泪：1001 常被用作 Player / 第一关 / 第一棵树）。
+   用 `1001` 这类 Id 极易覆盖宿主工程自己的树（1001 常被用作 Player / 第一关 / 第一棵树，务必避开）。
    本例固定 `900001`；导入工程后如已生成过旧的 `1001.blob`，手动删掉即可（那是示例污染，非工程资产）。
 
 ---

@@ -16,14 +16,14 @@
         "input"
     ],
     "category": "HYC Framework",
-    "documentationUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/README.md",
+    "documentationUrl": "https://hyclub.github.io/hyc-framework/",
     "changelogUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md",
     "licensesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE",
     "thirdPartyNoticesUrl": "https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/Editor/Dlls/THIRD-PARTY-NOTICES.md",
     "samples": [
         {
             "displayName": "HYC Simple",
-            "description": "HYC 框架最小可运行接入示例（属性 Attr / 配置 Config / 行为树 BT / 本地化 Loc / 场景串联）。导入后位于 Assets/Samples/com.hyc.framework/<版本>/HYCSimple/。",
+            "description": "HYC 框架最小可运行接入示例（属性 Attr / 配置 Config / 行为树 BT / 本地化 Loc / 场景串联 Scene / 输入 Input / 相机 Cinemachine）。导入后位于 Assets/Samples/com.hyc.framework/<版本>/HYCSimple/。",
             "path": "Samples~/HYCSimple"
         }
     ],
@@ -34,7 +34,7 @@
         "com.unity.burst": "1.8.16",
         "com.unity.collections": "2.1.4",
         "com.unity.mathematics": "1.2.6",
-        "com.unity.inputsystem": "1.7.0",
+        "com.unity.inputsystem": "1.14.0",
         "com.unity.timeline": "1.7.7",
         "com.unity.textmeshpro": "3.0.7",
         "com.unity.ugui": "1.0.0",

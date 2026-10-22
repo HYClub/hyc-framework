@@ -73,7 +73,7 @@ namespace HYC.Framework.Runtime
 
         // ===== 可覆盖策略 =====
 
-        /// <summary>世界名。默认 "Framework World"；游戏按需覆盖（如 "SnowBros"）。</summary>
+        /// <summary>世界名。默认 "Framework World"；游戏按需覆盖。</summary>
         protected virtual string WorldName => "Framework World";
 
         /// <summary>逻辑固定步长（秒）。默认 1/60。</summary>
@@ -100,6 +100,15 @@ namespace HYC.Framework.Runtime
         /// <inheritdoc/>
         public bool Initialize(string defaultWorldName)
         {
+            // 「仅场景运行」闸门：跳过整套引导，让 Entities 退回自动建默认世界。
+            // 由编辑器工具栏按钮置位（见 PlaySceneToolbarButton），宿主无需改动。
+            // 注意宿主常用入口正是本基类（宿主继承 FrameworkBootstrapBase），此闸门必须有。
+            if (BootstrapGate.ShouldSkip)
+            {
+                Debug.Log("[HYC.Framework] Play Scene Only：跳过 FrameworkBootstrapBase 引导（返回 false，使用 Entities 默认世界）。");
+                return false;
+            }
+
             Instance = this;
 
             if (AlignPhysicsToFixedStep)

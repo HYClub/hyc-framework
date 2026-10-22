@@ -36,7 +36,7 @@ namespace HYC.Framework.Tests
         {
             F("mIDs"), F("mLangs"), F("mTexts"), F("mLang2Index"), F("mKey2Index"),
             F("mConfigLanguage"), F("mSelectedLanguage"), F("mDefaultLanguage"),
-            F("mSensitiveWords"), F("mAppendTextType"),
+            F("mSensitiveWords"),
         };
 
         private object[] _backup;
@@ -73,9 +73,6 @@ namespace HYC.Framework.Tests
             Set("mSelectedLanguage", null);
             Set("mDefaultLanguage", null);
             Set("mConfigLanguage", "en");
-
-            // 调试尾巴：非 0 时 GetText 会在结果后追加一大段彩蛋文本，必须归零
-            Set("mAppendTextType", 0);
 
             _badDir = Path.Combine("Temp", "LocTests", Guid.NewGuid().ToString("N"));
         }

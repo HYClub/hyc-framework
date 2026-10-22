@@ -24,8 +24,8 @@
 ## 二、端到端步骤（脚本驱动，与使用方工程同构）
 
 1. **建模板**：编辑器里定义 `ConfigTemplate`（加字段，枚举字段引用 `ConfigEnumDefinition`）。
-2. **生成代码**：菜单 `HYC Framework/Config/1-生成配置模板与代码`（或等价菜单）→ 生成 `CfgXxx` + `XxxBlobSystem` + 枚举。
-3. **填数据 + 导出 Blob**：菜单 `.../2-导出Blob` → 把行烘焙成 `Assets/StreamingAssets/ConfigBlob/*.blob`。
+2. **生成代码**：菜单 `HYC Framework/Config/Regenerate All Config Code` → 生成 `CfgXxx` + `XxxBlobSystem` + 枚举。
+3. **填数据 + 导出 Blob**：在**数据编辑器**（`HYC Framework/Config/Data Editor`）里「全量导出」→ 把行烘焙成 `Assets/StreamingAssets/ConfigBlob/*.blob`。
    🔴 **导出落点只有一个真源**：`ConfigDataSettings.BlobOutputDir`（默认
    `Assets/StreamingAssets/ConfigBlob`，**必须位于 `Assets/StreamingAssets` 内**——运行期只能从
    StreamingAssets 读）。运行期读取路径 `BlobLoadPath` 由它**派生**（剥掉 `Assets/StreamingAssets/`

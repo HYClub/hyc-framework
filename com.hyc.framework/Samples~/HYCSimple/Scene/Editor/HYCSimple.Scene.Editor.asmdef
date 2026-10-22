@@ -1,0 +1,21 @@
+{
+  "name": "HYCSimple.Scene.Editor",
+  "rootNamespace": "HYC.Simple.Scene.Editor",
+  "references": [
+    "HYC.Framework.Editor",
+    "HYCSimple",
+    "Unity.Entities",
+    "Unity.Collections"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

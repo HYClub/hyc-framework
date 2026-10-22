@@ -279,6 +279,12 @@ namespace HYC.Framework.Editor
         /// 原为向导硬编码 <c>HYC.Framework.Talent.Generated</c>（不走 root），已收口。</summary>
         public static string TalentCodeNamespace => EffectiveGeneratedNamespaceRoot + ".Talent";
 
+        /// <summary>场景内容标记组件命名空间：由同一 root 派生（<c>{root}.scene</c>）。</summary>
+        public static string SceneContentCodeNamespace => EffectiveGeneratedNamespaceRoot + ".scene";
+
+        /// <summary>相机装配的机位访问器命名空间：由同一 root 派生（<c>{root}.Cinemachine</c>）。</summary>
+        public static string CinemachineCodeNamespace => EffectiveGeneratedNamespaceRoot + ".Cinemachine";
+
         /// <summary>生成代码命名空间 root 的**原值**（可能是空串=自动模式）。</summary>
         public string GeneratedNamespaceRoot
         {

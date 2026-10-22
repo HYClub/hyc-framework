@@ -6,7 +6,8 @@
 #   Unity batchmode CI 需要 Unity 许可 + 激活密钥，公开仓库的 Actions 上
 #   拿不到（Unity 对私有/公开仓库的许可策略不同，且个人版不给密钥）。
 #   所以把"不需要 Unity 就能查的硬约束"抽成本脚本——
-#   它只用 bash + grep/sed，任何环境都能跑，且能在提交前本地跑。
+#   它只用 bash + grep/sed，外加 python 做词法级扫描（剥离注释/字符串），
+#   任何环境都能跑，且能在提交前本地跑。
 #
 # 它守什么（都是"文档/版本与磁盘脱节"这类静默腐化）：
 #   1. 文件索引里的 .cs 数与类型数 == 磁盘实际
@@ -17,6 +18,7 @@
 #   6. 非泛型声明是否带了 where 约束（CS0080，沙箱禁 csc 时只能静态抓）
 #   7. [InitializeOnLoad] 是否修饰在 class 上（CS0592，同上）
 #   8. Documentation~/README.md 自称的「共 N 篇」== 实际 .md 数（防新增文档后索引停在旧数字）
+#   9. HYC Framework 菜单项是否显式给 priority（Unity 默认 1000，漏写会沉到菜单最底部）
 #
 # 用法：
 #   bash scripts/verify-gate.sh
@@ -34,7 +36,7 @@ SKIP_TAG=0
 for arg in "$@"; do
   case "$arg" in
     --skip-tag) SKIP_TAG=1 ;;
-    -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "未知参数: $arg（用 --help 看用法）" >&2; exit 2 ;;
   esac
 done
@@ -51,6 +53,13 @@ if [ ! -d "$PKG" ]; then
   echo "错误：未找到包目录 $PKG，请在仓库根运行本脚本。" >&2
   exit 2
 fi
+
+# 静态检查（类型计数 / CS0080 / CS0592 / 菜单 priority）都靠 python 做词法级扫描。
+# 显式解析一次并要求存在 —— 否则 python 缺失时那些检查会"静默 PASS"（假绿）。
+PY3=$(command -v python3 || command -v python || command -v py) || {
+  echo "错误：本脚本依赖 python3（或 python）做静态检查，未找到。" >&2
+  exit 2
+}
 
 # 类型声明计数。
 # ⚠️ 必须先剥离注释与字符串字面量，否则 XML 文档注释里的 `<c>class Foo</c>`
@@ -197,7 +206,7 @@ head_ "5. 非泛型声明不得带 where 约束（CS0080）"
 # 血泪教训：仿照 BlobRoot<TRow> 给非泛型的 struct 加了 where 约束，
 # 编译器直接 CS0080。沙箱禁 csc ⇒ 这类纯语法错必须静态抓，别等 Unity 报。
 # 检查法：class/struct/interface NAME 之后没有 <...> 却跟了 where ⇒ 违规。
-cs0080=$(python3 - "$PKG" <<'PY'
+cs0080=$("$PY3" - "$PKG" <<'PY'
 import os, re, sys
 pkg = sys.argv[1]
 
@@ -259,7 +268,7 @@ head_ "6. InitializeOnLoad 必须修饰 class（CS0592）"
 # 而它的语义是"修饰类、由 Unity 在程序集重载后调用该类静态构造器"，
 # 挂到构造器上 Unity 直接 CS0592。生成产物在宿主工程里、包内编译不到 ⇒ 只有静态抓。
 # 注意区分 InitializeOnLoadMethod（合法的方法特性），用 \b 天然排除。
-iol=$(python3 - "$PKG" <<'PY'
+iol=$("$PY3" - "$PKG" <<'PY'
 import os, re, sys
 pkg = sys.argv[1]
 
@@ -348,6 +357,81 @@ else
   else
     bad "文档篇数不一致：声明 $declared_docs 篇，实际 $actual_docs 篇 → 更新 $DOC_README"
   fi
+fi
+
+# ─────────────────────────────────────────────────────────────
+head_ "8. HYC 菜单项必须显式给 priority"
+# ─────────────────────────────────────────────────────────────
+# 血泪教训：Unity 的 [MenuItem("HYC Framework/X/Y")] 默认 priority 是 1000（不是 0！），
+# 漏写会直接沉到整个菜单最底部、越过 Settings(200) 与 Samples(210)。
+# 2026-10-20 实测：HYC Framework/Input/Generate Input Components 没写 ⇒ Input 分组
+# 出现在 Samples 之后，与"Input 是每天用的内容制作能力"的定位完全相反且不报错。
+# 规则：路径以 HYC Framework/ 开头的非 validate 项，必须带第三个 int 实参。
+nopri=$("$PY3" - "$PKG" <<'PY'
+import os, sys
+pkg = sys.argv[1]
+
+def attr_args(src, start):
+    """从 "MenuItem(" 之后开始，返回顶层实参列表（字符串字面量里的逗号不算分隔）。"""
+    args, cur, depth, i, n = [], [], 0, start, len(src)
+    while i < n:
+        c = src[i]
+        if c in '"\'':
+            q = c
+            cur.append(c); i += 1
+            while i < n:
+                ch = src[i]
+                if ch == '\\':
+                    cur.append(ch); i += 1
+                    if i < n:
+                        cur.append(src[i]); i += 1
+                    continue
+                cur.append(ch); i += 1
+                if ch == q:
+                    break
+            continue
+        if c in '([{':
+            depth += 1; cur.append(c); i += 1; continue
+        if c in ')]}':
+            if depth == 0:
+                if cur: args.append(''.join(cur))
+                return args
+            depth -= 1; cur.append(c); i += 1; continue
+        if c == ',' and depth == 0:
+            args.append(''.join(cur)); cur = []; i += 1; continue
+        cur.append(c); i += 1
+    return args
+
+for root, dirs, files in os.walk(pkg):
+    dirs[:] = [d for d in dirs if d not in ('.git', 'Samples~')]
+    for f in files:
+        if not f.endswith('.cs'): continue
+        p = os.path.join(root, f).replace('\\', '/')
+        src = open(p, encoding='utf-8-sig', errors='replace').read()
+        pos = 0
+        while True:
+            k = src.find('MenuItem(', pos)
+            if k < 0: break
+            pos = k + 1
+            line = src.count('\n', 0, k) + 1
+            lstart = src.rfind('\n', 0, k) + 1
+            if src[lstart:k].lstrip().startswith('//'):
+                continue                      # 注释掉的示例不算
+            args = attr_args(src, k + len('MenuItem('))
+            if not args: continue
+            path = args[0].strip().strip('"')
+            if not path.startswith('HYC Framework/'): continue
+            # validate 函数（第二实参 true）不渲染菜单项，不要求 priority
+            if len(args) == 2 and args[1].strip() == 'true': continue
+            if len(args) >= 3 and args[-1].strip().lstrip('-').isdigit(): continue
+            print('%s:%d  %s  -> 缺 priority（默认 1000，会沉到菜单最底部）' % (p, line, path))
+PY
+)
+if [ -z "$nopri" ]; then
+  pass "所有 HYC 菜单项都显式给了 priority"
+else
+  bad "以下菜单项缺 priority："
+  echo "$nopri" | sed 's/^/         /'
 fi
 
 # ─────────────────────────────────────────────────────────────

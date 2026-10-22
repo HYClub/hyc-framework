@@ -3,7 +3,7 @@
 > 本文件是**菜单结构的唯一真源**。改动任何 `[MenuItem("HYC Framework/...")]` 时，
 > 必须同步更新本文件与引用了该路径的文档，否则会留下失效路径。
 >
-> 最后核对：2026-10-19
+> 最后核对：2026-10-20
 
 ---
 
@@ -26,8 +26,13 @@ Unity `MenuItem(itemName, isValidateFunction, priority)` 的 `priority` **不只
 
 **第二次（对）**：为做三档分级，给**每个**菜单项都显式给了 priority。
 注意——**不能只给父菜单的首项**：Unity 的排序作用于**每一个叶子菜单项**，
-没写 priority 的项默认为 0，会全部挤到最前面，把分组打乱。
-所以 20 个菜单项**逐个**都标了值（见第二节结构图右侧的数字）。
+**没写 priority 的项默认是 `1000`**（不是 0！），会直接沉到整个菜单的最底部、
+越过 `Settings(200)` 与 `Samples(210)`，看上去像"掉队的孤儿项"。
+所以 20 多个菜单项**逐个**都标了值（见第二节结构图右侧的数字）。
+
+> ⚠️ **这个默认值 1000 踩过一次**（2026-10-20）：`HYC Framework/Input/Generate Input Components`
+> 忘了写 priority，结果 `Input` 分组出现在 `Samples` 之后再无分组线，
+> 与「Input 是每天用的内容制作能力」的定位完全相反。`verify-gate.sh` 第 8 项现在会静态抓"缺 priority"。
 
 **最终约定**：
 
@@ -61,6 +66,8 @@ HYC Framework/
 │   ├── Generate UI Binders                                        pri 20
 │   ├── Regenerate UI Binders (Clean)                             pri 21
 │   └── Generate UI Binders (Selected)                            pri 22
+├── Input/             输入组件化（按 InputActionAsset 的 map 生成 IComponentData）
+│   └── Generate Input Components                                  pri 25
 ├── Localization/      多语言
 │   ├── Import/
 │   │   └── Excel (Import & Build Blob)                            pri 30
@@ -82,7 +89,8 @@ HYC Framework/
 ├── Scene Content/     场景内容物（关卡描述器 / 标记组件 / Blob 加载）
 │   ├── Scene Content Window                                      pri 70
 │   ├── Export All Blobs                                          pri 71
-│   └── Export Blob (Selected)                                    pri 72
+│   ├── Export Blob (Selected)                                    pri 72
+│   └── New Scene Content Type   新建场景内容类型定义（生成标记组件）  pri 73
 ├── Cinemachine/       相机装配（虚拟相机 rig：大脑 + 多机位）
 │   ├── Rig Editor      机位编辑器（窗口直改 rig prefab）          pri 80
 │   └── New Rig        新建 rig prefab（默认四机位）               pri 81
@@ -137,7 +145,7 @@ CONTEXT 菜单挂在资产类型上、随右键出现，不属于「HYC Framewor
 
 | 档 | 成员 | 使用频率 | 判据 |
 | --- | --- | --- | --- |
-| ① 内容制作 | Config / BT / UI / Localization / Attributes / Talent | 每天都在用 | 这些是"做游戏内容"本身的能力 |
+| ① 内容制作 | Config / BT / UI / Input / Localization / Attributes / Talent / Audio / Scene Content / Cinemachine | 每天都在用 | 这些是"做游戏内容"本身的能力 |
 | ② 通用工具 | Tools/Assets | 偶尔用，出问题时才找 | 与具体子系统无关的通用工具 |
 | ③ 项目级 | Settings / Samples | 装一次 / 改配置 | 项目设置与示例导入，都不是日常操作 |
 

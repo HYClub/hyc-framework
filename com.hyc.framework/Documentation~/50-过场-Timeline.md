@@ -108,10 +108,10 @@ director.Clear();         // 全部取消
 ## 注意事项 / 坑
 
 1. **`PlayClip` 的默认实现只是 `Debug.Log("CutsceneDirector playing: " + clip.Name)`**——不重写就永远不会有 `NotifyFinished`，队列会卡在第一条（`IsPlaying` 恒为 true）。
-2. **`Loop` 字段框架完全不消费**：循环过场会永远不调 `NotifyFinished`，后面的队列全被堵住。要循环就自己控制何时 `NotifyFinished`。
+2. **`Loop` 过场由框架消费**：`NotifyFinished` 命中 `Loop` 会直接重播当前片段（不前进队列）；要让其结束需在子类里控制。
 3. **`Play(long id)` 默认只填 `Id` 和 `Name`**，`AssetKey` 是空的——必须重写它去查配置表，或者直接用 `Enqueue`（protected，子类可见）。
 4. **`Skip()` 只在 `IsPlaying` 时有效**，空闲时调用是空操作。
 5. **`NotifyFinished` 在 `Current == null` 时直接 return**——重复调用安全。
 6. **`Clear()` 不会触发 `CutsceneFinished`**，也不会调 `Current.OnFinished`——是"硬清"，需要收尾就先 `Skip()` 再 `Clear()`。
-7. **没有暂停/恢复**，没有优先级，没有打断策略——需要的话自己在子类里加（比如重写 `Enqueue` 做插队）。
+7. **暂停/恢复/优先级/打断已内置**：`Pause()` / `Resume()`（`IsPaused` + `PauseStateChanged` 事件）、`Play(id, priority)` 按优先级插队、`Interrupt()` 立即打断当前并起下一段。
 8. **不是 ECS System**：`CutsceneDirector` 是普通 class，需要宿主自己持有并驱动；它也没有订阅任何 `UpdateGroup`。

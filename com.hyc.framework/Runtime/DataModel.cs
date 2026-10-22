@@ -74,10 +74,7 @@ namespace HYC.Framework.Data
                 EnsureStore(ref state);
             }
 
-            // Temp 数组必须**无条件**释放。曾经这里写成
-            //     var entities = _query.ToEntityArray(Allocator.Temp);
-            //     if (entities.Length == 0) return;      // ← 漏 Dispose
-            // 而这是每帧都走的早退分支，等于每帧泄漏一块 native 内存。
+            // Temp 数组必须无条件释放（含 Length==0 的早退分支）。
             var entities = _query.ToEntityArray(Unity.Collections.Allocator.Temp);
             try
             {

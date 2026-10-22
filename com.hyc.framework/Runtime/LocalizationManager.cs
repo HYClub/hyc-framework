@@ -116,11 +116,6 @@ namespace HYC.Framework.Loc
                 Debug.LogError("刷新文字出错!");
                 Debug.LogException(e);
             }
-
-            // 曾在此处（仅编辑器）补一次 FindObjectsOfType<LocalizedBase> 全场景强制刷新。
-            // 已移除：onLanguageChanged 会刷新所有已启用组件（LocalizedBase.OnEnable 订阅），
-            // 而组件重新激活时 OnEnable 自身也会 Refresh —— 两条路径已覆盖全部场景，
-            // 全场景扫描只是重复劳动，且开销随场景对象数线性增长。
         }
 
         #region 文件读取
@@ -347,13 +342,6 @@ namespace HYC.Framework.Loc
                     var result = Texts[langIndex][keyIndex];
                     if (string.IsNullOrEmpty(result))
                         result = $"[{key.Split('/')[^1]}]";
-                    else
-                    {
-#if UNITY_EDITOR
-                        if (GetAppendTextType() != 0)
-                            result += GetAppendText();
-#endif
-                    }
                     return result;
                 }
             }
@@ -361,33 +349,6 @@ namespace HYC.Framework.Loc
             return $"未找到Key : {key}";
         }
 
-        private static int mAppendTextType;
-
-#if UNITY_EDITOR
-        public static string GetAppendText()
-        {
-            switch (GetAppendTextType())
-            {
-                case 1:
-                    return " (Life is a great big canvas, and you should throw all the paint on it you can. 人生是一幅大画布，你应该努力绘出绚丽多彩的画面。)";
-                case 2:
-                    return " (The song I came to sing  我来唱的歌\nremains unsung to this day.  至今仍未唱出\nI have spent my days in stringing  我日日用琴声\nand in unstringing my instrument.  调整琴柱，解下琴弦\nThe time has not come true,  时日未到\nthe words have not been rightly set;  词未择当\nonly there is the agony  只有烦恼\nof wishing in my heart.....  在我内心诉说……)";
-            }
-            return string.Empty;
-        }
-
-        public static int GetAppendTextType()
-            => mAppendTextType;
-
-        public static void SetAppendTextType(int type)
-        {
-            if (type != GetAppendTextType())
-            {
-                mAppendTextType = type;
-                onLanguageChanged?.Invoke();
-            }
-        }
-#endif
         #endregion
     }
 }

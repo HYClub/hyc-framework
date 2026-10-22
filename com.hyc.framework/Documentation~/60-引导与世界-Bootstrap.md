@@ -224,6 +224,38 @@ settings.ApplyCommandLine(args);     // 解析 --framerate=120 / --language=Engl
 
 ---
 
+## 仅场景运行（调试用：跳过引导）
+
+**痛点**：宿主 `ICustomBootstrap` 一旦进 Play 就会被 Entities 调用，把整套框架引导（配置 / UI / 音频 / 本地化 / 行为树）全拉起来。想单独调一个场景（如 HYCSimple 的某个 Demo、某个 Authoring 片段）也会被整个项目启动淹没。
+
+**方案**：框架在主工具栏**中间区**注入了一个 `▶ Scene` 按钮（tooltip：`Play Scene Only (skip framework bootstrap)`）。点它 = 只跑当前场景、跳过框架引导。
+
+### 机制（已对照源码实证）
+
+1. 按钮点击（`Editor/PlaySceneToolbarButton.cs`，反射注入 `ToolbarZonePlayMode` 中间区、外套 `flexGrow=1 + 居中` dock 实现水平居中；2022.3.35f1c1 的 `UnityEditor.CoreModule.dll` UTF-16 字符串实证三区：`ToolbarZoneLeftAlign` / `ToolbarZonePlayMode` / `ToolbarZoneRightAlign`）：
+   - 置位 `SessionState["HYC.Framework.PlaySceneOnly"]`（**跨域重载存活**）+ 直接置位运行时闸门 `BootstrapGate.ShouldSkip = true`（覆盖「关闭域重载」的情形）；
+   - `EditorApplication.isPlaying = true`。
+2. 进 Play 后宿主 `ICustomBootstrap.Initialize` 被调 → **三个入口顶部都查 `BootstrapGate.ShouldSkip`，为真即 `return false`**（不建 World、不装系统、不读 Audio）：
+   `FrameworkBootstrap.Initialize` / `FrameworkModeBootstrap.Initialize` / `FrameworkBootstrapBase.Initialize`（第三条是宿主最常用的继承基类，宿主 bootstrap 直接继承它）。
+3. Entities `DefaultWorldInitialization.Initialize` 在 `ICustomBootstrap.Initialize` 返回 `false` 时**自动建默认世界**（`new World(defaultWorldName, Game)` + 默认系统 + `AppendWorldToCurrentPlayerLoop`），`World.DefaultGameObjectInjectionWorld` 照常有效 → 场景里的 MonoBehaviour（如 `HYCSimpleSceneBootstrap`）拿到合法默认世界照常跑。
+4. 退出 Play 时 `PlaySceneToolbarButton` 清掉 `ShouldSkip` + `SessionState`，保证下次普通 Play 走完整引导。
+
+> 实证：`com.unity.entities@1.0.16/Unity.Entities/DefaultWorldInitialization.cs:140`
+> `if (bootStrap != null && bootStrap.Initialize(defaultWorldName)) { ... return; }`
+> → 走到 `new World(...)` 默认世界。返回 `false` 即跳过、退回默认世界。
+
+### 契约（宿主零改动的前提）
+
+- **宿主必须把框架 `Initialize` 的返回值透传给 Entities**：`return new FrameworkBootstrap().Initialize(name);` 或 `return boot.Initialize(name);`。框架在内部顶部查闸门，宿主无需任何额外代码。
+- 完全自定义、且不调框架 `Initialize` 的宿主 bootstrap，想要此能力可自己 `if (HYC.Framework.Runtime.BootstrapGate.ShouldSkip) return false;`（可选）。
+- 关闭域重载时：点击直接置位静态 `ShouldSkip`，无需 SessionState 中转，同样生效。
+
+### 已知待验证点（进 Unity 实测，勿凭推断）
+
+- 跳过宿主后默认世界会自动创建框架里**未**标 `[DisableAutoCreation]` 的 system（如挂在 `UpdateGroup_Root` 的 `FrameworkCleanupSystem`）。若 `UpdateGroup_Root` 不是 player-loop 根组，可能刷 warning。Demo 系统本身都是 `[DisableAutoCreation]`（由 `HYCSimpleSceneBootstrap` 手动驱动），不受此影响。该 warning 是否出现需在真实工程进 Play 验证。
+
+---
+
 ## 注意事项 / 坑
 
 1. **`UIManager` / `LocalizationBlobSystem` 等都是 `[DisableAutoCreation]`**——只有引导期手动创建/扫描才会进 World。纯 installer 组合时记得把 `UIManager` 加进更新列表（`FrameworkModeBootstrap` 的 `GetAllSystems(Default)` 会抓到它，但 `FrameworkWorld` 不会自动抓，要 installer 里 `world.GetOrCreateSystemManaged<UIManager>()`）。

@@ -510,8 +510,10 @@ namespace HYC.Framework.Config.Editor
             if (templateCount > 0)
                 menu.AddItem(new GUIContent($"保存并生成所有模板代码（{templateCount} 个）"), false, () => GenerateFolderTemplateCode(folder));
 
+            // ⚠️ 文案里不能出现半角 '/'：GenericMenu 会把它当子菜单分隔符
+            //（曾写成「（没有可导出 / 可生成的内容）」，渲染成主项「（没有可导出」+ 子菜单「可生成的内容）」）
             if (exportable.Count == 0 && enumCount == 0 && templateCount == 0)
-                menu.AddDisabledItem(new GUIContent("（没有可导出 / 可生成的内容）"));
+                menu.AddDisabledItem(new GUIContent("（没有可导出或可生成的内容）"));
         }
 
         /// <summary>

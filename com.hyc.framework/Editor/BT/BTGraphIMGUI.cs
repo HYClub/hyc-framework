@@ -1,12 +1,12 @@
 // ============================================================
 // HYC Framework - BT 模块(Editor)
 // 文件: Editor/BT/BTGraphIMGUI.cs
-// 说明: NodeCanvas 风格 IMGUI 手绘画布(零 using NodeCanvas/ParadoxNotion)。
-//       移植 NodeCanvas Editor.Node/Editor.Connection/GraphEditor 的绘制与交互逻辑,
-//       用 HYC 数据与命名空间重写。由 BTGraphWindow 内 IMGUIContainer 承载。
-//       P2: 框选 / 端口拖拽连线 / 右键菜单(装饰·替换·转子树·复制分支·删除分支) /
+// 说明: 自定深色主题 IMGUI 全手绘画布。
+//       绘制与交互逻辑全部自实现(基于 HYC 数据与命名空间),
+//       由 BTGraphWindow 内 IMGUIContainer 承载。
+//       交互: 框选 / 端口拖拽连线 / 右键菜单(装饰·替换·转子树·复制分支·删除分支) /
 //           节点上 inline 参数编辑 / 节点库拖拽建节点。全部直接改写 BTTreeAsset 数据。
-//       P3: 左栏(行为树资源 + 节点库拖拽 + 黑板) / 右上 minimap / 底部状态条。
+//       布局: 左栏(行为树资源 + 节点库拖拽 + 黑板) / 右上 minimap / 底部状态条。
 // ============================================================
 
 using System;
@@ -23,7 +23,7 @@ namespace HYC.Framework.BT.Editor
     {
         private BTTreeAsset _asset;
 
-        // 视图变换(对应 GraphEditor pan/zoom)
+        // 视图变换(平移/缩放)
         public Vector2 Pan = new Vector2(80, 80);
         public float Zoom = 1f;
 
@@ -57,14 +57,14 @@ namespace HYC.Framework.BT.Editor
         private float _mmScale;       // minimap 映射: 缩放
         private Vector2 _mmOrigin;    // minimap 映射: 屏幕原点(组内)
 
-        // 工具栏 / 偏好(对应 NC GraphEditor.Toolbar + Prefs)
-        private bool _showGrid = true;          // Prefs.showGrid
-        private bool _snapGrid;                 // Prefs.snapToGrid
-        private bool _locked;                   // Prefs.isEditorLocked
+        // 工具栏 / 偏好
+        private bool _showGrid = true;          // 默认显示网格
+        private bool _snapGrid;                 // 网格吸附
+        private bool _locked;                   // 编辑器锁定
         private bool _showLeftPanel = true;
         private bool _debugClip = false;         // 调试: 可视化画布变换层(已验证, 默认关; Prefs → 调试/显示裁剪层)
         private bool _panelOnRight = true;      // 面板停靠右侧(Explorer/ROOT 在窗口右上)
-        private float _rigidity = 0.8f;         // Prefs.connectionsMLT (默认 0.8)
+        private float _rigidity = 0.8f;         // 连线曲率(默认 0.8)
         private Rect _toolbarRect;
         private Rect _panelRect;                // 右侧 Explorer 面板矩形
         private Rect _rightRect;                // 右侧 Explorer 面板矩形(与 _panelRect 同值)
@@ -80,12 +80,12 @@ namespace HYC.Framework.BT.Editor
         public System.Action OnRequestNewTree;
         public System.Action OnRequestSave;
 
-        // 左栏 = NC GraphExplorer 完整移植
-        private const int INDENT_WIDTH = 25;   // GraphExplorer.INDENT_WIDTH
-        private const int INDENT_START = 1;    // GraphExplorer.INDENT_START
+        // 左栏 = 资源浏览树
+        private const int INDENT_WIDTH = 25;   // 缩进宽
+        private const int INDENT_START = 1;    // 起始缩进级
         private string _explorerSearch;
         private bool _explorerShowTypeNames;
-        private BTNodeData _lastHoverNode;      // GraphExplorer.lastHoverElement
+        private BTNodeData _lastHoverNode;      // 最近悬停节点
         private long _pingNodeId;               // 画布 ping 高亮节点
         private double _pingTime;               // ping 开始时间(1s 淡出)
         private Vector2 _leftScroll;            // 左栏手动滚动
@@ -178,7 +178,7 @@ namespace HYC.Framework.BT.Editor
             return null;
         }
 
-        // NC HierarchyTree.Element 的 HYC 等价
+        // 层级树元素(本模块等价实现)
         private class ExplorerEl
         {
             public BTNodeData Node;
@@ -212,16 +212,16 @@ namespace HYC.Framework.BT.Editor
         public System.Action OnRepaint;
         public System.Action<BTTreeAsset> OnRequestOpenTree;
 
-        // 常量(对应 NodeCanvas 视觉与交互, 数值取自源码)
-        private const float HEADER_H = 24f;       // windowTitle 12px + padding(7+5) ≈ 24
-        private const float RIGIDITY_DEFAULT = 0.8f; // Prefs.connectionsMLT 默认值
-        private const float TOOLBAR_H = 21f;      // GraphEditor.TAB_HEIGHT
-        private const float GRID = 20f;           // GraphEditor.GRID_SIZE(网格/吸附步长)
-        private const float PORT_SIZE = 12f;      // Editor.Node: sourcePortRect = 12x12 (端口直径)
-        private const float CONN_SIZE = 3f;       // Connection.defaultSize
+        // 几何/交互常量(画布单位)
+        private const float HEADER_H = 24f;       // 节点头高: 标题 12px + 上下 padding(7+5)
+        private const float RIGIDITY_DEFAULT = 0.8f; // 连线曲率默认值
+        private const float TOOLBAR_H = 21f;      // 工具栏高
+        private const float GRID = 20f;           // 网格/吸附步长
+        private const float PORT_SIZE = 12f;      // 端口直径 12x12
+        private const float CONN_SIZE = 3f;       // 连线粗细
         private const float NODE_W = 180f;
         private const float PORT_HIT = 12f;       // 端口命中半径(画布单位)
-        private const float PORT_OUT_OFFSET = 6f; // 输出端口(底)相对下缘下凸(Editor.Node: portOffset=6)
+        private const float PORT_OUT_OFFSET = 6f; // 输出端口(底)相对下缘下凸 6px
         private const float LEFT_W = 220f;
         private const float BOTTOM_H = 104f;
         private const float MM_W = 210f;
@@ -236,9 +236,8 @@ namespace HYC.Framework.BT.Editor
         private const float GLYPH      = 16f;   // 类别圆点直径
         private const float BADGE      = 14f;   // 右上状态角标直径
         private const float PORT_GAP   = 22f;   // 多端口横向固定间隔(画布单位, 对应原型 26px)
-        // 画布底色(对应 StyleSheet.canvasBG 的亮度): 底色太暗时 NC 的纯黑网格(a0.15)根本看不见
-        // 对应 NodeCanvas 暗色皮肤层次: 画布底暗、节点面板明显更亮(原 BG=0.24 与节点体 0.21 几乎同色,
-        // 节点整个「隐」进背景只剩边框, 看起来像半透明 —— 用户截图反馈的根因)。
+        // 画布底色: 底色太暗时纯黑网格(a0.15)看不见; 节点面板必须明显比底色亮,
+        // 否则节点「隐」进背景只剩边框, 看起来像半透明。
         private static readonly Color BG = BTEditorStyles.CanvasBg; // #14151a 深色画布(自定义主题)
 
         // 样式(懒初始化)
@@ -318,14 +317,14 @@ namespace HYC.Framework.BT.Editor
 
             // ===== 1) 画布(最底层, 必须先画) =====
             // 工具栏/左右面板/底栏都在它之后绘制 => 永远盖在画布之上。
-            // NodeCanvas 的结构就是"画布在底、面板永远盖在画布上"; 顺序反过来时,
+            // 画布必须在底、面板永远盖在画布上; 顺序反过来时,
             // 一旦裁剪在 IMGUIContainer 里没生效, 节点和它的下拉框就会直接画到面板上面。
             EditorGUI.DrawRect(_canvasRect, BG);
 
-            // 网格(屏幕空间, 对应 GraphEditor.DrawGrid: black a0.15, GRID_SIZE=20)
+            // 网格(屏幕空间, 黑 a0.15, 步长 GRID)
             DrawGridScreen();
 
-            // ===== 画布变换(对应 GraphEditor.cs:486-518 的 StartZoomArea / EndZoomArea) =====
+            // ===== 画布变换(缩放/平移区域) =====
             // 画布坐标 P -> 屏幕 = _canvasRect.min + (P - Pan) * Zoom。
             // 越界内容不做 GUIClip 裁剪, 而是靠"chrome 后画"覆盖(工具栏/左右面板/底栏/minimap 正好铺满画布之外)。
             var oldMatrix = BeginCanvasTransform();
@@ -374,10 +373,10 @@ namespace HYC.Framework.BT.Editor
                 DrawNode(n, e);
             }
 
-            // Explorer Ping(对应 GraphEditor.PingElement: 悬停行时画布高亮该节点, 1s 淡出)
+            // Explorer Ping(悬停行时画布高亮该节点, 1s 淡出)
             DrawPing();
 
-            // 结束画布变换(对应 GraphEditor.EndZoomArea: 还原矩阵)
+            // 结束画布变换(还原矩阵)
             EndCanvasTransform(oldMatrix);
 
             // 空画布引导(屏幕空间, 画布正中): 初始态给"从哪开始", 不给报错(校验已对空树静默)
@@ -390,7 +389,7 @@ namespace HYC.Framework.BT.Editor
             // 画布边界(让"裁剪层 = 画布区域"一目了然, 恒固定不随平移移动)
             DrawCanvasBorder();
 
-            // minimap(屏幕空间, 画布右下, 对应 GraphEditor.DrawMinimap)
+            // minimap(屏幕空间, 画布右下)
             // 必须在输入处理之前绘制: HandleViewInput 依赖本帧算出的 _miniRect
             DrawMiniMap(e);
 
@@ -413,7 +412,7 @@ namespace HYC.Framework.BT.Editor
             DrawTreeDragGhost();
         }
 
-        // 画布边界(对应 NC 末尾的 Styles.Draw(canvasRect, canvasBorders))
+        // 画布边界
         private void DrawCanvasBorder()
         {
             var c = new Color(1f, 1f, 1f, 0.14f);
@@ -450,7 +449,7 @@ namespace HYC.Framework.BT.Editor
         }
 
         // ================================================================
-        //  画布变换(对应 GraphEditor.StartZoomArea / EndZoomArea)
+        //  画布变换(开始/结束缩放区域)
         //  返回进入前的 GUI.matrix, 调用方必须配对调用 EndCanvasTransform。
         //
         //  为什么这里【不使用】GUI.BeginClip / GUI.BeginGroup 做裁剪:
@@ -462,7 +461,7 @@ namespace HYC.Framework.BT.Editor
         //  约束：pan 绝不能编码进 rect.min——会被自身的平移正好抵消，导致内容被钉死在画布原点。
         //  因此不做 GUIClip 裁剪，靠绘制顺序保证越界内容不可见：
         //  画布最先画，工具栏 / 左右面板 / 底栏 / minimap 全部在其之后，正好铺满画布之外的所有区域。
-        //  与 NodeCanvas 顺序一致: DrawMinimap → StartBreadCrumbNavigation → ShowToolbar → ShowPanels。
+        //  绘制顺序: 先 minimap, 再面包屑导航, 再工具栏, 最后各面板。
         // ================================================================
         private Matrix4x4 BeginCanvasTransform()
         {
@@ -784,13 +783,13 @@ namespace HYC.Framework.BT.Editor
             }
         }
 
-        // ---- 网格(对应 GraphEditor.DrawGrid: black a0.15, GRID_SIZE=20) ----
+        // ---- 网格(黑 a0.15, 步长 GRID) ----
         private void DrawGridScreen()
         {
-            if (!_showGrid) return;                        // Prefs.showGrid
+            if (!_showGrid) return;                        // 网格开关
             if (Event.current.type != EventType.Repaint) return;
 
-            float gridSize = Zoom > 0.5f ? GRID : GRID * 5f;   // GRID_SIZE / (×5)
+            float gridSize = Zoom > 0.5f ? GRID : GRID * 5f;   // 缩小视口时步长 ×5
             float step = gridSize * Zoom;
             int every = 1;                                 // 次网格间隔(太密时只画主网格)
             if (step < 16f) { every = 5; step *= 5f; }
@@ -903,7 +902,7 @@ namespace HYC.Framework.BT.Editor
             var from = OutputPortPos(src, ChildIndex(connectionIndex));
             var to = InputPortPos(dst);
 
-            // 切线(垂直流: 出在底、进在顶, connectionsMLT=0.8)
+            // 切线(垂直流: 出在底、进在顶, 曲率 0.8)
             float ty = Mathf.Max(Mathf.Abs(from.y - to.y) * _rigidity, 25f);
             var fromT = new Vector2(0, ty);   // 从底部向下出
             var toT = new Vector2(0, -ty);   // 从顶部向下进
@@ -948,9 +947,6 @@ namespace HYC.Framework.BT.Editor
             return Rect.MinMaxRect(tl.x, tl.y, br.x, br.y);
         }
 
-        // 端口位置严格对应 NodeCanvas 行为树(PlanarDirection.Vertical, Editor.Node:1009-1018):
-        //   输入 = (rect.center.x, rect.y)                       // 顶边居中(原版无外凸)
-        //   输出 = (rect.center.x, rect.yMax + portOffset(6))    // 底边居中, 下凸 6px
         // 每个节点只有 1 个输出端口, 所有子连线共用同一个点。
         // 端口位置: 输入 = (center.x, r.yMin) 顶边居中; 输出 = (center.x, r.yMax) 底边居中,
         // 多子节点时按索引横向展开(居中 + 固定 PORT_GAP 间隔), 与 BTEditor-UI-Prototype 一致。
@@ -1129,7 +1125,7 @@ namespace HYC.Framework.BT.Editor
         }
 
         // ================================================================
-        //  顶部工具栏(对应 GraphEditor.Toolbar.ShowToolbar, 逐项移植)
+        //  顶部工具栏
         // ================================================================
         private void DrawToolbar()
         {
@@ -1156,7 +1152,7 @@ namespace HYC.Framework.BT.Editor
             }
             x += 92f;
 
-            // Explorer 开关(对应 NC 工具栏的 lens 按钮) —— 右侧 ROOT 层级树面板
+            // Explorer 开关 —— 右侧 ROOT 层级树面板
             if (GUI.Button(new Rect(x, y, 88, h), _showLeftPanel ? "◀ Explorer" : "▶ Explorer", EditorStyles.toolbarButton))
             { _showLeftPanel = !_showLeftPanel; OnRepaint?.Invoke(); }
             x += 92f;
@@ -1170,7 +1166,7 @@ namespace HYC.Framework.BT.Editor
             if (GUI.Button(new Rect(x, y, 76, h), _showLibPanel ? "▣ 节点库:开" : "▣ 节点库:关", EditorStyles.toolbarButton))
             { _showLibPanel = !_showLibPanel; OnRepaint?.Invoke(); }
 
-            // 右侧: 树名/来源(右上角) + 版本信息 + Lock(对应 NC 右侧)
+            // 右侧: 树名/来源(右上角) + 版本信息 + Lock
             if (_crumbStyle == null)
                 _crumbStyle = new GUIStyle(GUI.skin.label) { richText = true, alignment = TextAnchor.MiddleRight, fontSize = 11, wordWrap = false };
             GUI.color = new Color(1f, 1f, 1f, 0.85f);
@@ -1222,7 +1218,7 @@ namespace HYC.Framework.BT.Editor
             menu.AddSeparator("");
             // 调试: 裁剪层可视化(洋红=实际生效的裁剪区, 青绿边框=画布矩形, 红/蓝十字=画布原点)
             menu.AddItem(new GUIContent("调试/显示裁剪层"), _debugClip, () => { _debugClip = !_debugClip; OnRepaint?.Invoke(); });
-            // 对应 NC Prefs 里的 Connection Style(connectionsMLT)
+            // 连线样式(曲率)
             menu.AddItem(new GUIContent("连线样式/Hard"), Mathf.Approximately(_rigidity, 1f), () => { _rigidity = 1f; OnRepaint?.Invoke(); });
             menu.AddItem(new GUIContent("连线样式/Soft"), Mathf.Approximately(_rigidity, 0.75f), () => { _rigidity = 0.75f; OnRepaint?.Invoke(); });
             menu.AddItem(new GUIContent("连线样式/Softer"), Mathf.Approximately(_rigidity, 0.5f), () => { _rigidity = 0.5f; OnRepaint?.Invoke(); });
@@ -1230,7 +1226,7 @@ namespace HYC.Framework.BT.Editor
             return menu;
         }
 
-        // 面包屑(对应 GraphEditor.DoBreadCrumbNavigationStep: 树名 + 来源; 按要求放画布右上角)
+        // 面包屑(树名 + 来源, 画布右上角)
         private GUIStyle _crumbStyle;
         private void DrawBreadcrumb()
         {
@@ -1256,9 +1252,7 @@ namespace HYC.Framework.BT.Editor
         }
 
         // ================================================================
-        //  左栏 = NodeCanvas GraphExplorer 完整移植 + HYC 专属区
-        //  源码对应: GraphExplorer.cs(搜索/类型名开关/ROOT/缩进树/树连接线/
-        //  hover Ping/点击聚焦/选中高亮/根级分隔线) + EditorUtils(SearchField/Separator/BoldSeparator)
+        //  左栏 = 资源浏览(搜索/类型名开关/ROOT/缩进树/树连接线/hover Ping/点击聚焦/选中高亮) + HYC 专属区
         // ================================================================
         private void DrawLeftPanel(Event e, Rect panel)
         {
@@ -1272,7 +1266,7 @@ namespace HYC.Framework.BT.Editor
             float w = panel.width - pad * 2f - 10f;   // 预留滚动条
             float y = panel.y + 6f;
 
-            // ---- Explorer 头(固定, 不随内容滚动; 对应 GraphExplorer.OnGUI: HelpBox + 搜索 + 类型名开关) ----
+            // ---- Explorer 头(固定, 不随内容滚动: HelpBox + 搜索 + 类型名开关) ----
             var helpRect = new Rect(x, y, w, 32f);
             EditorGUI.HelpBox(helpRect, "树结构层级列表: 搜索 / 定位。悬停 Ping 节点, 点击聚焦。", MessageType.Info);
             y += helpRect.height + 4f;
@@ -1322,7 +1316,7 @@ namespace HYC.Framework.BT.Editor
                         displayText, ExplorerRowStyle);
                 }
 
-                // 树连接线(竖 2px + 横 2px, 对应 GraphExplorer lineVer/lineHor)
+                // 树连接线(竖 2px + 横 2px)
                 if (row.Parent >= 0 && row.Parent < i && row.Rect.yMax > contentTop && row.Rect.y < panel.yMax)
                 {
                     var parentRect = _explorerRows[row.Parent].Rect;
@@ -1607,7 +1601,7 @@ namespace HYC.Framework.BT.Editor
             return h + 10f;
         }
 
-        // ---- Explorer 树: 收集可见行(对应 GraphExplorer.DoElement 的遍历; 手动布局, 不用 GUILayout) ----
+        // ---- Explorer 树: 收集可见行(手动布局, 不用 GUILayout) ----
         private void CollectExplorerRows(ExplorerEl element, int indent, int parentIndex)
         {
             if (element.Children == null) return;
@@ -1667,11 +1661,11 @@ namespace HYC.Framework.BT.Editor
             _selectedIds.Clear();
             _selectedIds.Add(n.NodeId);
             var r = NodeRect(n);
-            Pan = r.center - _canvasRect.size / (2f * Zoom); // 对应 GraphEditor.FocusElement 居中
+            Pan = r.center - _canvasRect.size / (2f * Zoom); // 聚焦节点居中
             OnRepaint?.Invoke();
         }
 
-        // ---- 画布 Ping 高亮(对应 GraphEditor.PingElement 淡出) ----
+        // ---- 画布 Ping 高亮(淡出) ----
         private void DrawPing()
         {
             if (_pingNodeId == 0) return;
@@ -1696,7 +1690,7 @@ namespace HYC.Framework.BT.Editor
             return content.ToLower().Contains(search.ToLower());
         }
 
-        // ---- EditorUtils.Separator / BoldSeparator 移植(固定矩形) ----
+        // ---- 分隔线(固定矩形) ----
         private static void Separator(float x, float y, float w)
         {
             GUI.color = new Color(0, 0, 0, 0.3f);
@@ -1944,7 +1938,7 @@ namespace HYC.Framework.BT.Editor
         // 内联改名: Enter 提交 / Esc 取消 / 点别处提交(Windows 行为)
         private float CommitRenameIfNeeded(Event e, float y)
         {
-            // F2: 对选中项改名(Project 窗口同款)
+            // 对选中项改名(Project 窗口同款)
             if (_renameTarget == null && e.type == EventType.KeyDown && e.keyCode == KeyCode.F2
                 && !string.IsNullOrEmpty(_selAssetPath))
             {
@@ -2349,15 +2343,14 @@ namespace HYC.Framework.BT.Editor
         }
 
         // ================================================================
-        //  minimap(对应 GraphEditor.DrawMinimap: 画布右下, windowShadow + box + 视口 lens + 节点 blip)
+        //  minimap(画布右下, windowShadow + box + 视口 lens + 节点 blip)
         // ================================================================
         private void DrawMiniMap(Event e)
         {
             _miniRect = new Rect(_canvasRect.xMax - MM_W - 6, _canvasRect.yMax - MM_H - 6, MM_W, MM_H);
             var r = _miniRect;
 
-            // 阴影 + 面板(对应 GraphEditor.DrawMinimap:1138-1140:
-            // GUI.color = Grey(0.5).WithAlpha(0.85); Styles.Draw(container, windowShadow); GUI.Box(container, box))
+            // 阴影 + 面板(Grey(0.5) a0.85 染 windowShadow 样式 + Box)
             var miniCol = BTEditorStyles.Grey(0.5f); miniCol.a = 0.85f;
             GUI.color = miniCol;
             GUI.Box(r, string.Empty, BTEditorStyles.NodeShadowStyle);
@@ -2366,7 +2359,7 @@ namespace HYC.Framework.BT.Editor
 
             if (_asset.Nodes.Count == 0) return;
 
-            // 映射边界(节点 + 视口, 外扩 25 对应 NC finalBound.ExpandBy(25))
+            // 映射边界(节点 + 视口, 外扩 25)
             var vTL = ScreenToCanvas(_canvasRect.min);
             var vBR = ScreenToCanvas(_canvasRect.max);
             float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
@@ -2390,7 +2383,7 @@ namespace HYC.Framework.BT.Editor
 
             if (e.type == EventType.Repaint)
             {
-                // 连线(灰 0.35, 对应 NC Handles.DrawAAPolyLine(snp,sp,tp,tnp))
+                // 连线(灰 0.35)
                 Handles.BeginGUI();
                 Handles.color = new Color(0.35f, 0.35f, 0.35f);
                 foreach (var c in _asset.Connections)
@@ -2404,7 +2397,7 @@ namespace HYC.Framework.BT.Editor
                 Handles.color = Color.white;
                 Handles.EndGUI();
 
-                // 节点 blip(实心矩形, 节点分类色, 对应 NC node.nodeColor)
+                // 节点 blip(实心矩形, 节点分类色)
                 foreach (var n in _asset.Nodes)
                 {
                     var nr = NodeRect(n);
@@ -2412,7 +2405,7 @@ namespace HYC.Framework.BT.Editor
                 }
             }
 
-            // 视口 lens(白色 0.8 box, 对应 NC lensRect)
+            // 视口 lens(白色 0.8 box)
             var lens = new Rect(mx(vTL.x), my(vTL.y), (vBR.x - vTL.x) * s, (vBR.y - vTL.y) * s);
             GUI.color = new Color(1, 1, 1, 0.8f);
             GUI.Box(lens, string.Empty, BTEditorStyles.Box);
@@ -2549,7 +2542,7 @@ namespace HYC.Framework.BT.Editor
             {
                 if (m.NodeId == src) continue;
                 if (!IsInput(m.Type)) continue;
-                // 对应 Editor.Node:917-920: 松手落在目标节点矩形内即连接(原版判定, 无需命中端口点)
+                // 松手落在目标节点矩形内即连接(无需命中端口点)
                 if (NodeRect(m).Contains(cm) || Vector2.Distance(cm, InputPortPos(m)) < PORT_HIT)
                 {
                     ConnectNodes(src, port, m.NodeId);

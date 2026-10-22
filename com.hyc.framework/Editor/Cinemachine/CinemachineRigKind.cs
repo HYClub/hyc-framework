@@ -1,8 +1,8 @@
 // ============================================================
 // HYC Framework - Cinemachine 相机装配 · 机位类型配方
 // 文件: Editor/Cinemachine/CinemachineRigKind.cs
-// 说明: 机位类型（RigKind）→ CM 3.1 组件配方；以及「更多 More」
-//       里可添加的管线/扩展组件目录。组件一律按类型名从
+// 说明: 机位类型（RigKind，枚举本体已下沉到 Runtime）→ CM 3.1 组件配方；
+//       以及「更多 More」里可添加的管线/扩展组件目录。组件一律按类型名从
 //       Unity.Cinemachine 程序集解析——CM 版本升级只改本文件的
 //       清单，窗口与工厂逻辑零改动；类型不存在时优雅跳过并告警。
 //       清单按 CM 3.1 非 deprecated 类型维护（CM 2 的
@@ -14,21 +14,6 @@ using Unity.Cinemachine;
 
 namespace HYC.Framework.Cinemachine.Editor
 {
-    /// <summary>机位类型。每个类型对应一组 CM 组件配方（见 <see cref="RigKinds"/>）。</summary>
-    internal enum RigKind
-    {
-        /// <summary>环绕机位（CM 2 时代的 FreeLook）：OrbitalFollow + RotationComposer。</summary>
-        FreeLook,
-        /// <summary>第三人称跟随：ThirdPersonFollow + RotationComposer。</summary>
-        ThirdPerson,
-        /// <summary>构图跟随（取景框）：PositionComposer + RotationComposer。</summary>
-        Framed,
-        /// <summary>输入视角（CM 2 时代的 POV，CM 3 改名 PanTilt）：PanTilt。</summary>
-        PanTilt,
-        /// <summary>轨道机位：SplineDolly + RotationComposer（依赖 com.unity.splines，随 CM 3 自动安装）。</summary>
-        Dolly
-    }
-
     /// <summary>单个机位类型的组件配方。</summary>
     internal readonly struct RigKindRecipe
     {

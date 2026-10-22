@@ -45,7 +45,7 @@ namespace HYC.Framework.Talent.Editor
         private const float LIB_ROW = 20f;    // 面板里单行控件高
         private const float PORT_SIZE = 12f;  // 端口圆点直径(与 BT 同)
         private const float PORT_HIT = 12f;   // 端口命中半径(画布单位)
-        private const float CONN_SIZE = 3f;   // 连线粗细(Connection.defaultSize)
+        private const float CONN_SIZE = 3f;   // 连线粗细
         private const float BORDER_W = 1.5f;  // 卡片描边宽
         private const float STRIPE_W = 5f;    // 左侧色条宽
         private const float LBL_W = 56f;      // 右栏"标签|字段"里的标签宽

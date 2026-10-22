@@ -7,7 +7,7 @@ namespace HYC.Framework.Config.Editor
 {
     /// <summary>
     /// 配置检查错误窗口：按资产分组的 TreeView + 搜索 + 级别过滤（Info/Warn/Error 计数）。
-    /// 移植自 SD 的 BuildErrorWindow，去除游戏专用交互。
+    /// 去除了游戏专用交互，保留通用的分组 / 搜索 / 级别过滤。
     /// </summary>
     public class BuildErrorWindow : EditorWindow
     {

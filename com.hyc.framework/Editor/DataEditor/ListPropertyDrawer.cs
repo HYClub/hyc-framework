@@ -8,7 +8,7 @@ namespace HYC.Framework.Config.Editor
 {
     /// <summary>
     /// 结构体数组紧凑表格绘制：指定 ChildPath 的数组，按元素字段分列显示。
-    /// 移植自 SD，去除了游戏专用的 "ID" 自动索引逻辑。
+    /// 去除了游戏专用的 "ID" 自动索引逻辑。
     /// </summary>
     [CustomPropertyDrawer(typeof(ListDrawerAttribute))]
     public class ListPropertyDrawer : PropertyDrawer

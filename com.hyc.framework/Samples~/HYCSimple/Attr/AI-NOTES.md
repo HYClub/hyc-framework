@@ -82,6 +82,6 @@
 ## 六、验证清单（进 Unity 后）
 
 - [ ] 导入 Sample 后 `HYCSimpleAttrDemoSystem` 能编译（依赖 `HYC.Framework.Attr` 与 `Unity.Entities`）。
-- [ ] 进 Play，Console 打印 `[HYCSimple] 属性演示：HP=110 ...`（SetInt 后 HP+10）。
+- [ ] 进 Play，Console 打印 `[HYCSimple] 属性演示：HP=100 ...`（打印的是 SetInt 前的读值；随后 SetInt 写为 110）。
 - [ ] 走真实链路：建 Catalog → 建 Set → 生成访问器 → 实体挂 AttributeSetRef → Play 自动获得 buffer。
 - [ ] 目录加一个属性后重新 Generate，确认 `GameAttrKey` 枚举新增、旧枚举没错位。

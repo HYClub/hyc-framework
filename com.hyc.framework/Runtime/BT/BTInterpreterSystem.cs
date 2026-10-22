@@ -19,7 +19,7 @@ namespace HYC.Framework.BT
         public long TreeId;
         public BTRunState RunState;
         /// <summary>
-        /// G4: Tick 间隔(秒)。0 = 每帧执行; &gt;0 = 按该频率节流(如 0.1 = 10Hz)。
+        /// Tick 间隔(秒)。0 = 每帧执行; &gt;0 = 按该频率节流(如 0.1 = 10Hz)。
         /// 节流时把累计时间作为本次 Tick 的 deltaTime 传入, 保证 Wait/Timeout/冷却等计时正确。
         /// </summary>
         public float TickInterval;
@@ -99,7 +99,7 @@ namespace HYC.Framework.BT
                     continue;
                 }
 
-                // G4: Tick 降频(0 = 每帧; >0 = 按间隔节流, 用累计时间作为本次 deltaTime)
+                // Tick 降频(0 = 每帧; >0 = 按间隔节流, 用累计时间作为本次 deltaTime)
                 float interval = bt.ValueRO.TickInterval;
                 float stepDt = dt;
                 if (interval > 0f)
@@ -110,7 +110,7 @@ namespace HYC.Framework.BT
                     bt.ValueRW.RunState.TickAccum = 0f;
                 }
 
-                // G2: 黑板解析 — 实体私有黑板从注册表取(游戏层可自行 SetForEntity 登记),
+                // 黑板解析 — 实体私有黑板从注册表取(游戏层可自行 SetForEntity 登记),
                 // 全局共享黑板供跨实体数据使用。未登记时均为 default(节点内部会做 IsCreated 判断)。
                 BTBlackboardRuntime entityBB = default;
                 BTBlackboardRegistry.TryGetForEntity(entity, out entityBB);

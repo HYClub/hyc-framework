@@ -50,6 +50,14 @@ namespace HYC.Framework.Runtime
 
         public bool Initialize(string defaultWorldName)
         {
+            // 「仅场景运行」闸门：跳过整套引导，让 Entities 退回自动建默认世界。
+            // 由编辑器工具栏按钮置位（见 PlaySceneToolbarButton），宿主无需改动。
+            if (HYC.Framework.Runtime.BootstrapGate.ShouldSkip)
+            {
+                UnityEngine.Debug.Log("[HYC.Framework] Play Scene Only：跳过框架引导（宿主 bootstrap 返回 false）。");
+                return false;
+            }
+
             World.DefaultGameObjectInjectionWorld = new World(defaultWorldName, WorldFlags.Game);
             var world = World.DefaultGameObjectInjectionWorld;
 
@@ -73,7 +81,8 @@ namespace HYC.Framework.Runtime
         {
             await HYC.Framework.IO.StreamingAssets.PreloadAsync();
             var ok = Initialize(defaultWorldName);
-            HYC.Framework.FrameworkLifecycle.EnsureBootDataLoaded();
+            if (ok)
+                HYC.Framework.FrameworkLifecycle.EnsureBootDataLoaded();
             return ok;
         }
 
