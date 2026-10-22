@@ -2,7 +2,7 @@
 
 `com.hyc.framework` 的公开使用文档站点。纯静态 HTML / CSS / JS，无构建依赖，发布到 GitHub Pages。
 
-线上地址：<https://hyc.huoyue.club/>（首次启用见下方「GitHub Pages 配置」）。
+线上地址：<https://gameframework.huoyue.club/>（首次启用见下方「GitHub Pages 配置」）。
 
 ## 为什么站点在仓库根而不在包里
 
@@ -15,7 +15,7 @@ Unity 官方对 UPM 包文档分发的设计是：**包内只带轻量 markdown*
 `com.hyc.framework/package.json` 已配置：
 
 ```json
-"documentationUrl": "https://hyc.huoyue.club/"
+"documentationUrl": "https://gameframework.huoyue.club/"
 ```
 
 用户在 Unity Package Manager 里点 "View documentation" 即跳转本站。
@@ -25,24 +25,24 @@ Unity 官方对 UPM 包文档分发的设计是：**包内只带轻量 markdown*
 1. 仓库页面 **Settings → Pages**（或新版 **Settings → Code and automation → Pages**）。
 2. **Source** 选 `Deploy from a branch`。
 3. Branch 选 `main`，文件夹选 **`/docs`**，保存。
-4. 等约 1 分钟，访问 <https://hyc.huoyue.club/>。
+4. 等约 1 分钟，访问 <https://gameframework.huoyue.club/>。
 
 > GitHub Pages 的分支部署源只支持仓库根的 `/` 或 `/docs` 两种，这就是站点必须落在 `docs/` 的原因。一个仓库只能有一个 Pages 站点，所以框架站、游戏站等不要抢同一个仓库。
 
-## 自定义域名 hyc.huoyue.club
+## 自定义域名 gameframework.huoyue.club
 
-`hyc.huoyue.club` 是 `huoyue.club` 下的子域，走 CNAME 记录（子域方案最稳，不受 GitHub 服务器 IP 变动影响）。
+`gameframework.huoyue.club` 是 `huoyue.club` 下的子域，走 CNAME 记录（子域方案最稳，不受 GitHub 服务器 IP 变动影响）。
 
-1. **仓库里**：`docs/CNAME` 已提交，内容就一行 `hyc.huoyue.club`（发布源是 `/docs`，CNAME 位于发布源根部——官方规则：「custom domains are stored in a CNAME file in the root of your publishing source」）。
+1. **仓库里**：`docs/CNAME` 已提交，内容就一行 `gameframework.huoyue.club`（发布源是 `/docs`，CNAME 位于发布源根部——官方规则：「custom domains are stored in a CNAME file in the root of your publishing source」）。
 2. **DNS 提供商**（huoyue.club 的解析处，腾讯云 DNSPod / 阿里云等）加一条记录：
 
    | 主机记录 | 记录类型 | 值 |
    |---|---|---|
-   | `hyc` | `CNAME` | `hyclub.github.io` |
+   | `gameframework` | `CNAME` | `hyclub.github.io` |
 
    注意 CNAME 值必须是**组织名** `hyclub.github.io`，不带仓库名、不指向 `*.pages.github.io`（官方明确警告）。
-3. **GitHub 侧**：Settings → Pages → **Custom domain** 填 `hyc.huoyue.club` → Save → 等 DNS check 通过（最长 24 小时）→ 勾选 **Enforce HTTPS**（Let's Encrypt 自动签证书，最长 24 小时）。
-4. `package.json` 的 `documentationUrl` 已指向 `https://hyc.huoyue.club/`（站点根 = 门户首页，门户上有显眼的「查看文档」按钮进 `/docs/`）。
+3. **GitHub 侧**：Settings → Pages → **Custom domain** 填 `gameframework.huoyue.club` → Save → 等 DNS check 通过（最长 24 小时）→ 勾选 **Enforce HTTPS**（Let's Encrypt 自动签证书，最长 24 小时）。
+4. `package.json` 的 `documentationUrl` 已指向 `https://gameframework.huoyue.club/`（站点根 = 门户首页，门户上有显眼的「查看文档」按钮进 `/docs/`）。
 
 ⚠️ 别配通配符 `*.huoyue.club`（域名接管风险）；域名必须在全 GitHub Pages 唯一。GitHub 默认域名 `hyclub.github.io/hyc-framework` 始终可达，可作备用入口。
 
