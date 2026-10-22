@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行为树 BT · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>行为树 BT</h1>
+    <p class="lead">可视化编辑行为树 → 导出为不可变 Blob → 按 <code>TreeId</code> 注册 → 由 ECS 系统对实体逐帧驱动。</p>
+    <p class="subtitle">编辑器能跑 ≠ 真机能跑：真机必须导出 Blob 并在引导期读回。</p>
+
+    <h2>全链路</h2>
+<pre><code class="language-text">BTTreeAsset（画布编辑）
+    ↓  BTBlobBuilder.Build（编辑器：进 Play 由 BTAutoRegisterOnPlay 自动全量注册）
+BTRootBlob（纯数据树，Blob）
+    ↓  BTManager.Register(treeId, blobRef)
+注册完成
+    ↓  BTInterpreterSystem（ISystem）对挂 RunningBT 的实体
+逐帧 Tick → BTInterpreter 指针遍历
+
+─── 打包（真机）另有一条路 ───
+BTTreeAsset
+    ↓  BTBlobExporter.ExportAll()（菜单 HYC Framework/BT/Export Blob (For Build)）
+StreamingAssets/BTBlob/&lt;treeId&gt;.blob + manifest.txt
+    ↓  运行时 BTBlobLoader.LoadAll()（TryRead → BTManager.Register）
+注册完成 → 同上逐帧 Tick</code></pre>
+
+    <h2>两种驱动方式</h2>
+    <table>
+      <thead><tr><th>方式</th><th>入口</th><th>适用</th></tr></thead>
+      <tbody>
+        <tr><td><b>ECS（推荐）</b></td><td><code>BTInterpreterSystem</code>（<code>ISystem</code>），自动对挂 <code>RunningBT{TreeId}</code> 的实体 Tick</td><td>DOTS / ECS 项目</td></tr>
+        <tr><td>非 ECS</td><td><code>BTManager</code> + <code>BTEventBus</code> + <code>BTNodeRuntimeRegistry</code> 手动驱动</td><td>纯 MonoBehaviour 场景</td></tr>
+      </tbody>
+    </table>
+    <p>两者共用同一份 <code>BTRootBlob</code> 与同一个 <code>BTInterpreter</code>，差别只在「谁调用 Tick、状态存在哪」。</p>
+
+    <h2>数据模型：BTTreeAsset</h2>
+    <p>位于 <code>Editor/BT/BTTreeAsset.cs</code>（编辑器侧资产）：</p>
+    <table>
+      <thead><tr><th>字段</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>TreeId</code> (long)</td><td>树唯一 ID，运行期按它注册与查找</td></tr>
+        <tr><td><code>Kind</code> (BTTreeKind)</td><td><code>Skill</code> / <code>AI</code> / <code>Other</code>，用于节点语义分区</td></tr>
+        <tr><td><code>Nodes</code> (List&lt;BTNodeData&gt;)</td><td>节点：<code>NodeId</code> / <code>Type</code> / <code>Position</code> / <code>Note</code> + 三个参数池</td></tr>
+        <tr><td><code>Connections</code></td><td>连线：<code>SourceNodeId</code> → <code>TargetNodeId</code> + <code>PortIndex</code>（决定子节点顺序）</td></tr>
+        <tr><td><code>Blackboard</code></td><td>黑板定义：<code>Key</code> / <code>ValueType</code> / <code>DefaultValue</code></td></tr>
+      </tbody>
+    </table>
+    <p>节点参数用三个定长池 <code>FloatParams</code> / <code>LongParams</code> / <code>StringParams</code>，每个节点类型占用的参数槽位有明确约定（见枚举注释）。</p>
+
+    <h2>创建行为树资产（BTAssetFactory）</h2>
+    <p><code>BTTreeAsset</code> 的<b>唯一程序化创建入口</b>是 <code>BTAssetFactory</code>，与 <code>ConfigAssetFactory</code> 平行：</p>
+<pre><code class="language-csharp">// 自动在 Assets/BTTrees 下建资产并派发唯一 TreeId
+BTAssetFactory.Create("EnemyAI");
+BTAssetFactory.CreateMany("Mob", 10);</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>禁止</b> <code>ScriptableObject.CreateInstance&lt;BTTreeAsset&gt;()</code> + 手填 <code>TreeId</code>：原 <code>DateTime.Now.Ticks % 100000</code> 同毫秒会撞车、<code>[CreateAssetMenu]</code> 默认 <code>TreeId=0</code> 与「(无)」哨兵撞；子树引用按 <code>TreeId</code> 选树，撞车会选错树。</div>
+    </div>
+    <p><code>TreeId</code> 由工厂以<b>本机指纹（MAC）派生</b>派发唯一值：高 48 位取机器 MAC、低 15 位为本机段内序号，<b>跨机天然隔离、无需服务器也不会撞</b>（行为树是独立 long 空间，不接 <code>ConfigIdService</code>）。<b>节点 ID</b>（<code>BTNodeData.NodeId</code>）同样由工厂统管：<code>BTAssetFactory.NextNodeId(tree)</code> 派发树内最小未占用正整数，外部不得手填。</p>
+
+    <h2>节点类型全景</h2>
+    <table>
+      <thead><tr><th>分类</th><th>节点</th></tr></thead>
+      <tbody>
+        <tr><td>入口 / 出口</td><td><code>Root</code>（唯一入口）· <code>End</code>（显式终止，返回 Success）</td></tr>
+        <tr><td>组合（有子节点）</td><td><code>Sequence</code> · <code>Selector</code> · <code>Parallel</code> · <code>RandomSelector</code> / <code>RandomSequence</code> · <code>FlipSelector</code> · <code>UtilitySelector</code> · <code>ProbabilitySelector</code> · <code>StepSequencer</code> · <code>Switch</code> · <code>BinarySelector</code></td></tr>
+        <tr><td>装饰（包 1~2 子节点）</td><td><code>Invert</code> · <code>Repeat</code> · <code>UntilSuccess</code> · <code>UntilFail</code> · <code>AlwaysSuccess</code> · <code>AlwaysFail</code> · <code>CooldownGate</code> · <code>Conditional</code> · <code>TimeLimit</code> · <code>Timeout</code> · <code>WaitUntil</code> · <code>Guard</code> · <code>Interruptor</code> · <code>Filter</code> · <code>Iterator</code> · <code>Monitor</code> · <code>Optional</code> · <code>Remapper</code></td></tr>
+        <tr><td>条件 / 动作（叶子）</td><td>条件：<code>CheckDistance</code> · <code>CheckBlackboard</code> · <code>CheckEvent</code>；动作：<code>Wait</code> · <code>NoOp</code> · <code>SendEvent</code></td></tr>
+        <tr><td>特殊 / 扩展</td><td><code>SubTree</code>（执行另一棵树，<code>Long[0]</code> = 目标树 ID）· <code>GameCustom = 128</code>（游戏层注册）</td></tr>
+      </tbody>
+    </table>
+
+    <h2>参数槽位约定（节选）</h2>
+    <table>
+      <thead><tr><th>节点</th><th>参数</th></tr></thead>
+      <tbody>
+        <tr><td><code>Sequence</code> / <code>Selector</code></td><td><code>Long[0]</code> bit0 = dynamic（每帧从 0 重估高优先级子节点）</td></tr>
+        <tr><td><code>Parallel</code></td><td><code>Long[0]</code> = policy；<code>Long[1]</code> = dynamic</td></tr>
+        <tr><td><code>Repeat</code></td><td><code>Long[0]</code> = 次数（≤0 无限）</td></tr>
+        <tr><td><code>Switch</code></td><td><code>Long[0]</code> = case 黑板键；<code>Long[2]</code> = dynamic；<code>Long[3]</code> = 越界模式</td></tr>
+        <tr><td><code>SubTree</code></td><td><code>Long[0]</code> = 目标树 ID</td></tr>
+        <tr><td><code>SendEvent</code> / <code>CheckEvent</code></td><td><code>Long[0]</code> = 事件 key 哈希；<code>Long[1]</code> = 范围（0 本实体 / 1 全局）</td></tr>
+      </tbody>
+    </table>
+    <p>完整的槽位约定以 <code>BTNodeType.cs</code> 的注释为准 —— 改节点参数前先读那里的注释。</p>
+
+    <h2>编辑器入口</h2>
+    <table>
+      <thead><tr><th>菜单</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>HYC Framework / BT / BT Editor</code></td><td>打开行为树编辑器画布</td></tr>
+        <tr><td><code>HYC Framework / BT / Export Blob (For Build)</code></td><td>把全部树导出到 <code>Assets/StreamingAssets/BTBlob</code>（<b>真机必做</b>）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body"><b>出包前必须做两件事：</b>① 跑 <code>HYC Framework/BT/Export Blob (For Build)</code> 导出文件；② 在引导期调用 <code>BTBlobLoader.LoadAll()</code> 注册。只改了树却忘了导出，真机会<b>静默跑旧版本</b>。</div>
+    </div>
+
+    <h2>常见坑</h2>
+    <ul>
+      <li><code>Root</code> 必须唯一且必须连线，否则 <code>BTBlobBuilder.Build</code> 直接失败并打 LogError。</li>
+      <li><code>BTNodeType</code> 是 <code>byte</code> 枚举，<b>新增类型必须追加在末尾</b>，插在中间会让旧资产序列化错位。</li>
+      <li>节点跨帧状态靠 <code>BTNodeRuntimeState</code> 持久化，不是存在节点上。</li>
+      <li><code>GameCustom</code> 节点走托管路径（委托 + 反射），<b>不参与 Burst 编译</b>；纯内建节点的树才是指针遍历、无托管分配。</li>
+      <li>移动 / 改名 <code>BTTreeAsset</code> 不影响引用（运行期按 <code>TreeId</code> 查找）；但<b>改 <code>TreeId</code> 会断引用</b>。</li>
+      <li>编辑器靠 <code>BTAutoRegisterOnPlay</code> 自动注册，<b>真机没有这回事</b>，必须导出 + <code>LoadAll()</code>。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

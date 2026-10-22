@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例 · 配置 Config · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>示例 · 配置 Config</h1>
+    <p class="lead">从 <code>items.csv</code> 读一份真实物品数据（8 行，含价格/堆叠/重量/稀有度/类别），运行期 Build 成 <code>ConfigBlobTable&lt;T&gt;</code> 注册——<strong>配置即数据，不在代码里写死</strong>。</p>
+    <p class="subtitle">文件：<code>HycSimpleItemRow.cs</code> / <code>HYCSimpleConfigDemoSystem.cs</code> / <code>Resources/items.csv</code></p>
+
+    <h2>心智模型</h2>
+    <ul>
+      <li><b>模板 / Excel → 生成期</b>：<code>ConfigTemplate</code> + <code>ConfigFieldType</code> 描述表结构；<code>ConfigGenerator</code> 据此生成 <code>CfgXxx</code> 行结构体（<code>[BlobGenerate]</code>，blittable，含 <code>BlobString</code>）、<code>XxxBlobSystem</code>（引导期把 <code>.blob</code> 读回并 <code>ConfigRegistry.Register</code>）、枚举类。</li>
+      <li><b>运行期</b>：任意代码用生成式门面 <code>{ns}.ConfigManager.{Type}.GetByID(id)</code> 查表，<strong>无需 World 句柄</strong>。</li>
+    </ul>
+
+    <h2>真实项目链路（5 步）</h2>
+<pre><code class="language-text">① 建模板       编辑器里定义 ConfigTemplate（加字段，枚举字段引用 ConfigEnumDefinition）
+② 生成代码     HYC Framework/Config/1-生成配置模板与代码 → CfgXxx + XxxBlobSystem + 枚举
+③ 填数据+导出   .../2-导出Blob → Assets/StreamingAssets/ConfigBlob/*.blob
+④ 引导期注册    生成的 XxxBlobSystem（A1）TryRead → ConfigBlobTable.FromBlob → Register
+⑤ 运行期读      门面 {ns}.ConfigManager.{Type}.GetByID(id)</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>导出落点只有一个真源</b>：<code>ConfigDataSettings.BlobOutputDir</code>（默认 <code>Assets/StreamingAssets/ConfigBlob</code>，<strong>必须位于 StreamingAssets 内</strong>）。运行期读取路径 <code>BlobLoadPath</code> 由它派生（剥掉前缀），<strong>不要手写两份路径</strong>；输出目录不在 StreamingAssets 内时导出会直接报错，别靠改加载路径绕过。</div>
+    </div>
+
+    <h2>这个示例怎么跑的</h2>
+    <p><code>HYCSimpleConfigDemoSystem</code> 把「第 4 步建表 + 注册」<strong>从数据文件加载</strong>了：运行期读 <code>Resources/items.csv</code> → <code>ConfigBlobTable&lt;HycSimpleItemRow&gt;.Build(rows, index)</code> → <code>ConfigRegistry.Register</code>。这样导入即跑、不依赖先跑生成器，且改数据只改 CSV。</p>
+<pre><code class="language-csharp">// 读取发生在 System.OnCreate（建 World 时）——WebGL / Android 上 StreamingAssets 不能直接读文件，
+// 预取必须在建 World 前完成：引导入口用 await FrameworkBootstrap.InitializeAsync("World")
+// （内部先 await StreamingAssets.PreloadAsync()）。PC / iOS 上同步/异步入口等价，同一套代码。</code></pre>
+
+    <h2>给 AI 的雷区</h2>
+    <ul>
+      <li><b>行结构体必须 blittable</b>：<code>ConfigBlobTable&lt;TRow&gt; where TRow : unmanaged</code>。含 <code>string</code>/<code>class</code> 字段会编译不过；文本一律用 <code>BlobString</code>（生成器自动处理）。</li>
+      <li><b>查表靠 id 索引</b>：<code>Build(rows, explicitIndex)</code> 的 <code>explicitIndex</code> 必须给出 <code>id→行序</code>，否则 <code>TryGet(id)</code> 按行序 0..n-1 找，命中不到你想要的 id。</li>
+      <li><b>枚举字段在 Blob 里是 <code>int</code></b>：需 <code>(int)XxxKind.Red</code> 比较，且数值是 <strong>1 基</strong>（没有 0 值）。</li>
+      <li><b>查表是世界无关的</b>：门面是静态调用，不要在系统里缓存 World 来查表；⛔ 也不要调低层 <code>ConfigRegistry</code>。</li>
+      <li><b>外部数据也要 blittable</b>：从 CSV/Excel 读到的字段，最终必须映射成纯标量 <code>TRow</code>。本例 CSV 里的 <code>Name</code> 只给人看，行内不存文本。</li>
+      <li>🔴 <b>跨端</b>：自己手写加载逻辑时，读字节一律走 <code>StreamingAssets.ReadBytes(相对路径)</code>，禁止 <code>File.ReadAllBytes(Application.streamingAssetsPath + …)</code>。</li>
+    </ul>
+
+    <h2>验证清单</h2>
+    <ul>
+      <li>进 Play，Console 打印 <code>[HYCSimple] 配置表加载：8 行，已注册到 ConfigRegistry</code>。</li>
+      <li>改 <code>Config/Resources/items.csv</code> 某行 Price 后重进 Play，日志里的 Price 随之变化（证明配置不在代码里写死）。</li>
+      <li>走真实链路：建模板 → 生成代码 → 导出 Blob → 引导期注册 → 门面命中。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

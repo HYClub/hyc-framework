@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>引导与世界 Bootstrap · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>引导与世界 Bootstrap</h1>
+    <p class="lead">在启动时<b>组装一个 Framework World</b>：装基础系统（输入 / 相机 / UI / 本地化 / 设置）、加载配置表、选择模式（Live / Sim），并提供统一更新入口。</p>
+    <p class="subtitle">一句话：三选一地创建 World —— <code>FrameworkWorld</code> / <code>FrameworkModeBootstrap</code> / 游戏自己的 <code>ICustomBootstrap</code>。</p>
+
+    <h2>跨端数据加载契约（先读这段）</h2>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body"><b>打包发布时必须用异步引导入口。</b>WebGL 没有文件系统、Android 的 StreamingAssets 在 APK 压缩包内（<code>jar:file://</code>），这两者都不能用 <code>System.IO.File</code> 直接读，必须先把数据 HTTP 进内存缓存。而读取发生在建 World 时的 <code>System.OnCreate</code>，所以<b>预取必须先于建 World 完成</b>。</div>
+    </div>
+    <p>三种引导方式各自都有 <code>Initialize</code> / <code>InitializeAsync</code>。但无论哪种，<b>全平台统一用 <code>InitializeAsync</code></b> 即可：</p>
+<pre><code class="language-csharp">public sealed class GameBootstrap : MonoBehaviour
+{
+    private async void Start()
+    {
+        // WebGL/Android：HTTP 预取进内存缓存；PC/iOS：no-op
+        await new FrameworkBootstrap().InitializeAsync("Game World");
+        // 之后照常：装 UI、进主菜单……
+    }
+}</code></pre>
+    <p><code>InitializeAsync</code> 内部顺序：<code>await StreamingAssets.PreloadAsync()</code> → 建 World + 装系统（各 <code>System.OnCreate</code> 在这里读 Blob）→ <code>FrameworkLifecycle.EnsureBootDataLoaded()</code> 补加载入。宿主代码因此<b>零平台分支</b>。</p>
+
+    <h2>更新阶梯（UpdateGroups）</h2>
+    <p>固定顺序的 <code>ComponentSystemGroup</code>，全部挂在 <code>SimulationSystemGroup</code> 下的 <code>UpdateGroup_Root</code> 下：</p>
+<pre><code class="language-text">SimulationSystemGroup
+└── UpdateGroup_Root          [After BeginSimulationEntityCommandBufferSystem]
+    ├── UpdateGroup_A0         引导期：装单例、起管线、读启动配置
+    ├── UpdateGroup_A1         数据期：配置加载、账号/状态、统计
+    ├── UpdateGroup_A2         房间/场景期：房间进入、场景烘焙、环境
+    ├── UpdateGroup_A3         玩法期：模拟、技能、AI、战斗（主体）
+    └── UpdateGroup_B9         表现期：UI 刷新、HUD、本地化刷新（最后跑）</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><code>UpdateGroup_B9</code> <b>不能</b>写 <code>[UpdateBefore(typeof(LateSimulationSystemGroup))]</code>——跨级排序会让 Entities 的 system sorter 抛 NRE。顺序关键：A0 装单例 → A1 加载配置 → A3 跑玩法 → B9 刷 UI，在 A3 之前查配置会查不到。</div>
+    </div>
+
+    <h2>三种引导方式</h2>
+    <h3>1. FrameworkWorld（installer 组合）</h3>
+<pre><code class="language-csharp">var host = new FrameworkWorld("Framework World");
+World.DefaultGameObjectInjectionWorld = host.World;
+host.Install(installers, BootMode);   // installers: IEnumerable&lt;IFrameworkInstaller&gt;
+host.Update();                         // 每帧调
+host.Dispose();</code></pre>
+    <p>手动驱动：<code>host.Update()</code> 调 <code>_rootGroup.Update()</code>（没有就 <code>_world.Update()</code>），宿主要在 <code>MonoBehaviour</code> 里每帧调。<code>UIManager</code> 等 <code>[DisableAutoCreation]</code> 系统需手动 <code>GetOrCreateSystemManaged</code> 加进更新列表。</p>
+
+    <h3>2. FrameworkModeBootstrap（按模式扫系统）</h3>
+<pre><code class="language-csharp">var boot = new FrameworkModeBootstrap();
+await boot.InitializeAsync("Framework World");   // 内部 new World + AppendWorldToCurrentPlayerLoop</code></pre>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">它会把 World 加进 player loop，所以<b>不要再手动每帧 <code>Update()</code></b>，否则一帧跑两次。<code>FrameworkWorld</code> 才需要手动 <code>Update()</code>。</div>
+    </div>
+
+    <h3>3. 游戏自己的 ICustomBootstrap</h3>
+    <p>框架的两个 bootstrap 都<b>刻意不实现</b> <code>ICustomBootstrap</code>，避免被 Entities 自动扫描发现、与游戏自己的 bootstrap 冲突。游戏要自动引导就：在自己 <code>ICustomBootstrap.Initialize</code> 里 <code>new FrameworkWorld(...)</code>，或把真正的引导放到 <code>async void Start()</code> 的 <code>MonoBehaviour</code> 里 <code>await ...InitializeAsync(...)</code>。</p>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><code>ICustomBootstrap.Initialize</code> 是<b>同步签名，无法 <code>await</code></b>。Unity 在 WebGL 上也无法等待预取——这是它本身的限制，不是框架能绕过的。请把框架装配放在 <code>async void Start()</code> 里。</div>
+    </div>
+
+    <h2>模式（Live / Sim）</h2>
+<pre><code class="language-csharp">static class SimulationBootstrap
+{
+    public const int Live = 1;
+    public const int Sim  = 2;
+    public static int Mode { get; set; } = 0;
+    public static bool IsSimulated => Mode == Sim;
+}</code></pre>
+    <p>系统用 <code>[FrameworkModeOnly(模式)]</code>（仅该模式）或 <code>[FrameworkMode(模式)]</code>（该模式才装）过滤；两者都没标记的系统在所有模式下都装。运行时用 <code>RequireForUpdate&lt;FrameworkMode_Live&gt;()</code> 按模式开关。</p>
+
+    <h2>UI 适配与导航参数</h2>
+    <p><code>UIManager.Setting</code>（static）是 UI 适配 / 导航参数的唯一真源，引导期定制：</p>
+<pre><code class="language-csharp">protected override void Configure(World world)
+{
+    // UI 不是按 1920×1080 设计时才需要：
+    UIManager.Setting.ReferenceResolution = new Vector2(2560, 1080);
+}</code></pre>
+
+    <h2>命令行 / 启动参数</h2>
+    <p><code>GameCommandArgs</code> 解析 <code>Environment.GetCommandLineArgs()</code>：<code>--account</code> / <code>--token</code> / <code>--appid</code> / <code>--serverip</code> / <code>--serverport</code> / <code>--lang</code> / <code>--width</code> / <code>--height</code> / <code>--fullscreen</code>。</p>
+
+    <h2>仅场景运行（调试用）</h2>
+    <p>主工具栏中间区的 <code>▶ Scene</code> 按钮可只跑当前场景、跳过框架引导，方便单独调试某个 Demo。机制：点按钮置位 <code>BootstrapGate.ShouldSkip</code> → 框架三个 <code>Initialize</code> 入口顶部查闸门为真即 <code>return false</code> → Entities 自动建默认世界。宿主只需把框架 <code>Initialize</code> 的返回值<b>透传</b>给 Entities 即可。</p>
+
+    <h2>常见坑</h2>
+    <ul>
+      <li><code>UIManager</code> / <code>LocalizationBlobSystem</code> 等都是 <code>[DisableAutoCreation]</code>，只有引导期手动创建 / 扫描才进 World。</li>
+      <li>顺序关键：A0 装单例 → A1 加载配置 → A3 跑玩法 → B9 刷 UI；A3 之前查配置查不到。</li>
+      <li><code>FrameworkModeBootstrap.Initialize</code> 已加进 player loop，勿再手动 <code>Update()</code>。</li>
+      <li>WebGL / Android 上不要用 <code>System.IO</code> 读 StreamingAssets，引导用 <code>InitializeAsync</code>。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

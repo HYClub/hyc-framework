@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>操作手册（按任务） · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>操作手册（按任务）</h1>
+    <p class="lead">不解释机制，只写「要完成 X，按顺序做这些」。<b>想动手做事，先读这篇。</b></p>
+    <p class="subtitle">每条的详细机制见左侧对应模块页。</p>
+
+    <h2>我要引导一个世界</h2>
+<pre><code class="language-csharp">public sealed class GameBootstrap : MonoBehaviour
+{
+    private async void Start()
+    {
+        await new FrameworkBootstrap().InitializeAsync("World");
+    }
+}</code></pre>
+    <p>全平台同一套代码。详见 <a href="bootstrap.html">引导与世界</a>。</p>
+
+    <h2>我要配一张配置表</h2>
+<pre><code class="language-text">1. 建模板       编辑器里定义 ConfigTemplate（加字段，枚举字段引用 ConfigEnumDefinition）
+2. 生成代码     HYC Framework/Config/1-生成配置模板与代码 → CfgXxx + XxxBlobSystem + 枚举
+3. 填数据+导出   .../2-导出Blob → Assets/StreamingAssets/ConfigBlob/*.blob
+4. 引导期注册    生成的 XxxBlobSystem 自动完成（挂在 A1）
+5. 运行期读      ref var row = ref ConfigManager.{Type}.GetByID(id);</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>改表结构只跑菜单 3 不生效，必须 1 → 2 → 3。</b>只改 <code>.asset</code> 数值 → 只跑 3。改枚举成员 → 1 → 2 → 3（破坏性，必须重跑导出）。</div>
+    </div>
+    <p>详见 <a href="config.html">配置系统</a> / <a href="enum.html">枚举配置</a>。</p>
+
+    <h2>我要写一个界面</h2>
+<pre><code class="language-csharp">public partial class BagWindow : BaseWindowSystem&lt;BagBinder&gt;
+{
+    public override string PrefabKey => "UI/BagWindow";   // Addressable key
+    public override void OnViewOpen(params object[] args)
+    {
+        base.OnViewOpen();
+        Binder.CloseButton.onClick.AddListener(() => UIManager.Close&lt;BagWindow&gt;());
+    }
+    public override void OnViewClose()
+    {
+        base.OnViewClose();     // 必调
+    }
+}
+
+UIManager.OpenWindow&lt;BagWindow&gt;(1001);</code></pre>
+    <p>前置：预制体挂 <code>ComponentBinderTable</code> 并跑 <code>HYC Framework/UI/Generate UI Binders</code>；引导期手动建 <code>UIManager</code>。详见 <a href="ui-window.html">窗口系统</a> / <a href="ui-binder.html">组件绑定</a>。</p>
+
+    <h2>我要做多语言</h2>
+<pre><code class="language-text">1. 产出数据   Loc 数据编辑器（Excel → id / lang / *.lang 等 blob）导出到 StreamingAssets/Localization/
+2. 加载      LocalizationBlobSystem 自动加载；或手动 LocalizationManager.Reload(folder)
+3. 取文本    LocalizationManager.GetText("ui/start") / GetText(key, args) / HasKey(key)
+4. 切语言    LocalizationManager.SetLanguage(Locale.Chinese)
+5. UI 刷新   Prefab 挂 LocalizedTMP，Inspector 设 Key</code></pre>
+    <p>详见 <a href="localization.html">多语言</a>。</p>
+
+    <h2>我要做行为树 AI</h2>
+<pre><code class="language-text">1. 建树资产   BTAssetFactory.Create("EnemyAI")（或 Project 右键 HYC/BT/Tree）
+2. 画树       必须有且仅有一个 Root，靠 Connections（Source→Target + PortIndex）连成树
+3. 导出 Blob   HYC Framework/BT/Export Blob (For Build)      ← 真机必做
+4. 运行期加载  BTBlobLoader.LoadAll()
+5. 挂组件      new RunningBT { TreeId = ..., RunState = default, TickInterval = 0f }
+              BTInterpreterSystem 已 RequireForUpdate&lt;RunningBT&gt;()，自动驱动</code></pre>
+    <p>自定义行为走 <code>GameCustom</code> 节点（<code>LongParams[0]</code> = subType）。详见 <a href="bt.html">行为树</a>。</p>
+
+    <h2>我要接输入 / 热键</h2>
+<pre><code class="language-csharp">// 事件层：动作名 + 回调（引导期先 BindAsset）
+HotkeyManager.BindAsset(myInputActionAsset);
+mHotkey = RegisterHotkey(HotkeyActionNames.UI_UGUI_Cancel, ctx => UIManager.Close&lt;BagWindow&gt;());
+
+// 轮询层：按 map 生成 ECS 组件
+UIInputComponent.AddTo(em, player);
+InputPlayerRegistry.Register(player, myAssetInstance);</code></pre>
+    <p>详见 <a href="input.html">输入与热键</a>。</p>
+
+    <h2>我要做过场动画</h2>
+<pre><code class="language-csharp">public class MyCutsceneDirector : CutsceneDirector
+{
+    protected override void PlayClip(Cutscene clip)
+    {
+        Addressables.LoadAssetAsync&lt;PlayableDirector&gt;(clip.AssetKey).Completed += h =>
+        {
+            _director = h.Result;
+            _director.stopped += _ => NotifyFinished();   // ← 关键
+            _director.Play();
+        };
+    }
+}</code></pre>
+    <p>框架只提供 FIFO 队列骨架，轨道由宿主用 Unity Timeline 自己做。详见 <a href="timeline.html">过场 Timeline</a>。</p>
+
+    <h2>我要发消息 / 打日志</h2>
+<pre><code class="language-csharp">var e = ecb.CreateEntity();
+ecb.AddComponent&lt;MessageEntity&gt;(e);                                    // 必须加，才会被帧末清
+ecb.AddComponent(e, new EventMessage { EventID = 10023, IsRepeated = false });
+
+Log.Open();                       // PersistentDataPath/logs 下开文件
+Log.Info("..."); Log.Error(ex, "context");
+Log.Format(LogLevel.Info, "玩家 {0} 升到 {1} 级", id, lv);</code></pre>
+    <p>详见 <a href="messages.html">消息与日志</a>。</p>
+
+    <h2>最容易踩的 9 件事</h2>
+    <ol>
+      <li><b>字符串字段必须显式选 <code>BlobString</code> / <code>FixedString</code></b>，否则烘焙失败。</li>
+      <li><b>分类字段用 <code>Enum</code> 不用裸 <code>Int</code></b>，且枚举是 <b>1 基、没有 0</b>。</li>
+      <li><b>Blob 里枚举是 <code>int</code></b>——运行期别指望拿到枚举类型。</li>
+      <li><b>改表结构只跑菜单 3 不生效</b>，必须 1 → 2 → 3。</li>
+      <li><b>UI 类必须 <code>partial</code></b>，且 <code>OnViewClose</code> 要调 <code>base</code>。</li>
+      <li><b>打开窗口是异步的</b>——初始化写在 <code>OnViewOpen</code>，别写 <code>OnCreate</code>。</li>
+      <li><b><code>HotkeyManager.BindAsset</code> 必先做</b>，且别重复调。</li>
+      <li><b>配置行必须 blittable</b>；取行必须 <code>ref var row = ref ...</code>。</li>
+      <li><b>WebGL / Android 不能用 <code>System.IO</code> 读 StreamingAssets</b>，引导必须走 <code>InitializeAsync</code>。</li>
+    </ol>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

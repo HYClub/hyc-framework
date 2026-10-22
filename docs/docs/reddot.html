@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>红点树 RedDot · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>红点树 RedDot</h1>
+    <p class="lead">在<b>代码里注册一棵红点树</b>，玩法侧只打标（<code>Mark</code> / <code>SetCount</code>），UI 侧在 <code>AbsUISystem</code> 里挂一下 <code>RedDotBehaviour</code> 就能自动显隐——<b>父节点亮灭由子节点自动聚合，不需要手动逐级刷新</b>。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.RedDot</code>。已实现。</p>
+
+    <h2>注册树</h2>
+<pre><code class="language-csharp">using HYC.Framework.RedDot;
+
+public static class RedDotIds
+{
+    public static readonly RedDotKey Main     = new RedDotKey(1000);
+    public static readonly RedDotKey Mail     = new RedDotKey(1001);
+    public static readonly RedDotKey MailSys  = new RedDotKey(1002);
+    public static readonly RedDotKey Shop     = new RedDotKey(1100);
+}
+
+// 在引导阶段（Bootstrap / 首个 System 初始化）注册一次即可
+RedDotManager.Register(RedDotIds.Main,    default,              "主界面");
+RedDotManager.Register(RedDotIds.Mail,    RedDotIds.Main,       "邮件", mode: RedDotMode.Count);
+RedDotManager.Register(RedDotIds.MailSys, RedDotIds.Mail,       "系统邮件");
+RedDotManager.Register(RedDotIds.Shop,    RedDotIds.Main,       "商店");</code></pre>
+    <p><code>RedDotKey</code> 是强类型键（包一个 <code>int</code>），<b>代码侧没有字符串，拼错编译不过</b>。</p>
+
+    <h2>打标与计数</h2>
+<pre><code class="language-csharp">RedDotManager.Mark(RedDotIds.MailSys);        // 置「亮」
+RedDotManager.Mark(RedDotIds.Shop, false);    // 熄
+RedDotManager.SetCount(RedDotIds.MailSys, 3); // 计数（&gt; 0 同时视为亮）</code></pre>
+
+    <h2>持久化（框架不写文件，宿主自己导）</h2>
+<pre><code class="language-csharp">// 存盘
+var states = new List&lt;RedDotState&gt;();
+RedDotManager.ExportState(states);          // 只导「自有值」，聚合值可重算
+saveData.redDots = states;
+
+// 读档（注册完树之后）
+RedDotManager.ImportState(saveData.redDots);</code></pre>
+    <p><code>RedDotState</code> 是 <code>[Serializable]</code> 的 <code>{ int Id; int Count; bool Flag; }</code>，可直接进存档结构。</p>
+
+    <h2>UI 侧</h2>
+    <p>预制体上挂 <code>RedDotBehaviour</code>（<code>Key</code> / <code>Show Count</code> / <code>Count Label</code> / <code>Badge</code>），由 <code>AbsUISystem</code> 自动收集绑定。切场景 / 重登重建红点注册前先 <code>RedDotManager.Clear()</code> 再重新 <code>Register</code>。</p>
+    <p>只读查看器：<code>HYC Framework/Tools/Red Dot Viewer</code>（列出节点层级、自有值、聚合值、子节点数；非 Play 模式下通常为空）。</p>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b>不要用 <code>EventMessage</code> 承载红点态</b>——它是单帧消息，红点要跨帧。</li>
+      <li><b>父节点没注册时，子节点的「亮」不会冒泡</b>；注册顺序建议自顶向下。</li>
+      <li><b><code>override OnViewOpen/OnViewClose</code> 必须调 <code>base</code></b>——红点绑定与退订挂在基类上。（<code>OnViewOpen</code> 漏调有兜底：首次 <code>OnUpdate</code> 会补绑一次；<code>OnViewClose</code> 漏调会漏退订。）</li>
+      <li><b>红点只在主线程读写</b>（无锁），不要在 Job 里调。</li>
+      <li><b><code>Badge</code> 默认是组件所在物体</b>：挂在「整行根节点」上会把整行隐藏掉。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

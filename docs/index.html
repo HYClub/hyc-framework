@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYC Framework · 数据驱动的 Unity 游戏框架</title>
+<meta name="description" content="HYC Framework：基于 Unity 2022.3 + DOTS/ECS 的数据驱动游戏框架。配置 / 本地化 / 行为树烘焙为不可变 Blob，UI 即 ECS System，一套代码跨 PC / iOS / Android / WebGL。">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="index.html"><span class="logo">HY</span> HYC Framework <small>官方网站</small></a>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="portal">
+  <section class="portal-hero">
+    <h1>HYC Framework</h1>
+    <p class="lead">数据驱动的 Unity 游戏框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 <b>Blob</b>，<b>UI 即 ECS System</b>，一套代码跨 PC / iOS / Android / WebGL。</p>
+    <div class="portal-badges">
+      <span>Unity 2022.3</span>
+      <span>DOTS / Entities 1.0.16</span>
+      <span>UPM 包</span>
+      <span>MIT License</span>
+    </div>
+    <div class="portal-actions">
+      <a class="btn btn-primary" href="docs/">查看文档 →</a>
+      <a class="btn btn-ghost" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub 源码 ↗</a>
+    </div>
+  </section>
+
+  <section class="portal-section">
+    <div class="section-title">框架能力</div>
+    <div class="card-grid">
+      <a class="card" href="docs/config.html"><span class="tag">数据</span><h3>配置系统 Config <span class="arrow">→</span></h3><p>Excel / 模板 → 代码生成 → 数据编辑器 → 导出 Blob → 门面查询。全程类型安全、零字符串键，发号服强制派发 ID。</p></a>
+      <a class="card" href="docs/localization.html"><span class="tag">数据</span><h3>多语言 Localization <span class="arrow">→</span></h3><p>Excel 文案表烘焙为 Blob，运行期按 key 取文本，界面组件自动刷新。</p></a>
+      <a class="card" href="docs/bt.html"><span class="tag">逻辑</span><h3>行为树 BT <span class="arrow">→</span></h3><p>可视化编辑行为树 → 导出 Blob → ECS 逐帧驱动实体 AI，TreeId 本机派生跨机隔离。</p></a>
+      <a class="card" href="docs/ui.html"><span class="tag">表现</span><h3>ECS UI <span class="arrow">→</span></h3><p>窗口即 System，层级表驱动、Addressables 实例化、焦点与模态，最后刷新不抢玩法帧。</p></a>
+      <a class="card" href="docs/audio.html"><span class="tag">表现</span><h3>音频 Audio <span class="arrow">→</span></h3><p>引用格式决定路由（clip:/wwise:），统一播放门面，后端可切换。</p></a>
+      <a class="card" href="docs/attributes.html"><span class="tag">数据</span><h3>通用属性 Attr <span class="arrow">→</span></h3><p>配置表驱动的属性清单，代码生成 AttrKey 枚举 + 类型安全读写 Bag。</p></a>
+    </div>
+  </section>
+
+  <section class="portal-section">
+    <div class="section-title">三行代码跑通</div>
+<pre><code class="language-csharp">// 1. 跨端统一入口：WebGL / Android 先把数据预取进内存，PC / iOS 是 no-op
+await new FrameworkBootstrap().InitializeAsync("Game World");
+
+// 2. 打开一个 UI 窗口（窗口即 ECS System，异步就绪）
+UIManager.OpenWindow&lt;BagWindow&gt;(1001);
+
+// 3. 查配置：门面是唯一入口，必须 ref 接收（EA0001 铁律）
+ref var row = ref ConfigManager.ItemRow.GetByID(1001);</code></pre>
+    <p class="portal-note">完整接入方式见 <a href="docs/bootstrap.html">引导与世界</a> · 按任务查配方见 <a href="docs/ops.html">操作手册</a></p>
+  </section>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="docs/">文档总览</a>
+      <a href="docs/architecture.html">架构与数据流</a>
+      <a href="docs/ops.html">操作手册</a>
+      <a href="docs/samples.html">示例集 HYCSimple</a>
+      <a href="docs/config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<script src="assets/vendor/highlight.min.js"></script>
+<script src="assets/vendor/csharp.min.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

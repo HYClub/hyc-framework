@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配置系统 Config · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>配置系统 Config</h1>
+    <p class="lead">把 Excel / 模板定义的配置表，在<b>生成期</b>烘焙成不可变 Blob，<b>运行期</b>以世界无关的静态表提供无分配查询。</p>
+    <p class="subtitle">一句话：编辑期是 ScriptableObject + 生成的代码，运行期只有一个 Blob 指针。</p>
+
+    <h2>全链路</h2>
+<pre><code class="language-text">① 配置模板 ConfigTemplate         定义表结构与字段
+        ↓（Editor：代码生成）
+② 生成的 C# 类 [CfgAsset]         blittable struct，命名空间 {root}.config
+        ↓（Editor：数据编辑器填数据）
+③ 配置资产 .asset                 每行一个数据条目
+        ↓（Editor：导出）
+④ BlobAssetReference&lt;BlobRoot&lt;TRow&gt;&gt;
+        ↓（Bootstrap：注册）
+⑤ ConfigRegistry 静态表（框架内部，宿主不可见）
+        ↓（运行期：查询）
+⑥ 玩法 / UI 走门面 {ns}.ConfigManager.{Type}.GetByID(id)</code></pre>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类</th><th>位置</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>ConfigTemplate</code></td><td>Runtime</td><td>表结构模板（本身也是配置资产，可在数据编辑器里重开再生成）</td></tr>
+        <tr><td><code>{ns}.ConfigManager</code>（生成）</td><td><code>ConfigManager.cs</code></td><td><b>宿主唯一查询入口</b>：每类型一个嵌套类，<code>GetByID(id)</code> → 可写 ref</td></tr>
+        <tr><td><code>ConfigRegistry</code></td><td>Runtime</td><td>运行期低层注册表——<b>框架内部机制，宿主禁用</b></td></tr>
+        <tr><td><code>ConfigAssetFactory</code></td><td>Editor</td><td>配置资产<b>唯一</b>创建入口（强制发号）</td></tr>
+        <tr><td><code>ConfigExportService</code></td><td>Editor</td><td>把数据烘焙成 Blob 并导出（客户端/服务端可分开）</td></tr>
+      </tbody>
+    </table>
+
+    <h2>创建配置资产（发号服）</h2>
+    <p>创建任何 <code>[CfgAsset]</code> 配置资产，<b>必须调用 <code>ConfigAssetFactory</code></b>，禁止 <code>ScriptableObject.CreateInstance&lt;T&gt;()</code> + 手填 ID / GUID——手填会绕过发号服，可能跨工程 / 跨机冲突。</p>
+<pre><code class="language-csharp">// 在编辑器工具 / 菜单里
+ConfigAssetFactory.Create&lt;CharacterConfig&gt;("Boss_01");
+ConfigAssetFactory.Create(typeof(CharacterConfig), "Boss_01");
+ConfigAssetFactory.CreateMany(typeof(CharacterConfig), "Mob", 10);</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><code>ID</code> / <code>GUID</code> 必须由发号服派发；<code>id == 0</code> 视为未分配。复制资产产生的重复 ID 会被 <code>DuplicateIdGuard</code> 在复制后<b>自动重派发</b>，应用层无需记忆「别复制」。</div>
+    </div>
+
+    <h2>运行期查询（门面 ConfigManager）</h2>
+    <p>代码生成时为每个配置类型产出嵌套查询类，静态、无 World 依赖、零字符串键：</p>
+<pre><code class="language-csharp">// ① 按 id 查一行（零拷贝 ref，未命中抛 KeyNotFoundException）
+ref var row = ref ConfigManager.FashionRow.GetByID(1001);
+int price = row.Price;
+
+// ② 遍历全表：Count 作循环边界，GetByIndex(i) 按行序取（同样零拷贝）
+for (int i = 0; i &lt; ConfigManager.FashionRow.Count; i++)
+{
+    ref var r = ref ConfigManager.FashionRow.GetByIndex(i);
+    Debug.Log(r.Price);
+}
+
+// ③ 缺失兜底：先预判存在性，再取行
+if (ConfigManager.FashionRow.Contains(1001))
+{
+    ref var safe = ref ConfigManager.FashionRow.GetByID(1001);
+}</code></pre>
+
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body"><b>blob 行必须 <code>ref</code> 访问（EA0001）</b>：<code>GetByID</code> 返回的可写 <code>ref</code> 必须整个放进 ref 局部变量。<code>Cfg{Type}</code> 行含 <code>BlobString</code> / <code>BlobArray</code>，其偏移是<b>自相对</b>的——值拷贝到栈上后寻址错位，开发构包直接抛 <code>InvalidOperationException</code>，正式包<b>静默读垃圾</b>。</div>
+    </div>
+<pre><code class="language-csharp">ref var row = ref ConfigManager.FashionRow.GetByID(1001);   // ✅ 正确
+var  row =       ConfigManager.FashionRow.GetByID(1001);     // ❌ EA0001 编译错
+CfgFashionRow row; row = ConfigManager.FashionRow.GetByID(1001);  // ❌ 值拷贝，寻址错位</code></pre>
+    <p>ref 局部变量的硬约束：<b>不能</b>跨方法传递（传 id，方法内部自查）、<b>不能</b>存进字段 / 数组 / List、<b>不能</b>被 lambda 捕获、<b>不能</b>跨帧缓存。</p>
+
+    <h2>配置引用字段（Reference）</h2>
+    <p>若某字段要引用另一个配置，<b>必须用 <code>ConfigFieldType.Reference</code></b>（UI 称「配置引用」）直接选目标类型，而非定义 <code>long</code> 手填 ID。导出时在「取成员」里选要落盘的成员（如 <code>id</code>）。引用关系由框架维护，重派发 / 复制不会悬空。</p>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">运行期经生成式静态门面 <code>ConfigManager.{Type}.GetByID(id)</code> 取回（零拷贝 ref）。<b>禁止调用 <code>ConfigRegistry</code></b>——它是框架低层注册表，不受宿主兼容承诺，且历史上曾与门面同名造成 CS0104。</div>
+    </div>
+
+    <h2>实例基数（Cardinality）</h2>
+    <p>一个类型在工程中能同时存在几个资产实例：</p>
+    <table>
+      <thead><tr><th>基数</th><th>含义</th><th>声明方式</th></tr></thead>
+      <tbody>
+        <tr><td><code>Multiple</code>（默认）</td><td>可存在任意多个</td><td>不标 <code>unique</code></td></tr>
+        <tr><td><code>Single</code></td><td>全工程唯一</td><td><code>[CfgAsset(name, order, unique: true)]</code></td></tr>
+      </tbody>
+    </table>
+<pre><code class="language-csharp">// 全工程唯一的音频总览
+[CfgAsset("音频/音频总览", 60, unique: true)]
+public class AudioCatalogOverview : ConfigBase { }
+
+// 可多个的角色配置（默认，不写 unique）
+[CfgAsset("角色/角色配置", 10)]
+public class CharacterConfig : ConfigBase { }</code></pre>
+    <p><code>Single</code> 在创建期即强制：已存在即抛 <code>InvalidOperationException</code>，<code>CreateMany</code> 直接不支持；导出期还有第二道查重闸门。</p>
+
+    <h2>编辑器入口</h2>
+    <table>
+      <thead><tr><th>菜单</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>HYC Framework / Config / Config Window</code></td><td>配置窗口</td></tr>
+        <tr><td><code>HYC Framework / Config / Data Editor</code></td><td>数据编辑器（填表，主力）</td></tr>
+        <tr><td><code>HYC Framework / Config / Validate Config</code></td><td>配置结构校验</td></tr>
+      </tbody>
+    </table>
+
+    <h2>常见坑</h2>
+    <ul>
+      <li><code>TRow</code> 必须 blittable：字符串选 <code>BlobString</code> / <code>FixedString</code>，<code>Vector3</code> → <code>Unity.Mathematics.float3</code>，否则烘焙失败。</li>
+      <li>门面取行必须 <code>ref var row = ref ...</code>（EA0001），否则寻址错位。</li>
+      <li><code>GetByID</code> 未命中抛 <code>KeyNotFoundException</code>：宽松语义用 <code>Contains(id)</code> 预判，不要为绕开去调低层 <code>TryGet</code>。</li>
+      <li>引导期<b>注册完所有表之后</b>再开始查询（<code>Materialize</code> 缓存会被 <code>Register</code> 清空）。</li>
+      <li>不需要 World 句柄，UI 层可直接查。</li>
+    </ul>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">字段类型、导出设置、检查规则详见框架 <code>Documentation~/11-字段类型与导出设置.md</code>；blittable 铁律见 <code>99-Blob-与数据约定.md</code>。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

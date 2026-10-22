@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cinemachine 相机 · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>Cinemachine 相机装配与分屏</h1>
+    <p class="lead"><b>rig prefab 就是配置本体</b>：菜单一键生成「大脑（CinemachineBrain）+ 多机位」结构的 prefab，之后所有调配都在 <b>Rig Editor 窗口</b>里点选完成；运行期用 Addressables 实例化 rig，<code>CinemachineRigBinder</code> 负责绑挂点、列机位、切机位。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Cinemachine</code>（Runtime）/ <code>HYC.Framework.Cinemachine.Editor</code>（Editor）。锁 CM 3.1.5。</p>
+
+    <h2>运行期用法</h2>
+<pre><code class="language-csharp">// 1) 实例化 rig（Addressables key 由你自己的配置/常量给出，框架不规定）
+var op = Addressables.InstantiateAsync("PlayerRig", spawnPos, spawnRot);
+var rig = op.WaitForCompletion();   // 或用 await / Completed 回调
+
+// 2) 绑挂点 + 切机位
+var binder = rig.GetComponent&lt;HYC.Framework.Cinemachine.CinemachineRigBinder&gt;();
+binder.SetTargets(playerHead, playerHead);            // 跟随 + 朝向，赋完即下发
+binder.SwitchTo(HYC.Framework.Cinemachine.RigKind.ThirdPerson);</code></pre>
+
+    <h2>同屏 / 分屏（ViewSplitter，1× 像素）</h2>
+<pre><code class="language-csharp">using HYC.Framework.Cinemachine;
+
+splitter.Register(rigA);                          // 每实例化一份 rig 就登记一次
+splitter.Register(rigB);
+splitter.Focused = rigA;                          // 同屏 / 画中画时谁占主视角
+splitter.SetLayout(ViewLayout.Vertical);          // ← 一键：左右分屏
+splitter.SetLayout(ViewLayout.Single);            // ← 一键：回同屏（B 的相机停渲染，不销毁）
+splitter.SetLayout(ViewLayout.Quad, rigB, rigA);  // 指定槽位顺序：B 进左上
+splitter.LayoutChanged += layout => RebuildHud(layout);</code></pre>
+
+    <h2>接缝合成分屏（DualView，2× 像素）</h2>
+    <p><b>两半需不需要拼成一张连续画面？</b>需要 → 合成路径（<code>CinemachineDualView</code>，双 RT，<b>2× 像素</b>）；不需要 → <code>Camera.rect</code> 路径（<code>CinemachineViewSplitter</code>，<b>1× 像素</b>）。</p>
+<pre><code class="language-csharp">using HYC.Framework.Cinemachine;
+using Unity.Cinemachine;
+using UnityEngine;
+
+public sealed class DualStyleBootstrap : MonoBehaviour
+{
+    [SerializeField] private CinemachineRigBinder m_RigA;
+    [SerializeField] private CinemachineRigBinder m_RigB;
+    [SerializeField] private Transform m_PlayerA;
+    [SerializeField] private Transform m_PlayerB;
+
+    private CinemachineDualView m_View;
+
+    private void Start()
+    {
+        m_View = gameObject.AddComponent&lt;CinemachineDualView&gt;();
+        m_View.Bind(m_RigA, m_RigB, m_PlayerA, m_PlayerB);
+
+        // 固定机位（相机不跟人跑）必须关；跟着人跑的那种保持默认 true
+        m_View.AutoFraming = false;
+
+        m_View.Separate(SplitStyle.Vertical);
+
+        var mirror = gameObject.AddComponent&lt;CinemachineDualMirror&gt;();
+        mirror.Refresh();
+
+        // B 侧是镜像相机：把它的 Brain 关掉（rig prefab 默认带一个）
+        var brainB = m_RigB.GetComponentInChildren&lt;CinemachineBrain&gt;(true);
+        if (brainB != null)
+            brainB.enabled = false;
+    }
+}</code></pre>
+
+    <h2>编辑器入口</h2>
+    <ul>
+      <li><code>HYC Framework/Cinemachine/Rig Editor</code>（pri 80，打开相机装配编辑器，选中 rig prefab 时自动加载）</li>
+      <li><code>HYC Framework/Cinemachine/New Rig</code>（pri 81，新建 rig prefab，默认四机位）</li>
+    </ul>
+
+    <h2>坑（最重要的几条）</h2>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body">
+        <b>1. <code>Camera.cullingMask</code> 是「掩码」不是「层号」。</b>传层号 <code>28</code> 得到的是 <code>0b11100</code> = 层 2/3/4——相机什么都看不到：<b>只有清屏色、一点几何都不渲染，而且不报任何错</b>。必须写 <code>1 &lt;&lt; layer</code>；想「什么都看，只排除 UI」就写 <code>~(1 &lt;&lt; 5)</code>。<br><br>
+        <b>2. 机位不能做成 <code>Camera</code> 的子物体。</b>Brain 每帧写回位姿，父子关系反喂给机位 ⇒ 跟随机位发飘、固定机位原地不动。<code>Rig/</code> 下 Camera 与 <code>vcam_*</code> <b>平级</b>。<br><br>
+        <b>3. 多份 rig 各带 Brain 必须分流输出通道。</b>CM 3 的 Brain 是从<b>全局</b>机位表里挑优先级最高的，<code>IsValidChannel</code> 只看 <code>OutputChannel</code> / <code>ChannelMask</code>，<b>不看层级</b>；不分流就是「两半画面一模一样且不报错」。<code>CinemachineViewSplitter.Register</code> 已自动分配。<br><br>
+        <b>4. <code>PrioritySettings.Enabled</code> 默认 false</b>，只写 <code>Value</code> 会被当 0；<code>Priority = int</code> 赋值才打开。<br><br>
+        <b>5. <code>Viewport</code> 与 <code>Composite</code> 不能混切</b>：<code>SetSeam</code> 会把 RenderMode 单向切成 Composite，<code>DowngradeToViewport</code> 回不来。路线 ① 禁挂 <code>CinemachineDualView</code>。<br><br>
+        <b>6. CM 管线每个 Stage（Body/Aim/Noise）只取首个组件</b>，切换机位类型时必须移除同 Stage 旧组件。<br><br>
+        <b>7. <code>Lens</code> 是公共字段</b>：改 FOV 必须 <code>var lens = cam.Lens; lens.FieldOfView = x; cam.Lens = lens;</code>（拷-改-写回）。
+      </div>
+    </div>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">两个可运行场景（同一地图双人分屏 + 同场景视觉分叉）见 <a href="example-cinemachine.html">示例 · Cinemachine 双屏</a>。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

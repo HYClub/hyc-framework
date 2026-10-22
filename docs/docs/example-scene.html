@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例 · 场景引导 Scene · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>示例 · 场景引导 Scene</h1>
+    <p class="lead">把 Attr / Config / BT / Loc 串成一条链，演示「各系统该在什么时机、按什么顺序喂饱」——以及跨端数据加载契约。</p>
+    <p class="subtitle">文件：<code>HYCSimpleSceneBootstrap.cs</code>（普通 MonoBehaviour，挂在任意场景 GameObject 上）</p>
+
+    <h2>心智模型</h2>
+    <ul>
+      <li><b>更新阶梯顺序</b>：<code>Root → A0(引导) → A1(数据) → A2(场景) → A3(玩法) → B9(UI 最后)</code>。</li>
+      <li><b>引导期（A1）要把数据喂饱</b>：本地化 <code>Reload</code>、配置表 <code>Register</code>、行为树 <code>BTBlobLoader.LoadAll()</code> 都应在<strong>任何玩法/UI 读它们之前</strong>完成。</li>
+      <li><b>表现期（B9）</b>：<code>UIManager</code> 在帧末清消息，UI 最后处理，避免读到半截状态。</li>
+    </ul>
+
+    <h2>端到端步骤</h2>
+<pre><code class="language-csharp">// 游戏自己的引导 MonoBehaviour / ICustomBootstrap 里（全平台同一套代码，零 #if）
+private async void Start()
+{
+    var ok = await new FrameworkBootstrap().InitializeAsync("World");
+    // InitializeAsync = await StreamingAssets.PreloadAsync() → 建 World 装系统 → 补加载引导期数据
+    // PC / iOS 上 PreloadAsync 是 no-op；WebGL / Android 上先把 blob HTTP 进内存缓存。
+}</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body">为什么不能用同步的 <code>Initialize</code> / 自写 <code>ICustomBootstrap</code>：<code>XxxBlobSystem</code> / <code>LocalizationBlobSystem</code> 都在 <code>System.OnCreate</code>（建 World 时）读 StreamingAssets，而 WebGL / Android 的预取必须在此之前完成。<code>ICustomBootstrap</code> 由 Entities 扫描自动触发、<strong>不是 async</strong>，等不了预取。</div>
+    </div>
+
+    <h3>数据阶段（A1）顺序</h3>
+<pre><code class="language-csharp">// 1) 本地化：真实项目由 FrameworkBootstrap.InitializeAsync → EnsureBootDataLoaded 自动加载；
+//    要换目录热更时才手动 LocalizationManager.Reload(目录)
+// 2) 行为树：BTBlobLoader.LoadAll() —— 内部已走 StreamingAssets 抽象，跨端无需平台代码
+// 3) 配置：生成的 XxxBlobSystem 会自动 Register（低层 ConfigRegistry.Register，宿主禁手写）</code></pre>
+
+    <h2>给 AI 的雷区</h2>
+    <ul>
+      <li><b>顺序错 = 读到空</b>：玩法在 <code>Reload</code> 前调 <code>GetText</code> 会拿到 <code>未找到Key</code>；在 <code>LoadAll</code> 前给实体挂 <code>RunningBT</code> 会让 <code>BTInterpreterSystem</code> 把 <code>RunState.Result</code> 置 <code>Failed</code>（树未注册）。<b>数据阶段先跑完</b>。</li>
+      <li><b>示例系统默认不自动运行</b>：<code>HYCSimple*DemoSystem</code> 全部标了 <code>[DisableAutoCreation]</code>，这是刻意设计。唯一入口是 <code>HYCSimpleSceneBootstrap</code>：把它挂到<b>空场景</b>的 GameObject 上，由它 <code>GetOrCreateSystemManaged&lt;T&gt;().Update()</code> 手动驱动。</li>
+      <li>🔴 <b><code>System.IO</code> 不得碰 StreamingAssets（跨端第一红线）</b>：读字节/文本用 <code>StreamingAssets.ReadBytes / ReadText</code>；判存在用 <code>StreamingAssets.Exists</code>；列目录用 <code>StreamingAssets.GetKeysUnder</code>。唯一允许写 <code>System.IO</code> + <code>streamingAssetsPath</code> 的地方：<code>StreamingAssets</code> 类自己和 PC-only 的编辑器工具。</li>
+    </ul>
+
+    <h2>Scene Content 示例（场景内容物）</h2>
+    <p>本目录另含场景内容物系统的最小闭环演示：</p>
+    <ul>
+      <li><code>HYCSimpleSpawnPoint</code> —— <b>标记组件（B 来源）</b>：实现 <code>ISceneContentMarker</code>，挂在关卡 prefab 上即被 <code>SceneContentAuthoring</code> 自动发现，导出时写进 Blob。</li>
+      <li><code>HYCSimpleSceneContentSpawner</code> —— <b>运行期生成注入点</b>：实现 <code>ISceneContentSpawner</code>，按 <code>contentTypeId</code> 决定生成什么。</li>
+      <li><code>Editor/DemoResolver.cs</code> —— <b>编辑器期解析器</b>：按 prefab 名派生 id，<code>[InitializeOnLoadMethod]</code> 自注册。</li>
+    </ul>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body"><b>解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它</b>——这是编译期硬约束，<code>#if UNITY_EDITOR</code> 包在运行时 asmdef 里照样 CS0234。所以解析器必须放<b>样例自己的 Editor asmdef</b>（<code>Scene/Editor/HYCSimple.Scene.Editor.asmdef</code>）。另外：挂了 <code>SceneContentMarker</code> 的 prefab 走框架内置兜底解析，<strong>无需注册</strong>即可导出。</div>
+    </div>
+
+    <h2>验证清单</h2>
+    <ul>
+      <li>Console 打出「场景引导完成：Loc 已加载，BT 加载 N 棵，当前语言=cn，示例文本=开始游戏」。</li>
+      <li>顺序验证：把 <code>BTBlobLoader.LoadAll()</code> 移到挂 <code>RunningBT</code> 之后，应见到树未注册的 Failed 日志（确认顺序敏感）。</li>
+      <li><b>跨端回归（出 WebGL / Android 包必做）</b>：引导入口换成 <code>await FrameworkBootstrap.InitializeAsync("World")</code> 后出包，确认 Loc / BT / Config 均正常加载。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

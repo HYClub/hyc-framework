@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>架构与数据流 · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>架构与数据流</h1>
+    <p class="lead">一套面向 <b>Unity 2022.3</b> 的 <b>DOTS / ECS 数据驱动</b>游戏框架——配置、本地化、行为树全部是 Blob；UI 就是 ECS System；世界无关的静态查询。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.*</code>；生成的配置类落 <code>{root}.config</code>，BT 自定义节点落 <code>{root}.BT.Nodes</code>（root 见 HYC Settings → CodeGen）。</p>
+
+    <h2>数据流四阶段</h2>
+<pre><code class="language-text">[生成期] 模板/Excel/行为树资产 → 代码生成 + 数据编辑
+   ↓
+[A0/A1 引导期] 装单例、加载配置表、读启动参数 → 注册到 ConfigRegistry
+   ↓
+[A2/A3 运行期] 房间/场景、模拟、技能、AI、战斗
+   ↓
+[B9 表现期] UI 最后跑，读一帧前已算好的状态</code></pre>
+    <p>更新组顺序固定：<code>A0 → A1 → A2 → A3 → B9</code>（都在 <code>UpdateGroup_Root</code> 下）。<b>UI 永远最后刷新</b>，所以玩法改的值下一帧 UI 才看到——这是设计，不是延迟。</p>
+
+    <h2>模块地图</h2>
+    <table>
+      <thead><tr><th>模块</th><th>核心类</th><th>一句话</th></tr></thead>
+      <tbody>
+        <tr><td>配置</td><td><code>{ns}.ConfigManager</code> / <code>ConfigRegistry</code></td><td>生成式门面，宿主唯一查询入口</td></tr>
+        <tr><td>本地化</td><td><code>LocalizationManager</code> / <code>LocalizationBlobSystem</code></td><td>Blob 多语言，自动从 StreamingAssets 加载</td></tr>
+        <tr><td>行为树</td><td><code>BTInterpreterSystem</code> / <code>BTInterpreter</code></td><td>指针遍历 <code>BTRootBlob</code></td></tr>
+        <tr><td>ECS UI</td><td><code>UIManager</code> / <code>AbsUISystem</code></td><td>UI 即 System，B9 最后运行</td></tr>
+        <tr><td>引导</td><td><code>FrameworkBootstrap</code> / <code>FrameworkWorld</code></td><td>世界与系统装配</td></tr>
+        <tr><td>消息</td><td><code>MessageEntity</code> / <code>MessageClearSystem</code> / <code>MessageExpirySystem</code></td><td>单帧消息 + 帧末清理</td></tr>
+        <tr><td>Blob 基础</td><td><code>BlobTable</code></td><td>Blob 辅助</td></tr>
+      </tbody>
+    </table>
+
+    <h2>四条设计红线</h2>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body">
+        <b>1. 新增脚本必须连 <code>.meta</code> 一起提交</b>——漏了会导致别人 clone 后 GUID 重建、引用全断。<br>
+        <b>2. Blob 里的类型必须 blittable</b>——不能放托管对象；字符串要走 <code>BlobString</code> / <code>FixedString</code>。<br>
+        <b>3. 消息不过帧</b>——不要指望跨帧还能读到 <code>MessageEntity</code>。<br>
+        <b>4. BT 编辑器代码禁止 <code>using NodeCanvas/ParadoxNotion</code></b>——只移植逻辑与视觉数值。
+      </div>
+    </div>
+
+    <h2>三条最重要的使用约定</h2>
+    <ul>
+      <li><b>创建配置必须走 <code>ConfigAssetFactory</code>，创建行为树必须走 <code>BTAssetFactory</code></b>——禁止 <code>ScriptableObject.CreateInstance&lt;T&gt;()</code> + 手填 <code>ID</code> / <code>GUID</code> / <code>TreeId</code>。绕过工厂会导致跨工程 ID 冲突、子树引用错树。</li>
+      <li><b>配置行必须 ref 接收</b>：<code>ref var row = ref ConfigManager.{Type}.GetByID(id);</code>——值拷贝 blob 行 = 寻址错位，是运行期炸弹。</li>
+      <li><b>生成物禁手改</b>——一律走重新生成。</li>
+    </ul>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">想按任务一步步做（「我要配一张表」「我要写一个界面」），看 <a href="ops.html">操作手册</a>；要查某个类的具体行为，看左侧对应模块页。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

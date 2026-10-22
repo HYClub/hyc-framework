@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>编辑器工具链 · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>编辑器工具链</h1>
+    <p class="lead">编辑器代码量约为运行时的 1.8 倍——<b>这个框架的价值大半在工具链</b>。</p>
+    <p class="subtitle">下表为源码里 <code>MenuItem</code> 属性的全量清单（可用 <code>grep -rn 'MenuItem("' Editor Tests Samples~</code> 自行核对）。</p>
+
+    <h2>菜单总览</h2>
+    <table>
+      <thead><tr><th>菜单</th><th>priority</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>HYC Framework/Config/Config Window</code></td><td>0</td><td>配置窗口</td></tr>
+        <tr><td><code>HYC Framework/BT/BT Editor</code></td><td>10</td><td>行为树编辑器画布</td></tr>
+        <tr><td><code>HYC Framework/BT/Export Blob (For Build)</code></td><td>11</td><td>行为树导出（真机必做）</td></tr>
+        <tr><td><code>HYC Framework/UI/Generate UI Binders</code></td><td>20</td><td>生成组件绑定类</td></tr>
+        <tr><td><code>HYC Framework/Talent/Talent Tree Editor</code></td><td>50</td><td>天赋树可视化编辑</td></tr>
+        <tr><td><code>HYC Framework/Scene Content/...</code></td><td>70–72</td><td>场景内容物窗口 / 导出</td></tr>
+        <tr><td><code>HYC Framework/Cinemachine/Rig Editor</code></td><td>80</td><td>相机 rig 编辑器</td></tr>
+        <tr><td><code>HYC Framework/Cinemachine/New Rig</code></td><td>81</td><td>新建 rig prefab</td></tr>
+        <tr><td><code>HYC Framework/Tools/Red Dot Viewer</code></td><td>102</td><td>红点树只读状态查看</td></tr>
+        <tr><td><code>HYC Framework/Settings/Project Settings</code></td><td>200</td><td>项目设置</td></tr>
+        <tr><td><code>HYC Framework/Samples/Import HYCSimple</code></td><td>210</td><td>全量重拷示例到 <code>Assets/HYCSimple/</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>菜单 priority 分档约定</h2>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body">
+        <b>每个叶子项都必须显式写 priority</b>，否则默认 <b>1000</b>（不是 0）⇒ 沉底。<br>
+        三档区间：<b>内容 0–81</b> / <b>工具 100–102</b> / <b>项目 200–210</b>。<br>
+        相邻 priority <b>差 ≥ 11 才自动画分隔线</b>（Unity 只在差值 ≥ 11 时画线：100 与 111 有、110 没有）。<br>
+        父菜单顺序由其<b>第一个子菜单</b>的 priority 决定。
+      </div>
+    </div>
+
+    <h2>主要工具类</h2>
+    <table>
+      <thead><tr><th>类</th><th>位置</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>ConfigWindow</code> / <code>ConfigDataWindow</code></td><td><code>Editor/DataEditor/</code>（48 文件，工具链最大块）</td><td>配置窗口 + 数据编辑器</td></tr>
+        <tr><td><code>BTGraphWindow</code> + <code>BTGraphIMGUI</code></td><td><code>Editor/BT/</code></td><td>行为树编辑器宿主 + 画布主体（纯 IMGUI，无 UXML/USS）</td></tr>
+        <tr><td><code>TalentTreeWindow</code></td><td><code>Editor/Talent/</code></td><td>天赋树可视化编辑（薄壳窗口 + IMGUI 画布）</td></tr>
+        <tr><td><code>CinemachineRigWindow</code></td><td><code>Editor/Cinemachine/</code></td><td>相机 rig 编辑器</td></tr>
+        <tr><td><code>HYCEditorSettingsWindow</code></td><td>Editor 根目录</td><td>项目设置（见 <a href="settings.html">项目设置</a>）</td></tr>
+        <tr><td><code>AssetTools</code></td><td>Editor 根目录</td><td>反查引用 / 清理丢失引用</td></tr>
+        <tr><td><code>HYCSimpleSampleImporter</code></td><td><code>Editor/Samples/</code></td><td>把 <code>Samples~/HYCSimple</code> 全量拷到 <code>Assets/HYCSimple/</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b><code>Clean Missing Asset References</code> 会直接改资产文件</b>——跑之前确保工作区干净，方便回滚。</li>
+      <li><b>NPOI 只在编辑器可用</b>——别在运行时代码里引用 <code>LocalizedExcelReader</code> 或 NPOI 类型。</li>
+      <li><b><code>DataEditor/</code> 大量字段抽屉依赖 <code>ConfigFieldType</code></b>——加新字段类型时，抽屉渲染要同步加分支，否则新类型在编辑器里显示不出来。</li>
+      <li><b>BT 编辑器是纯 IMGUI</b>，没有 UXML/USS；改界面直接改 <code>BTGraphIMGUI.cs</code> 的绘制代码。</li>
+      <li><b>画布不做 GUIClip 裁剪</b>——新增任何面板 / 浮层都要画在画布之后，否则会被节点盖住或反过来盖住节点。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

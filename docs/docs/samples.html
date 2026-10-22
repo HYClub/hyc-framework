@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例集 HYCSimple · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>示例集 HYCSimple</h1>
+    <p class="lead">框架自带的<strong>最小可用示例</strong>：7 个模块各一份可运行代码，覆盖属性、配置、行为树、本地化、场景引导、输入组件化、Cinemachine 双屏相机。</p>
+    <p class="subtitle">每个子系统目录都有一份 <code>AI-NOTES.md</code>，讲清「怎么接入、菜单路径、雷区」——这是框架对外教学的事实入口。</p>
+
+    <h2>两种引入方式（二选一）</h2>
+    <table>
+      <thead><tr><th>方式</th><th>做法</th><th>落到哪</th></tr></thead>
+      <tbody>
+        <tr><td><b>官方</b></td><td>Package Manager → <b>Samples → HYCSimple → Import</b></td><td><code>Assets/Samples/com.hyc.framework/&lt;版本&gt;/HYCSimple/</code></td></tr>
+        <tr><td><b>菜单快捷</b></td><td><code>HYC Framework/Samples/Import HYCSimple</code>（全量重拷）</td><td><code>Assets/HYCSimple/</code></td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>两路别同时用</b>，否则同一批类型编译两次 → CS0101。另外<b>不要把示例拷进 <code>Assets/Samples/&lt;包名&gt;/</code></b>：那是 Package Manager 保留区，包未解析时 Unity 扫到就停，Project 窗口展开为空<strong>且不报错</strong>。</div>
+    </div>
+
+    <h2>示例默认「不自动运行」</h2>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body">所有 <code>*DemoSystem</code> 都标了 <code>[DisableAutoCreation]</code>，Unity <b>不会</b>自动把它们拉进 World。原因：框架的 Manager（Localization / Config / BT）是<strong>进程级静态单例</strong>，示例 System 一旦偷偷自启，就会在宿主工程毫无察觉的情况下改写它们。<br><br>真实事故一次：宿主已在 <code>[RuntimeInitializeOnLoadMethod]</code> 阶段加载了自己的 18 条本地化 key，示例却在第一次 <code>OnUpdate</code> 里执行 <code>LocalizationManager.Reload(示例目录)</code> —— 宿主张表当场蒸发，主菜单全线 <code>未找到Key : xxx</code>，且因为示例每帧兜底，宿主怎么重导都会被下一帧洗掉，极难定位。</div>
+    </div>
+    <p>由此定下三条硬规矩：</p>
+    <ol>
+      <li>示例 System 一律 <code>[DisableAutoCreation]</code>，由 <code>HYCSimpleSceneBootstrap</code>（MonoBehaviour）显式手动 Update。</li>
+      <li>示例<strong>不得抢占</strong>宿主已加载的全局单例：<code>CanTakeOver()</code> 会在「全局表已有非示例数据」时跳过 <code>Reload</code> 并打印醒目警告。</li>
+      <li>想跑示例就<strong>新建一个空场景</strong>，把 <code>HYCSimpleSceneBootstrap</code> 挂到任一 GameObject 上再 Play；宿主工程什么都不挂就<strong>零副作用</strong>。</li>
+    </ol>
+
+    <h2>一键生成真实资产</h2>
+    <p>进 Unity 后先跑 <code>HYC Framework/Samples/创建全部示例资产</code>，会生成：</p>
+    <ul>
+      <li><code>Assets/HYCSampleTrees/HYCSimpleDemoTree.asset</code>（BT 树）+ 导出 <code>StreamingAssets/BTBlob/*.blob</code></li>
+      <li><code>Assets/HYCSampleSampleAssets/GameAttrCatalog.asset</code>（属性目录）+ <code>GameHeroSet.asset</code>（属性预设）</li>
+    </ul>
+    <p>之后进 Play，BT / Attr 示例系统就会读取这些资产跑<strong>真实链路</strong>。</p>
+
+    <h2>编译 / Assembly 说明</h2>
+    <p>示例自带两个 asmdef，导入后编译成独立程序集（<strong>不污染你的 <code>Assembly-CSharp</code></strong>）：</p>
+    <ul>
+      <li><code>HYCSimple.asmdef</code>（根，运行时，含 Attr/Config/BT/Loc/Scene）：<code>allowUnsafeCode: false</code>。Loc 示例已改用 Unity 内置 <code>BlobBuilder.AllocateString</code>（2022.3 / Entities 1.0 已按 UTF-8 真实字节数分配，中文不再截断，且是安全 API），因此<strong>不需要</strong>在 Player Settings 里开「Allow unsafe code」，也不会出现 CS0227。</li>
+      <li><code>BT/Editor/HYCSimple.Editor.asmdef</code>（仅编辑器）：放建树 / 建资产 / 数据创建脚本，引用 <code>HYC.Framework.Editor</code> + <code>HYC.Framework.Runtime</code>。</li>
+    </ul>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>不要删除这两个 asmdef</b>：删了示例就会退回 <code>Assembly-CSharp</code>，与旧 PM 副本同批类型重复 → CS0101。</div>
+    </div>
+
+    <h2>七个示例分别讲什么</h2>
+    <div class="card-grid">
+      <a class="card" href="example-config.html"><span class="tag">数据</span><h3>Config 配置 <span class="arrow">→</span></h3><p>从 <code>items.csv</code> 读真实数据 → Build → Register → 查表，证明配置不在代码里写死。</p></a>
+      <a class="card" href="example-attr.html"><span class="tag">数据</span><h3>Attr 属性 <span class="arrow">→</span></h3><p>加载真实 <code>.asset</code> → InitFromSet 灌袋 → 类型安全 AttrBag 读写。</p></a>
+      <a class="card" href="example-bt.html"><span class="tag">逻辑</span><h3>BT 行为树 <span class="arrow">→</span></h3><p>一棵有真实语义的敌人 AI 树 + GameCustom 自定义节点，进 Play 真的逐帧执行。</p></a>
+      <a class="card" href="example-loc.html"><span class="tag">数据</span><h3>Loc 多语言 <span class="arrow">→</span></h3><p>运行时自造数据写盘 → Reload → GetText / SetLanguage / HasKey。</p></a>
+      <a class="card" href="example-scene.html"><span class="tag">串联</span><h3>Scene 场景引导 <span class="arrow">→</span></h3><p>把 Attr/Config/BT/Loc 串成一条链，演示引导顺序与跨端契约。</p></a>
+      <a class="card" href="example-input.html"><span class="tag">输入</span><h3>Input 输入组件化 <span class="arrow">→</span></h3><p>代码构造 InputActionAsset → 生成 ECS 组件 → A0 写入 → B9 读取。</p></a>
+      <a class="card" href="example-cinemachine.html"><span class="tag">相机</span><h3>Cinemachine 双屏 <span class="arrow">→</span></h3><p>两个可运行场景：同一地图双人分屏 + 同场景视觉分叉，接缝可在 Game 视图拖。</p></a>
+    </div>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">全部示例<strong>尚未在 Unity 编译验证</strong>（框架侧 C# 也在等 Unity 编译）。导入后请按各 <code>AI-NOTES.md</code> 的验证清单跑一遍。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

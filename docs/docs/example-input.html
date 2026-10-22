@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例 · 输入组件化 Input · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>示例 · 输入组件化 Input</h1>
+    <p class="lead">代码构造示例 <code>InputActionAsset</code>（UI / Sense 两个 map）→ 生成 ECS 组件 → A0 写入玩家实体 → B9 读取打印，<strong>不依赖手写 <code>.inputactions</code> 文件也能编译演示</strong>。</p>
+    <p class="subtitle">文件：<code>SampleInputAssetBuilder.cs</code> / <code>SampleInputPlayerSpawner.cs</code> / <code>SampleInputReaderSystem.cs</code> / <code>UI/UIInputComponent.cs</code> + <code>Sense/SenseInputComponent.cs</code>（生成器产物，已预生成）</p>
+
+    <h2>心智模型</h2>
+    <ul>
+      <li><b><code>.inputactions</code> / InputActionAsset</b> 是输入源：定义 map + action + 控制类型。</li>
+      <li><b><code>InputComponentMapping</code></b>（SO）：把「map 名 → 输出文件夹 + 命名空间 + 组件名」登记下来。</li>
+      <li><b><code>InputComponentGenerator</code></b> 按 map 生成 <code>&lt;Map&gt;InputComponent : IComponentData</code>（富状态字段）+ <code>&lt;Map&gt;InputComponentWriter : IInputMapWriter</code>（<code>[RuntimeInitializeOnLoadMethod]</code> 自注册进 <code>InputMapWriterRegistry</code>）。</li>
+      <li><b><code>InputComponentDriverSystem</code>（A0）</b> 每帧遍历玩家 × 所有 Writer，把当前输入写进玩家实体。</li>
+      <li><b>宿主侧</b>：建玩家实体 → <code>XxxInputComponent.AddTo(em, player)</code> → <code>InputPlayerRegistry.Register(player, 该玩家资产实例)</code> → 直接读组件。</li>
+    </ul>
+
+    <h2>关键代码</h2>
+<pre><code class="language-csharp">// 引导 / 玩家加入时（游戏层）
+var player = em.CreateEntity();
+UIInputComponent.AddTo(em, player);     // 便捷挂载（生成器产出）
+SenseInputComponent.AddTo(em, player);
+// 设备配对由 InputUser 在游戏层完成；把"该玩家自己的" InputActionAsset 实例交给框架
+InputPlayerRegistry.Register(player, myAssetInstance);</code></pre>
+<pre><code class="language-csharp">// 在某 System 里（例如挂在 UpdateGroup_B9 表现组）
+if (SystemAPI.HasComponent&lt;UIInputComponent&gt;(player))
+{
+    var ui = SystemAPI.GetComponent&lt;UIInputComponent&gt;(player);
+    if (ui.Submit.pressed)        Confirm();                    // 按钮点亮
+    if (ui.NavMove.active)        MoveCursor(ui.NavMove.value); // 摇杆有偏移
+    if (ui.Submit.justPressed)    PlayClick();                  // 本帧刚按下
+}</code></pre>
+
+    <h2>示例资产 / 组件字段对照</h2>
+    <table>
+      <thead><tr><th>map</th><th>action</th><th>类型</th><th>生成组件字段</th></tr></thead>
+      <tbody>
+        <tr><td><code>UI</code></td><td><code>Submit</code></td><td>Button</td><td><code>UIInputComponent.Submit</code> (<code>InputButton</code>)</td></tr>
+        <tr><td><code>UI</code></td><td><code>NavMove</code></td><td>Vector2</td><td><code>UIInputComponent.NavMove</code> (<code>InputVector2</code>)</td></tr>
+        <tr><td><code>UI</code></td><td><code>Scroll</code></td><td>Axis</td><td><code>UIInputComponent.Scroll</code> (<code>InputAxis</code>)</td></tr>
+        <tr><td><code>Sense</code></td><td><code>Look</code></td><td>Vector2</td><td><code>SenseInputComponent.Look</code> (<code>InputVector2</code>)</td></tr>
+        <tr><td><code>Sense</code></td><td><code>Fire</code></td><td>Button</td><td><code>SenseInputComponent.Fire</code> (<code>InputButton</code>)</td></tr>
+      </tbody>
+    </table>
+    <p>绑定（演示用）：<code>Submit</code>←Enter/Gamepad.South，<code>NavMove</code>←W/↑/左摇杆，<code>Scroll</code>←Mouse.scroll，<code>Look</code>←Mouse.delta/右摇杆，<code>Fire</code>←Space/Gamepad.West。</p>
+
+    <h2>给 AI 的雷区</h2>
+    <ul>
+      <li><b>每名玩家要独立 <code>InputActionAsset</code> 实例</b>：<code>SampleInputPlayerSpawner</code> 用 <code>Object.Instantiate(...)</code> 克隆。共享同一实例会让边沿（<code>justPressed</code>）与启用状态跨玩家串味。</li>
+      <li><b><code>UI/Sense</code> 组件与 Writer 是生成器产物</b>（文件头标 <code>auto-generated</code>）：手改会被下次生成覆盖。</li>
+      <li><b><code>AddTo</code> 是生成器随组件一起产出的静态扩展方法</b>，不是你手写的。</li>
+      <li><b>读取必须晚于 A0 写入</b>：示例 reader 挂在 <code>UpdateGroup_B9</code>（晚于 A0）；UI 组天然晚于 A0，安全。<code>RegisterHandler&lt;TComp&gt;</code> 的回调由驱动系统在 A0 写完本玩家组件后即时触发。</li>
+      <li><b><code>UI/</code> 与 <code>Sense/</code> 各自独立 asmdef</b>（<code>HYC_Simple_Input_UI</code> / <code>HYC_Simple_Input_Sense</code>）：两包互不可见，只引用 <code>HYC.Framework.Runtime</code>，靠 <code>InputMapWriterRegistry</code> 接口契约解耦——这就是「按 map 分包」的含义。</li>
+      <li><b>Writer 靠 <code>[RuntimeInitializeOnLoadMethod]</code> 自注册</b>：生成的 Writer 所在 asmdef 必须能被加载，否则驱动系统扫不到它、组件永远写不进。</li>
+    </ul>
+
+    <h2>验证清单</h2>
+    <ul>
+      <li>进 Play，Console 每 ~1 秒打印 <code>[HYC.Simple.Input] 玩家 e=... Submit点亮=... NavMove=... Scroll=... Look=... Fire=...</code>。</li>
+      <li>按 Enter / W / ↑ → 日志里 <code>Submit</code> / <code>NavMove</code> 变化；按空格 → <code>Fire</code> 点亮。</li>
+      <li>真实链路：Input System 编辑器建 <code>.inputactions</code> → 建 <code>InputComponentMapping</code> 指向它 → 菜单 <code>Generate Input Components</code> → 玩家实体挂组件 + <code>Register</code> → Play 后读组件。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

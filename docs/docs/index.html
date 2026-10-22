@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYC Framework · 使用文档</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <section class="hero">
+      <h1>HYC Framework 使用文档</h1>
+      <p class="lead">一个基于 <b>Unity 2022.3 + DOTS/ECS</b> 的数据驱动框架：配置 / 本地化 / 行为树在生成与编辑期烘焙为不可变 <b>Blob</b>，<b>UI 即 ECS System</b>，世界由引导期组装、按固定阶段更新。</p>
+      <p class="subtitle">本站点逐模块说明「怎么用」，所有内容基于源码实测撰写。左侧选择模块，右侧为本页目录。</p>
+    </section>
+
+    <h2>它解决什么</h2>
+    <p>传统 Unity 项目里，配置、本地化、UI、AI 往往是各写一套、难复用、难跨端。HYC Framework 把它们统一成一套数据驱动管线：</p>
+    <ul>
+      <li><b>配置 / 本地化 / 行为树</b>：编辑期是 ScriptableObject + 生成代码，运行期只有一个 Blob 指针，零分配查询。</li>
+      <li><b>UI 即 System</b>：每个界面是一个 <code>SystemBase</code> 子类挂在固定更新组里，最后刷新（B9），不抢玩法帧。</li>
+      <li><b>一套代码跨端</b>：PC / iOS / Android / WebGL 共用 <code>InitializeAsync</code> 入口，平台差异全部由框架内部吸收。</li>
+    </ul>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">数据流四阶段：<b>生成期</b>（模板/Excel/行为树 → 代码生成 + 数据编辑）→ <b>引导期 A0/A1</b>（装单例、加载配置）→ <b>运行期 A2/A3</b>（模拟、技能、AI、战斗）→ <b>表现期 B9</b>（UI 最后跑，读一帧前算好的状态）。UI 永远晚一帧看到玩法改的值，这是设计，不是延迟。</div>
+    </div>
+
+    <h2>5 分钟跑通</h2>
+    <p>最小引导只需要一个 <code>MonoBehaviour</code> 和一个异步入口：</p>
+<pre><code class="language-csharp">// 全平台统一入口：WebGL/Android 会先把数据 HTTP 进内存缓存，PC/iOS 上是 no-op
+public sealed class GameBootstrap : MonoBehaviour
+{
+    private async void Start()
+    {
+        await new FrameworkBootstrap().InitializeAsync("Game World");
+        // 之后照常：装 UI、进主菜单……
+    }
+}</code></pre>
+
+    <p>打开一个窗口（注意是<b>异步</b>的，初始化写在 <code>OnViewOpen</code>）：</p>
+<pre><code class="language-csharp">public class BagWindow : BaseWindowSystem&lt;BagBinder&gt;
+{
+    public override string PrefabKey => "UI/BagWindow.prefab";
+    public override void OnViewOpen(params object[] args)
+    {
+        base.OnViewOpen();
+        Binder.CloseButton.onClick.AddListener(() => UIManager.Close&lt;BagWindow&gt;());
+    }
+}
+
+// 打开窗口（异步！View 在 OnViewOpen 里才就绪）
+UIManager.OpenWindow&lt;BagWindow&gt;(1001);
+
+// 查配置 —— 门面是唯一入口，必须 ref 接收（EA0001 铁律）
+ref var row = ref ConfigManager.ItemRow.GetByID(1001);
+Debug.Log(row.Name);</code></pre>
+
+    <div class="section-title">模块导航</div>
+    <div class="card-grid">
+      <a class="card" href="architecture.html"><span class="tag">入门</span><h3>架构与数据流 <span class="arrow">→</span></h3><p>数据流四阶段、模块地图、四条设计红线，先读这篇建立全局图景。</p></a>
+      <a class="card" href="ops.html"><span class="tag">入门</span><h3>操作手册 <span class="arrow">→</span></h3><p>按任务查配方：新增配置表 / 加界面 / 接音频 / 烘焙行为树，含最容易踩的 9 件事。</p></a>
+      <a class="card" href="bootstrap.html"><span class="tag">入门</span><h3>引导与世界 <span class="arrow">→</span></h3><p>如何组装 Framework World、跨端数据加载契约、更新阶梯与模式。</p></a>
+      <a class="card" href="samples.html"><span class="tag">入门</span><h3>示例集 HYCSimple <span class="arrow">→</span></h3><p>7 个独立示例覆盖 Config / Attr / BT / Loc / Scene / Input / Cinemachine，含 AI-NOTES。</p></a>
+      <a class="card" href="config.html"><span class="tag">数据</span><h3>配置系统 Config <span class="arrow">→</span></h3><p>模板 → 代码生成 → 数据编辑器 → 导出 Blob → 门面查询，全程类型安全零字符串键。</p></a>
+      <a class="card" href="enum.html"><span class="tag">数据</span><h3>枚举配置 <span class="arrow">→</span></h3><p>枚举即配置：编辑器维护 → 生成枚举代码 → Blob 名称映射。</p></a>
+      <a class="card" href="localization.html"><span class="tag">数据</span><h3>多语言 Localization <span class="arrow">→</span></h3><p>Excel 文案表烘焙为 Blob，运行期按 key 取文本，组件自动刷新。</p></a>
+      <a class="card" href="attributes.html"><span class="tag">数据</span><h3>通用属性 Attr <span class="arrow">→</span></h3><p>配置表驱动的属性清单，代码生成 AttrKey 枚举 + 类型安全读写 Bag。</p></a>
+      <a class="card" href="scene.html"><span class="tag">数据</span><h3>场景内容物 SceneContent <span class="arrow">→</span></h3><p>场景内实体烘焙为 Blob：实例条目 + 标记组件双来源，运行期加载。</p></a>
+      <a class="card" href="talent.html"><span class="tag">数据</span><h3>天赋树 Talent <span class="arrow">→</span></h3><p>表驱动天赋树配置、前置依赖、运行期加点与解锁判定。</p></a>
+      <a class="card" href="reddot.html"><span class="tag">数据</span><h3>红点树 RedDot <span class="arrow">→</span></h3><p>父子红点聚合，脏标记增量刷新，UI 侧零字符串绑定。</p></a>
+      <a class="card" href="save.html"><span class="tag">数据</span><h3>存档存储 Save <span class="arrow">→</span></h3><p>存档槽位、序列化管线、版本兼容与迁移策略。</p></a>
+      <a class="card" href="bt.html"><span class="tag">逻辑</span><h3>行为树 BT <span class="arrow">→</span></h3><p>可视化编辑行为树 → 导出 Blob → ECS 逐帧驱动实体 AI。</p></a>
+      <a class="card" href="sync.html"><span class="tag">逻辑</span><h3>帧同步 Sync <span class="arrow">→</span></h3><p>Lockstep 确定性帧同步：P1 已落地，P2 快照重连 / P3 状态同步未做。</p></a>
+      <a class="card" href="ui.html"><span class="tag">表现</span><h3>ECS UI 总览 <span class="arrow">→</span></h3><p>窗口即 System，层级表驱动、Addressables 实例化、焦点与导航。</p></a>
+      <a class="card" href="ui-window.html"><span class="tag">表现</span><h3>窗口系统 <span class="arrow">→</span></h3><p>打开 / 关闭 / 层级 / 模态 / 焦点栈的完整生命周期。</p></a>
+      <a class="card" href="ui-binder.html"><span class="tag">表现</span><h3>组件绑定 <span class="arrow">→</span></h3><p>Binder 绑定控件、数据源驱动刷新、零反射缓存。</p></a>
+      <a class="card" href="input.html"><span class="tag">表现</span><h3>输入与热键 <span class="arrow">→</span></h3><p>两条通路：组件化轮询（Input Component）+ 事件层热键管理。</p></a>
+      <a class="card" href="cinemachine.html"><span class="tag">表现</span><h3>Cinemachine 相机 <span class="arrow">→</span></h3><p>rig 装配、双人分屏 ViewSplitter、DualView 接缝合成。</p></a>
+      <a class="card" href="timeline.html"><span class="tag">表现</span><h3>过场 Timeline <span class="arrow">→</span></h3><p>CutsceneDirector 播放队列骨架（可视化编辑器未开发）。</p></a>
+      <a class="card" href="audio.html"><span class="tag">表现</span><h3>音频 Audio <span class="arrow">→</span></h3><p>引用格式决定路由（clip:/wwise:），统一播放门面，后端可切换。</p></a>
+      <a class="card" href="messages.html"><span class="tag">表现</span><h3>消息与日志 <span class="arrow">→</span></h3><p>消息总线、ECS 日志收集、调试期可视化。</p></a>
+      <a class="card" href="tools.html"><span class="tag">工具</span><h3>编辑器工具链 <span class="arrow">→</span></h3><p>菜单项、创建器窗口、导出服务、校验闸门总览。</p></a>
+      <a class="card" href="settings.html"><span class="tag">工具</span><h3>项目设置 <span class="arrow">→</span></h3><p>HYCSettings 纯 SO 配置：UI 层集合、命名空间根、各系统开关。</p></a>
+      <a class="card" href="blob.html"><span class="tag">工具</span><h3>Blob 与数据约定 <span class="arrow">→</span></h3><p>EA0001、blittable 约束、扁平化重组模式等底层铁律。</p></a>
+    </div>
+
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>开始之前请记住三条铁律：</b>① 创建配置资产必须走 <code>ConfigAssetFactory</code>、创建行为树必须走 <code>BTAssetFactory</code>，禁止手填 ID / GUID / TreeId；② 配置行查询必须 <code>ref var row = ref ...</code> 接收（值拷贝 = 运行期内存错误）；③ 宿主禁止直接调用 <code>ConfigRegistry</code>，统一走生成式门面 <code>ConfigManager</code>。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

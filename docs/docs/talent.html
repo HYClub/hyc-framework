@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>天赋树 Talent · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>天赋树 Talent</h1>
+    <p class="lead">可视化编辑天赋树并在运行期查询。节点之间的连线表示<b>前置关系</b>，节点上的「消耗」表示解锁它需要付出多少属性。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Talent</code>。已实现。</p>
+
+    <h2>运行期查询</h2>
+<pre><code class="language-csharp">using HYC.Framework.Talent;
+
+[SerializeField] private TalentTreeAsset treeAsset;
+
+var tree = TalentTree.Build(treeAsset);
+
+TalentNode node = tree.GetNode(3);
+foreach (var cost in node.costs)
+{
+    // cost.attrKey 去自己的属性系统里查当前值，判断是否够
+}
+foreach (var pre in tree.PredecessorsOf(node.id))
+{
+    // 检查前置是否已解锁
+}
+
+// 可选：运行期自检
+var errors = new List&lt;string&gt;();
+if (tree.Validate(errors) &gt; 0) { /* ... */ }</code></pre>
+
+    <h2>生成控制器 + UI 开箱即用</h2>
+<pre><code class="language-csharp">using HYC.Framework.Talent;
+
+// 1) 把生成的控制器(既是状态机又是资源提供器)建出来
+var ctrl = new MyTreeTalentController();   // 构造里 Resources = this
+// 2) 把 prefab 里的 UI 脚本 Initialize 一下, 它内部会 Build 树 + 绑定状态机
+ui.Initialize(ctrl);
+// 之后点节点 → TryUnlock → 自动扣点 + 重绘, 全链路开箱即用</code></pre>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>TalentTreeAsset</code></td><td>资产本体</td></tr>
+        <tr><td><code>TalentTree</code></td><td>运行期只读视图，<code>Build(asset)</code> 建索引，<code>Validate</code> 自检</td></tr>
+        <tr><td><code>TalentTreeWindow</code></td><td><b>薄壳宿主</b>：只建一个 VisualElement + IMGUIContainer</td></tr>
+        <tr><td><code>TalentGraphIMGUI</code></td><td><b>画整个编辑器</b>：工具栏 / 左栏 / 画布 / 右栏 / 底栏 / minimap</td></tr>
+        <tr><td><code>TalentNode</code></td><td>节点本体，ScriptableObject 子资源；字段 id / title / descLocKey / maxLevel / editorPosition / costs[]</td></tr>
+        <tr><td><code>TalentRuntime</code></td><td>运行期状态机：<code>IsUnlocked</code> / <code>CanUnlock</code> / <code>TryUnlock</code> + <code>ITalentResourceProvider</code></td></tr>
+        <tr><td><code>TalentTreeUIBase</code></td><td>UGUI UI 基类：<code>treeAsset</code> + <code>slots</code> + <code>Refresh</code> / <code>ApplySlot</code> / <code>RequestUnlock</code></td></tr>
+        <tr><td><code>TalentCodeGenerator</code></td><td>产出 <code>&lt;前缀&gt;TalentController.cs</code> / <code>&lt;前缀&gt;TalentUI.cs</code> / <code>&lt;前缀&gt;TalentTree.prefab</code></td></tr>
+      </tbody>
+    </table>
+    <p>菜单：<code>HYC Framework/Talent/Talent Tree Editor</code>（pri 50）。</p>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b>图必须无环</b>，编辑器会拦，运行期 <code>Validate</code> 也会查。</li>
+      <li><b>多个入口是合法的</b>，不要指望校验拦你——一棵树可以有好几条并行的起始分支。</li>
+      <li><b>节点消耗引用的是 <code>attrKey</code> 字符串，不是对象引用</b>：改了黑板上的 key，所有引用它的节点消耗会立刻失效。</li>
+      <li><b><code>ConfigRowRef</code> 存的是 typeName + id，不持对象引用</b>：配置资产被删除或 id 变了会变成悬空引用；<code>displayName</code> 是当时的快照，别用它做逻辑判断。</li>
+      <li><b>消耗按「每级」计，不是「解锁一次性」</b>：<code>maxLevel=1</code> 时两者等价，超过 1 就一定要分清。</li>
+      <li>⚠️ <b>2.0.6 破坏性变更</b>：<code>TalentNode</code> 由普通 <code>[Serializable]</code> 类改成子资源后，2.0.6 之前保存的树资产节点读不出来。</li>
+      <li>生成物中 <code>#region GENERATED</code> 块重生成会被覆盖，<code>#region USER</code> 块原样保留。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

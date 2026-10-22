@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音频 Audio · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>音频 Audio</h1>
+    <p class="lead">核心思路：<b>引用格式决定路由</b>（<code>clip:</code> / <code>wwise:</code>），门面 <code>Audio.Play</code> 统一播放，切换后端业务零改动。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Audio</code>。</p>
+
+    <h2>一句接入</h2>
+<pre><code class="language-csharp">using HYC.Framework.Audio;
+
+// 直接给引用
+Audio.Play("clip:Audio/Sfx/Click");
+
+// 从配置表字段播（AudioEvent 字段生成的是 string + [AudioField]）
+Audio.Play(cfg.BgmRef, AudioChannelId.Music);   // 指定分组（BGM）
+
+// 停止 / 暂停 / 音量
+Audio.StopAll();
+Audio.SetChannelVolume(AudioChannelId.Music, 0.8f);
+Audio.SetMuted(true);</code></pre>
+
+    <h2>引用格式（clip: / wwise:）</h2>
+    <p>配置表 / 代码里一个音频引用就是<b>带前缀的字符串</b>：</p>
+    <table>
+      <thead><tr><th>前缀</th><th>含义</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td><code>clip:</code></td><td>Addressables 地址，走框架默认后端</td><td><code>clip:Audio/Sfx/Click</code></td></tr>
+        <tr><td><code>wwise:</code></td><td>Wwise 事件名，走 Wwise 后端</td><td><code>wwise:Play_UI_Click</code></td></tr>
+        <tr><td>无前缀</td><td>按 <code>clip:</code> 处理</td><td><code>Audio/Sfx/Click</code></td></tr>
+      </tbody>
+    </table>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">前缀与当前后端<b>解耦</b>：同一张配置表在两种后端下都能播；前缀只决定路由。引用已在「音频总览」登记时，门面以总览里的规范地址 + 分组为准。</div>
+    </div>
+
+    <h2>配置表字段（AudioEvent）</h2>
+    <p>在配置模板里把字段类型选成 <code>AudioEvent</code>，生成器会产出一个 <code>string</code> 属性并自动挂 <code>[AudioField]</code>：</p>
+<pre><code class="language-csharp">// 生成产物（节选）
+[AudioField]
+public string BgmRef;     // 数据编辑器据此绘制下拉框，列出音频总览里的条目</code></pre>
+    <p>数据编辑器里该字段是<b>单行下拉</b>（帧级精确，无第二行回退），选中条目即写入 <code>clip:...</code> / <code>wwise:...</code> 字符串。</p>
+
+    <h2>音频总览（登记 + 导出）</h2>
+    <p>总览资产路径约定：<code>Assets/HYC/Audio/AudioCatalog.asset</code>（首次打开窗口自动创建）。</p>
+    <ol>
+      <li>打开 <code>HYC Framework / Audio / Audio Manager</code>（菜单 priority 60）。</li>
+      <li>在窗口里<b>登记条目</b>（地址 / 事件名 + 显示名 + 分组）。配置表下拉框读的就是它。</li>
+      <li>导出 Blob：<code>HYC Framework / Audio / Export Catalog Blob</code>（priority 61）→ 产出 <code>StreamingAssets/AudioBlob/AudioCatalog.blob</code>。</li>
+    </ol>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">没在总览登记的引用也能播（<code>Audio.Play</code> 会直接用字符串里的值），只是不走「总览规范化 + 分组」逻辑。忘了登记不会完全没声音，但建议都登记以便统一分组与批量预检。</div>
+    </div>
+
+    <h2>运行期播放 API</h2>
+    <table>
+      <thead><tr><th>方法</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>Audio.Play(ref)</code></td><td>默认分组（Sfx）播放；引用已登记时以总览分组为准</td></tr>
+        <tr><td><code>Play(ref, volume, loop, channel)</code></td><td>显式指定分组（仅当引用<b>未</b>登记时生效）</td></tr>
+        <tr><td><code>PlayIn(ref, channel, volume, loop)</code></td><td><b>强制</b>指定分组，忽略总览登记的分组</td></tr>
+        <tr><td><code>Stop(handle)</code> / <code>StopChannel(id)</code> / <code>StopAll()</code></td><td>停实例 / 停整组 / 停全部</td></tr>
+        <tr><td><code>Pause(handle, paused)</code></td><td>暂停 / 恢复</td></tr>
+        <tr><td><code>SetChannelVolume(id, v)</code> / <code>SetVolume(id, v)</code></td><td>设分组音量（后端未初始化也不丢）</td></tr>
+        <tr><td><code>SetMuted(bool)</code></td><td>全局静音（分组设定保留，取消后恢复）</td></tr>
+      </tbody>
+    </table>
+    <p><code>AudioHandle</code> 是只读 struct（<code>AudioHandle.Invalid</code> 表示失败），用它后续 <code>Stop</code> / <code>SetVolume</code> / <code>Pause</code>。</p>
+
+    <h2>音量分组（配置驱动）</h2>
+    <p>分组集合存于 <code>FrameworkSettings.audioGroups</code>（HYC Settings → Audio/Groups 增删改名），每个分组有稳定 <code>int id</code>：</p>
+    <ul>
+      <li><code>Master = id 0</code> 固定为全局总音量（作用于所有组，不可删）。</li>
+      <li>默认 5 组：<code>Music(1)</code> / <code>Sfx(2)</code> / <code>Voice(3)</code> / <code>Ui(4)</code>（id 不变，可改名）。</li>
+      <li>运行时 <code>Audio.SetVolume(AudioChannelId.Music, 0.8f)</code>；实际增益 = <code>Master × 组音量</code>。</li>
+    </ul>
+
+    <h2>后端切换（Wwise）</h2>
+<pre><code class="language-csharp">// 切到 Wwise（需工程装了 Wwise 且定义宏 HYC_WWISE）
+Audio.SetBackend(AudioBackend.Wwise);
+
+// 切回默认
+Audio.SetBackend(AudioBackend.Default);</code></pre>
+    <p>切换会先停播再释放旧后端；失败保持原后端不变。业务代码与配置表<b>零改动</b>——前缀决定路由，与当前后端无关。没装 Wwise（缺宏）也能切到 Wwise 选项卡（返回桩实例，方法明确报错而非静默失败）。</p>
+
+    <h2>跨端与加载</h2>
+    <p>总览 Blob 走 <code>StreamingAssets/AudioBlob/AudioCatalog.blob</code>，与 Loc / BT 完全同构；WebGL / Android 必须经 <code>StreamingAssets.PreloadAsync()</code>（框架在 <code>FrameworkBootstrap.InitializeAsync</code> 内收口，游戏层不写平台分支）。<b>播放本身不需要预载总览</b>：门面拿到引用字符串会直接播；总览仅在「引用已登记 → 规范化地址 + 分组」以及「窗口 / 批量预检」时才读。</p>
+
+    <h2>迁移说明</h2>
+    <ul>
+      <li>旧版「写死枚举的音量分组」已改为<b>配置驱动</b>（<code>AudioChannelId</code> 现在是包 <code>int</code> 的 readonly struct，保留隐式 int 转换兼容旧数据）。</li>
+      <li><code>AudioEvent</code> 是 <code>ConfigFieldType</code> 的新增枚举值（生成 string + <code>[AudioField]</code>）；旧字符串字段不会自动变成音频下拉，需在模板里改字段类型。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

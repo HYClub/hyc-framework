@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通用属性 Attr · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>通用属性 Attr</h1>
+    <p class="lead">框架级、per-entity 的基础属性能力：一个属性清单作单一真源，代码生成类型安全的 <code>AttrKey</code> 枚举 + 读写 <code>AttrBag</code>，预设集自动初始化实体。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Attr</code>。仅 ECS；框架不认识 "HP/ATK" 等具体属性名，也不内置公式 / buff。</p>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><b>实现状态：</b>代码已实现（<code>Runtime/Attr/</code> + <code>Editor/Attr/</code>），但沙箱禁 <code>csc</code>、尚未在 Unity 中编译验证。本文档即当前实现的事实说明，供评审；评审通过后提交。</div>
+    </div>
+
+    <h2>设计目标</h2>
+    <table>
+      <thead><tr><th>方向</th><th>解决什么</th></tr></thead>
+      <tbody>
+        <tr><td>单一属性清单</td><td>属性定义散落各处、易漂移 → 一个 <code>AttributeCatalog</code> 作单一真源</td></tr>
+        <tr><td>内置代码生成器</td><td>手写 key 字符串易拼错 → 由目录生成枚举 + 映射 + 类型安全 bag</td></tr>
+        <tr><td>预设 + 自动初始化</td><td>每个实体手写初始化循环 → <code>AttributeSetAsset</code> + <code>AttributeInitSystem</code> 自动灌值</td></tr>
+        <tr><td>编辑器 + 校验</td><td>没有校验/编辑器 → <code>AttributeValidator</code> + 两个 CustomEditor</td></tr>
+      </tbody>
+    </table>
+
+    <h2>用法</h2>
+    <h3>1. 定义属性清单</h3>
+    <p>Project 右键 <code>HYC Framework / Attributes / Attribute Catalog</code> 建资产，加条目（key / type / defaultRaw / minRaw / maxRaw）。这是唯一需要手填的地方。也可从菜单 <code>HYC Framework / Attributes / Attribute Catalog Editor</code> 打开独立面板编辑——窗口把 entries 画成类型感知表格（Float 显示小数并自动 bits↔double 转换，Bool 只显示勾选框隐藏 min/max，整数显示整数），行首 ≡ 拖拽重排、行尾 ✕ 删除，底部「＋ 添加属性」。</p>
+    <p>窗口顶部有两个分页：<b>属性目录</b>（上面这张表）与<b>属性组</b>（组装 <code>AttributeSetAsset</code>）。</p>
+
+    <h3>2.（可选）做预设集</h3>
+    <p>建 <code>HYC Framework / Attributes / Attribute Set</code>，绑定 catalog，勾选「这个实体要哪些属性」；保存时 <code>OnValidate</code> 自动把所选属性烘成 <code>AttributeValue</code> 列表。</p>
+
+    <h3>3. 生成访问器</h3>
+    <p>在 Catalog 编辑器点「生成属性访问器」，或菜单 <code>HYC Framework / Attributes / Generate Accessor</code>，选 catalog → 向导生成到 <code>Assets/HYC/Generated/Attr/</code>（生成代码统一总根下）：</p>
+    <ul>
+      <li><code>&lt;prefix&gt;AttrKey.cs</code>：枚举（序数 = 目录顺序）</li>
+      <li><code>&lt;prefix&gt;AttrKeyMap.cs</code>：<code>static ulong[] Hash</code>（= <code>AttributeKey.Hash(key)</code>）+ <code>AttributeType[] Type</code></li>
+      <li><code>&lt;prefix&gt;AttrBag.cs</code>：实现 <code>IAttrBag</code>，暴露 <code>GetInt(&lt;prefix&gt;AttrKey.ATK)</code> 等友好重载</li>
+    </ul>
+
+    <h3>4. 代码里用枚举（零手写 key）</h3>
+<pre><code class="language-csharp">// em, e 来自你的 World
+var bag = new GameAttrBag(em, e);
+int atk = bag.GetInt(GameAttrKey.ATK);     // IntelliSense + 拼错编译期报错
+bag.SetInt(GameAttrKey.ATK, atk + 5);</code></pre>
+    <p><code>&lt;prefix&gt;</code> 默认 <code>Game</code>，命名空间由「生成代码命名空间 root」派生为 <code>{root}.Attr</code>，可在向导里改。</p>
+
+    <h3>5. 自动初始化</h3>
+    <p>实体挂 <code>AttributeSetRef { asset = 你的Set }</code> → <code>AttributeInitSystem</code> 进 Play 后自动 <code>AddBuffer&lt;AttributeValue&gt;</code> 并灌入预设值；或手动 <code>AttributeInitializer.InitFromSet(em, e, set)</code>。</p>
+
+    <h3>6. 校验</h3>
+    <p>Catalog 编辑器点「校验目录」跑 <code>AttributeValidator</code>，命中空 key / 重名 / 非法标识符 / <code>min&gt;max</code> / 默认值越界 / Float bits 为 NaN·Inf 时给出 <code>AttributeIssue</code>。</p>
+
+    <h2>关键类</h2>
+    <table>
+      <thead><tr><th>类型</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>AttributeType</code></td><td><code>enum AttributeType : byte</code>：Int / Float / Long / Bool，决定 raw 解释方式</td></tr>
+        <tr><td><code>AttributeValue</code></td><td><code>struct</code> 袋元素：<code>keyHash</code>(FNV-1a) + <code>type</code> + <code>raw</code>(long，Float 存 IEEE754 bits)</td></tr>
+        <tr><td><code>AttributeKey</code></td><td><code>Hash(string) → ulong</code>（FNV-1a 64 位）</td></tr>
+        <tr><td><code>IAttrBag</code></td><td>ulong-key 类型安全读写契约（Job/Burst 外）</td></tr>
+        <tr><td><code>AttributeStore</code></td><td>主线程 <code>EntityManager</code> 读写，按 <code>keyHash</code> 线性查找</td></tr>
+        <tr><td><code>AttributeInitializer</code></td><td><code>Init&lt;T&gt;</code> / <code>InitFromSet</code>：把默认值钳制后灌入 buffer</td></tr>
+        <tr><td><code>AttrBag</code></td><td><code>readonly struct</code> 包 <code>(EntityManager, Entity)</code>，转调 <code>AttributeStore</code></td></tr>
+        <tr><td><code>AttributeCatalog</code></td><td><b>单一真源</b>；<code>ToValue()</code> 把条目烘成 <code>AttributeValue</code></td></tr>
+        <tr><td><code>AttributeSetAsset</code></td><td><code>OnValidate → Rebuild()</code> 把所选属性烘成 <code>List&lt;AttributeValue&gt;</code></td></tr>
+        <tr><td><code>AttributeInitSystem</code></td><td><code>partial class SystemBase</code>，每帧查「有 Ref 无 buffer」实体→ AddBuffer+灌值</td></tr>
+      </tbody>
+    </table>
+
+    <h2>取舍</h2>
+    <ul>
+      <li><b>枚举是目录的快照</b>：目录增删属性后必须重新 Generate，否则枚举与运行时袋数据序数错位。keyHash 按<b>名</b>算（非序数），同 key 改名不影响旧袋；但枚举序数变了要重生成。</li>
+      <li><b>运行期 <code>Set</code> 不钳制</b>：袋是运行时真相，配置边界只约束默认值；若需运行期 clamp，由使用方自己包一层。</li>
+      <li><code>AttributeSetRef</code> 是托管 <code>IComponentData</code>（class）：不走 Burst/Job，适合低频初始化，不进逐帧热路径。</li>
+      <li><b>完全生成、无 <code>#region USER</code></b>：生成文件不要手改，改目录后重生成即可整体覆盖。</li>
+      <li>keyHash 命中失败是静默的：Get 返调用方默认值、Set 为 no-op（袋即「声明过的属性集合」，不自动扩容）。</li>
+    </ul>
+
+    <h2>坑（实现者须知）</h2>
+    <ul>
+      <li><b>改目录后必须重生成</b>：枚举版 <code>AttrBag</code> / <code>AttrKeyMap</code> 是生成物的硬编码副本，目录变了不同步会串号。</li>
+      <li><b>Float 存 bits</b>：<code>AttributeValue.raw</code> 对 Float 走 <code>BitConverter.DoubleToInt64Bits</code>/<code>Int64BitsToDouble</code>，校验器对 Float 的 defaultRaw/minRaw/maxRaw 会按 double 解释，NaN/Inf 会被 <code>AttributeValidator</code> 拦下。</li>
+      <li><code>AttributeInitSystem</code> 的查询用 <code>CreateEntityQuery(typeof(AttributeSetRef), ComponentType.Exclude&lt;AttributeValue&gt;())</code>，只处理「还没初始化」的实体（幂等）。</li>
+      <li><code>ConfigRowRef</code> 已从 <code>Talent</code> 迁至 <code>Runtime/ConfigRowRef.cs</code>（<code>HYC.Framework.Config</code>），消除 <code>Attr → Talent</code> 反向依赖。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

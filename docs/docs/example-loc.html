@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>示例 · 多语言 Loc · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>示例 · 多语言 Loc</h1>
+    <p class="lead">运行时用框架同款 API 造最小数据并写到 persistentDataPath → <code>Reload</code> → <code>GetText</code> / <code>SetLanguage</code> / <code>HasKey</code>，导入即跑、不依赖先导出真实 blob。</p>
+    <p class="subtitle">文件：<code>HYCSimpleLocSampleData.cs</code>（自包含数据生成）/ <code>HYCSimpleLocDemoSystem.cs</code>（运行时查询）</p>
+
+    <h2>心智模型</h2>
+    <ul>
+      <li><b>数据文件</b>（在 <code>StreamingAssets/Localization/</code> 或任意文件夹，由 <code>Reload(folder)</code> 读取）：<code>id</code>（键列表，blob）、<code>lang</code>（纯文本默认语言码）、<code>{lang}.lang</code>（每语言一个 blob，文本顺序与 <code>id</code> 对齐）、<code>filter</code>（可选，敏感词）。</li>
+      <li><b>运行期</b>：<code>LocalizationManager.GetText(key)</code> / <code>GetText(key, args)</code> / <code>SetLanguage(Locale)</code> / <code>HasKey(key)</code>。</li>
+      <li>切换语言触发 <code>onLanguageChanged</code>，挂了 <code>LocalizedTMP</code> / <code>LocalizedBase</code> 的组件自动刷新。</li>
+    </ul>
+
+    <h2>端到端步骤</h2>
+<pre><code class="language-text">1. 产出数据   Loc 数据编辑器（Excel → id / lang / *.lang 等 blob）导出到 StreamingAssets/Localization/
+2. 加载      LocalizationBlobSystem 在 BeforeSceneLoad 自动加载（内部走 StreamingAssets 抽象，不写平台分支）
+3. 代码取文本  string s = LocalizationManager.GetText("ui/start");
+              string s2 = LocalizationManager.GetText("ui/welcome", name);   // {0} 走 string.Format
+4. 运行时切换  LocalizationManager.SetLanguage(Locale.Chinese);
+5. UI 自动刷新 Prefab 挂 LocalizedTMP，Inspector 设 Key，切语言时自动刷新</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>WebGL / Android 上</b> StreamingAssets 不能直接读文件，自动加载可能早于预取完成而跳过——出包到这两个平台的引导入口必须是 <code>await FrameworkBootstrap.InitializeAsync("World")</code>（先 <code>await StreamingAssets.PreloadAsync()</code> 再建 World）。PC / iOS 上同步/异步入口等价。</div>
+    </div>
+
+    <h2>给 AI 的雷区</h2>
+    <ul>
+      <li><b><code>id</code> / <code>*.lang</code> 都是 <code>CfgLocalization</code> blob</b>（<code>BlobArray&lt;BlobString&gt;</code>），不是纯文本；只有 <code>lang</code> 是纯文本语言码。手写文件极易错 → 用编辑器导出。</li>
+      <li><b>中文不再截断 + 无需 unsafe</b>：<code>BlobBuilder.AllocateString</code> 在 Unity 2022.3 / Entities 1.0 已是<strong>安全 API</strong>，且按 UTF-8 真实字节数分配缓冲，CJK（3 字节/字）不再被截断，也<strong>不需要</strong>工程开 <code>/unsafe</code>。</li>
+      <li><b>文本顺序必须与 <code>id</code> 对齐</b>：<code>Reload</code> 按数组下标关联，错位会导致 A key 取到 B 文本。</li>
+      <li><b>找不到 key</b>：<code>GetText</code> 返回 <code>"未找到Key : {key}"</code>；<code>HasKey</code> 可预先判断。</li>
+      <li><b><code>Locale</code></b>：<code>Locale.Chinese</code> → 码 <code>"cn"</code>（不是 <code>"zh"</code>）；<code>FromCode</code> 兼容 <code>zh</code>/<code>chs</code> 等别名，但文件命名请用规范码。</li>
+      <li>🔴 <b><code>Reload(folder)</code> 是「整表替换」</b>，会把宿主的表整艘端走（本 Sample 最惨的一次事故）：<code>LocalizationManager</code> 是进程级静态单例，一旦成功读到一份有效数据就把整张表换成新目录的。现已改为<b>原子替换</b>（失败只报错并保留原数据），但「成功读到错目录」仍然会端走宿主整张表。<br><br>因此本 Sample 立了两条规矩：示例 System 加 <code>[DisableAutoCreation]</code>；<code>EnsureLoaded()</code> 先过 <code>CanTakeOver()</code>——全局表非空且不含示例 key 就<b>跳过 Reload</b> 并打警告。<br><br>写宿主代码同理：<b>不要在生产路径里无条件 <code>Reload</code> 全局本地化表</b>。</li>
+    </ul>
+
+    <h2>验证清单</h2>
+    <ul>
+      <li>前置：新建空场景，把 <code>HYCSimpleSceneBootstrap</code> 挂到任一 GameObject 上再 Play。</li>
+      <li>日志依次打出中文「开始游戏 / 欢迎，冒险者！」与英文「Start Game / Welcome, Adventurer!」。</li>
+      <li>故意查一个不存在的 key 应得 <code>未找到Key : xxx</code>。</li>
+      <li><b>宿主回归</b>：在有自己本地化表的工程里导入本示例、什么都别挂进场景，进 Play —— 宿主 UI 必须一切正常，且 Console 出现「检测到宿主工程已加载自己的本地化数据…跳过 Reload」的黄色警告。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>项目设置 Settings · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>项目设置（配置式分组）</h1>
+    <p class="lead">给<strong>字段</strong>或<strong>无参 void 方法</strong>加一行 <code>[HYCSettingsGroup("分组/子分组")]</code>，它就出现在 <code>HYC Framework/Settings/Project Settings</code> 窗口里。<b>窗口里没有写死任何分组清单</b>——加 / 删 / 改分组只改那一行的特性字符串。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Editor</code>（Editor 程序集内，运行时不存在）。适用 v3.0.0+（Unity 2022.3）。</p>
+
+    <h2>用法</h2>
+<pre><code class="language-csharp">using HYC.Framework.Editor;
+
+namespace MyGame.Editor
+{
+    internal static class MyGameSettings
+    {
+        // 顶层分组 General，标签自动出 "Verbose editor logs"
+        [HYCSettingsGroup("My Game", Label = "Verbose editor logs")]
+        internal static bool Verbose = true;
+
+        [HYCSettingsGroup("My Game", Label = "Max entity hint", Order = 10)]
+        internal static int MaxEntityHint = 2000;
+
+        [HYCSettingsGroup("My Game", Label = "Remote host")]
+        internal static string RemoteHost = "127.0.0.1";
+
+        // 自定义枚举字段 → 自动出 EnumPopup
+        [HYCSettingsGroup("My Game", Label = "Default channel")]
+        internal static GameChannel DefaultChannel = GameChannel.Sfx;
+
+        internal enum GameChannel { Sfx, Music, Voice }
+    }
+}</code></pre>
+    <p>方法也可以（无参 void），用来放按钮和自定义控件：</p>
+<pre><code class="language-csharp">[HYCSettingsGroup("My Game/Tools")]
+internal static void DrawTools()
+{
+    if (GUILayout.Button("Rebuild All Configs"))
+        MyGameConfigTools.RebuildAll();
+
+    EditorGUILayout.HelpBox("会在 Console 输出逐表耗时。", MessageType.Info);
+}</code></pre>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>HYCSettingsGroupAttribute</code></td><td>声明「这个成员属于哪个分组」。<code>AttributeTargets.Method | Field</code>，不可重复标注</td></tr>
+        <tr><td><code>HYCSettingsRegistry</code></td><td>反射扫描 → 分组树；字段自动绘制与持久化</td></tr>
+        <tr><td><code>HYCSettings</code></td><td><b>设置资产本体</b>（SO）：具名字段 + 键值条目表，所有写操作立即落盘</td></tr>
+        <tr><td><code>HYCEditorSettingsWindow</code></td><td>Unity Preferences 式两栏窗口；<code>RegisterHost(this)</code> 登记自身，故窗口内的私有成员也生效</td></tr>
+      </tbody>
+    </table>
+    <p>菜单：<code>HYC Framework/Settings/Project Settings</code>（pri 200）。</p>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b>加了特性，左栏不出现</b>——原因：① 所在程序集<b>没有引用</b> <code>HYC.Framework.Editor</code>（注册表只扫引用了它的程序集）；② 是实例成员但宿主没 <code>RegisterHost</code>；③ 结果已缓存，改完触发一次域重载或调 <code>HYCSettingsRegistry.Rebuild()</code>。</li>
+      <li><b>方法被忽略并告警</b>——签名必须是<b>无参 <code>void</code></b>；泛型方法同样不支持。</li>
+      <li><b>字段出黄色提示框</b>——类型不在 <code>bool/int/float/string/enum</code> 之内。要复杂控件 → 改用方法自己画。</li>
+      <li><b>升级后旧设置值被冲掉</b>——未显式 <code>Key</code> 时键由「类型全名 + 字段名」生成，改名即换键。<b>稳定后显式指定 <code>Key</code></b>。</li>
+      <li><b>分组名里的斜杠被切成两层</b>——路径里的<b>半角 <code>/</code> 是分隔符</b>。名字本身要带斜杠请用全角 <code>／</code>。</li>
+      <li>设置值统一存 <code>Assets/HYC/HYCSettings.asset</code>，不再是本机 EditorPrefs。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

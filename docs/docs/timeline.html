@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>过场 Timeline · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>过场 Timeline</h1>
+    <p class="lead">配置驱动的过场 / 时间线播放队列。<b>框架只提供骨架，真正的播放要宿主实现</b>——一句话：<b>一个 FIFO 队列 + 一个 <code>NotifyFinished()</code> 回调契约</b>。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Timeline</code>。运行期骨架<strong>已实现</strong>（<code>Runtime/CutsceneDirector.cs</code>）。</p>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><b>实现状态说明：</b>运行时的 <code>CutsceneDirector</code> 队列骨架已实现（含 <code>Pause</code>/<code>Resume</code>/<code>Interrupt</code>/<code>Priority</code>/<code>Loop</code>，源码实证）。<b>可视化轨道编辑器尚未开发</b>（属 51 号设计稿，类名均不存在于仓库）——框架没有可视化编辑器、也不创作轨道 / 片段级内容，轨道仍由宿主用 Unity Timeline 自己做。</div>
+    </div>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>Cutscene</code>（sealed class）</td><td>单个过场实例：<code>Id</code> / <code>Name</code> / <code>AssetKey</code>（Addressable key）/ <code>Loop</code> / <code>OnFinished</code></td></tr>
+        <tr><td><code>CutsceneDirector</code></td><td>FIFO 队列 + 播放契约：<code>IsPlaying</code> / <code>Current</code> / <code>CutsceneStarted</code> / <code>CutsceneFinished</code> / <code>Play(id)</code> / <code>Enqueue</code> / <code>PlayClip</code>（protected virtual，宿主必须重写）/ <code>NotifyFinished</code> / <code>Skip</code> / <code>Clear</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>接入方式</h2>
+<pre><code class="language-csharp">public class MyCutsceneDirector : CutsceneDirector
+{
+    private PlayableDirector _director;
+
+    // 1. 用配置表解析 id → AssetKey（门面是唯一查询入口；未命中抛 KeyNotFoundException）
+    public override void Play(long id)
+    {
+        ref var row = ref ConfigManager.CutsceneRow.GetByID(id);   // ⛔ 必须 ref 接收（EA0001）
+        Enqueue(new Cutscene
+        {
+            Id = id,
+            Name = row.Name,
+            AssetKey = row.AssetKey,
+            Loop = row.Loop,
+            OnFinished = () => Debug.Log($"cut {id} done"),
+        });
+    }
+
+    // 2. 真正播放
+    protected override void PlayClip(Cutscene clip)
+    {
+        Addressables.LoadAssetAsync&lt;PlayableDirector&gt;(clip.AssetKey).Completed += h =>
+        {
+            _director = h.Result;
+            _director.stopped += _ => NotifyFinished();   // ← 关键
+            _director.Play();
+        };
+    }
+}</code></pre>
+<pre><code class="language-csharp">var director = new MyCutsceneDirector();
+director.CutsceneStarted  += c => UIManager.HideAllUI();
+director.CutsceneFinished += c => UIManager.ShowAllUI();
+
+director.Play(1001);
+director.Play(1002);      // 排队，1001 播完自动接上
+director.Skip();          // 跳过当前，直接进下一个
+director.Clear();         // 全部取消</code></pre>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b><code>PlayClip</code> 的默认实现只是 <code>Debug.Log</code></b>——不重写就永远不会有 <code>NotifyFinished</code>，队列会卡在第一条（<code>IsPlaying</code> 恒为 true）。</li>
+      <li><b><code>Play(long id)</code> 默认只填 <code>Id</code> 和 <code>Name</code></b>，<code>AssetKey</code> 是空的——必须重写它去查配置表，或者直接用 <code>Enqueue</code>。</li>
+      <li><b><code>Skip()</code> 只在 <code>IsPlaying</code> 时有效</b>，空闲时调用是空操作。</li>
+      <li><b><code>NotifyFinished</code> 在 <code>Current == null</code> 时直接 return</b>——重复调用安全。</li>
+      <li><b>生命周期归宿主</b>：加载 / 卸载 <code>PlayableDirector</code> 资产由你自己管（与 ECS UI 同策略）。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

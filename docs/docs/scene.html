@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>场景内容物 SceneContent · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>场景内容物 SceneContent</h1>
+    <p class="lead">让「关卡里有什么」成为<b>可编辑、可导出、可加载的数据</b>，而不是散落在 prefab 里的隐式引用。与 Config / BT / Attr 平级，不绑定任何具体玩法。</p>
+    <p class="subtitle">生成物命名空间由「命名空间 root」派生：<code>{root}.scene</code>。</p>
+
+    <h2>两个来源</h2>
+    <ul>
+      <li><b>A · 实例条目</b>：在关卡 prefab 上逐个摆的内容物实例（prefab 引用 + 变换 + payload）。</li>
+      <li><b>B · 标记组件</b>：挂在 prefab 子树上的 <code>ISceneContentMarker</code>，由 <code>SceneContentAuthoring</code> 自动发现。</li>
+    </ul>
+    <p>两者由 <code>SceneContentAuthoring</code> 合并成一个 blob。</p>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>SceneContentAuthoring</code></td><td>挂关卡 prefab 根的 MonoBehaviour，接入 HYC 的「钩子」；A 实例条目与 B 标记组件的聚合容器</td></tr>
+        <tr><td><code>SceneContentTypeDef</code></td><td>策划配的「场景内容模板」：一个定义产出标记组件 + 一组可配参数</td></tr>
+        <tr><td><code>ISceneContentMarker</code></td><td>标记组件契约；<code>ContentTypeId</code> 是稳定 int</td></tr>
+        <tr><td><code>ISceneContentMarkerPayload</code></td><td>（可选）标记组件自定义 payload JSON 的契约</td></tr>
+        <tr><td><code>SceneContentRefPath</code></td><td>关卡内 GO 稳定引用（层级路径）；<code>GetPath</code> / <code>Resolve</code> 互逆</td></tr>
+        <tr><td><code>ISceneContentSpawner</code></td><td>运行期生成实例的注入点（框架只读 Blob + 解析）</td></tr>
+        <tr><td><code>SceneContentLoader</code></td><td><code>Load(levelId, spawner, side)</code> 读 Blob 并重组 math 类型交给 spawner</td></tr>
+        <tr><td><code>ISceneContentPrefabResolver</code></td><td>编辑器接口（<code>SceneContentResolvers.Register</code> 注册），把 prefab 引用解析成 int id 写进 Blob</td></tr>
+      </tbody>
+    </table>
+
+    <h2>运行期加载</h2>
+<pre><code class="language-csharp">// 游戏自己的关卡加载完成后（第三个参数默认 Client）
+SceneContentLoader.Load(levelId, mySpawner);
+// 专用服务器进程读另一份产物：
+SceneContentLoader.Load(levelId, serverSpawner, SceneContentSide.Server);</code></pre>
+<pre><code class="language-csharp">public class MySpawner : ISceneContentSpawner
+{
+    public void Spawn(int contentTypeId, float3 pos, quaternion rot, float3 scale, NativeArray&lt;byte&gt; payload)
+    {
+        // 按 id 解析到 prefab / entity，从 payload（UTF8 JSON）读参数
+        var json = System.Text.Encoding.UTF8.GetString(payload.ToArray());
+        // ... 生成 GameObject 或 EntityManager.Instantiate(...) ...
+    }
+}</code></pre>
+
+    <h2>编辑器入口</h2>
+    <ul>
+      <li><code>HYC Framework/Scene Content/New Scene Content Type</code></li>
+      <li><code>HYC Framework/Scene Content/</code>（priority 70–72，含 Scene Content Window / Export All Blobs / Export Blob (Selected)）</li>
+      <li>组件挂载：<code>Add Component → HYC/SceneContent/&lt;类名&gt;</code></li>
+    </ul>
+
+    <h2>关键约束</h2>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body">
+        <b>1. blittable</b>：Blob 内只用 <code>int</code> / <code>float</code>（扁平 <code>PosX..RotW..ScaleZ</code>）/ <code>BlobArray&lt;byte&gt;</code>，prefab 引用收成 int id。坐标刻意不用 <code>float3</code>/<code>quaternion</code>（导出器在 Editor 程序集，asmdef 无 Unity.Mathematics 引用，会 CS0012 / EA0003）；运行期由 <code>SceneContentLoader</code> 重组。<br>
+        <b>2. Blob 落点</b>：<code>Assets/StreamingAssets/SceneContent/</code>（服务端加 <code>server/</code> 子目录），运行期只能从 StreamingAssets 读。<br>
+        <b>3. 版本</b>：<code>SceneContentBlob.BlobVersion</code>；改条目结构时 +1，运行期 <code>TryRead</code> 版本不符会拒绝。<br>
+        <b>4. payload 生成方式</b>：都没实现 <code>ISceneContentMarkerPayload</code> 时退回 <code>JsonUtility.ToJson(component)</code>，此时<b>只能放标量</b>（那个 API 会把 <code>GameObject</code>/<code>Transform</code> 写成 <code>instanceID</code>，跨会话不稳定）。<br>
+        <b>5. 内容类型 id</b>：类名的 FNV-1a 32 位哈希。<b>改类名 = 换 id</b>，已导出的 blob 必须重导。
+      </div>
+    </div>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">最小闭环示例（标记组件 + 运行期 spawner + 编辑器解析器）见 <a href="example-scene.html">示例 · 场景引导</a> 的 Scene Content 小节。注意：解析器类型在框架 Editor 程序集，必须放<b>样例自己的 Editor asmdef</b>。</div>
+    </div>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

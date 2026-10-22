@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blob 与数据约定 · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>Blob 与数据约定</h1>
+    <p class="lead">HYC 的数据核心是 <b>Blob</b>：配置、本地化、行为树全部在生成 / 编辑期烘焙成不可变的 <code>BlobAssetReference</code>，运行期零分配查询。本篇汇总「怎么写才不会烘焙失败、怎么读才对」。</p>
+    <p class="subtitle">相关命名空间：数据模型 <code>HYC.Framework.Data</code>、跨端加载 <code>HYC.Framework.IO.StreamingAssets</code>、<code>[LocKey]</code> 属 <code>HYC.Framework.Config</code>。</p>
+
+    <h2>blittable 铁律</h2>
+    <div class="callout danger">
+      <span class="ic">✕</span>
+      <div class="body">
+        <b><code>Vector2/3/4</code> 不能进 Blob</b>（非 blittable）——用 <code>Unity.Mathematics</code> 的 <code>float2/float3</code>。<br>
+        <b><code>string</code> 必须换成 <code>BlobString</code> / <code>FixedString</code></b>——<code>ConfigValidator</code> 放行是假象，烘焙才报错。<br>
+        托管对象（类 / <code>string</code>）不能进 Blob，否则烘焙失败。配置行类型 <code>TRow</code> 必须是 blittable 结构体（<code>unmanaged</code>）。
+      </div>
+    </div>
+
+    <h2>自建 Blob 表（低层参考）</h2>
+<pre><code class="language-csharp">public unsafe struct ConfigBlobTable&lt;TRow&gt; : IDisposable where TRow : unmanaged
+{
+    BlobAssetReference&lt;BlobRoot&lt;TRow&gt;&gt; _ref;
+    NativeHashMap&lt;long, int&gt; _index;       // id → 行号
+    NativeHashMap&lt;long, int&gt; _secondary;   // 备用索引（未用）
+}
+public struct BlobRoot&lt;TRow&gt; where TRow : unmanaged { public BlobArray&lt;TRow&gt; Rows; }</code></pre>
+<pre><code class="language-csharp">bool ok = table.TryGet(id, out TRow row);   // ID 0 不算索引（tryAdd 时 key != 0 才加）
+TRow r  = table.Get(id);                     // 找不到返回 default
+int n   = table.Count;
+table.Dispose();                            // 释放 _ref + 两个 NativeHashMap</code></pre>
+
+    <h2>取行必须 ref（EA0001）</h2>
+    <p>行结构含 <code>BlobString</code> / <code>BlobArray</code>，其偏移是<b>自相对</b>的（相对字段自身地址，不是 blob 基址）。把行值拷贝到栈上后，拷贝里的偏移量相对栈地址解析即<b>寻址错位</b>：开发构包直接抛 <code>InvalidOperationException</code>，正式包<b>静默读出垃圾数据</b>。</p>
+<pre><code class="language-csharp">ref var row = ref ConfigManager.FashionRow.GetByID(1001);   // ✅
+var  row =       ConfigManager.FashionRow.GetByID(1001);     // ❌ EA0001 编译错</code></pre>
+
+    <h2>BakerGlue（authoring 样板削减）</h2>
+<pre><code class="language-csharp">BakerGlue.AddItems&lt;MyBuffer&gt;(baker, entity, items);   // 批量 AddBuffer + 逐个 Add
+BakerGlue.AddIfPresent&lt;MyComp&gt;(baker, entity, value, present);  // present 才 AddComponent + SetComponent</code></pre>
+
+    <h2>跨端数据加载契约</h2>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body">
+        WebGL 没有文件系统、Android 的 StreamingAssets 在 APK 压缩包内（<code>jar:file://</code>），<b>不能用 <code>System.IO.File</code> 直接读</b>。<br>
+        · 读字节 / 文本：<code>StreamingAssets.ReadBytes(相对路径)</code> / <code>ReadText(相对路径)</code><br>
+        · 判存在：<code>StreamingAssets.Exists(相对路径)</code>；列目录：<code>StreamingAssets.GetKeysUnder(相对目录)</code><br>
+        · 平台判据是 <code>StreamingAssets.NeedsPreload</code>（= <code>IsWebGL || IsAndroid</code>），<b>不是 <code>IsWebGL</code></b><br>
+        · 时序：读取发生在建 World 时（<code>System.OnCreate</code>），所以引导必须 <code>await FrameworkBootstrap.InitializeAsync(...)</code>
+      </div>
+    </div>
+
+    <h2>其它坑</h2>
+    <ul>
+      <li><b>本地化版本号 <code>3</code> 写死两处</b>，改一边必须改另一边。</li>
+      <li><b>CJK 文本不能走内置 <code>BlobString</code> 分配</b>（Unity 2022.3 已按 UTF-8 真实字节数分配，不再截断）；用极老版本时才需要 <code>LocalizedExcelReader.AllocateString</code> 那套自定义写法。</li>
+      <li><b><code>ConfigBlobTable.FromBlob</code> 的 <code>idSelector</code> 返回 0 会被跳过</b>——确保 ID 从非 0 起。</li>
+      <li><b>配置 Blob 落点只有一个真值</b>：<code>ConfigDataSettings.BlobOutputDir</code>，运行期读取路径由它派生，别去单独配「加载路径」。</li>
+      <li><b><code>NewItemFlagSystem.OnUpdate</code> 目前是空的</b>——「B9 之前清标」的设计意图没落地，红点标记不会被这个系统自动清，要宿主或 UI 自己处理。</li>
+      <li><b><code>_secondary</code> 永远是空 <code>NativeHashMap(0)</code></b>，框架没用它——目前没法做二级索引查询。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

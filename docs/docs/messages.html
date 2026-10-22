@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>消息与日志 · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>消息与日志</h1>
+    <p class="lead">单帧消息实体（<code>MessageEntity</code>）在 ECS 里的设计 / 生命周期 / 用法，以及框架日志门面 <code>Log</code>。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Dots</code>。</p>
+
+    <h2>单帧消息</h2>
+<pre><code class="language-csharp">// 发一条引导弹窗消息（UI 窗口基类 AbsUISystem.OpenGuide 内部就这么干）
+var e = ecb.CreateEntity();
+ecb.AddComponent&lt;MessageEntity&gt;(e);
+ecb.AddComponent(e, new EventMessage { EventID = 10023, IsRepeated = false });
+
+// 消费系统
+public partial struct GuideSystem : ISystem
+{
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var msg in SystemAPI.Query&lt;EventMessage&gt;())
+            ShowGuide(msg.EventID, msg.IsRepeated);
+    }
+}</code></pre>
+
+    <h3>消息相关类型</h3>
+    <table>
+      <thead><tr><th>类型</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>Message</code></td><td>标记「这是一条消息」</td></tr>
+        <tr><td><code>MessageEntity</code></td><td>标记「单帧消息实体」——<code>MessageClearSystem</code> 帧末清掉整个实体</td></tr>
+        <tr><td><code>DestroyEndOfFrame</code></td><td>标记「帧末可删」，由 <code>MessageExpirySystem</code> 清掉</td></tr>
+        <tr><td><code>EventMessage</code></td><td>消息载荷：<code>int EventID</code> + <code>bool IsRepeated</code></td></tr>
+        <tr><td><code>MessageAttribute</code> / <code>StatusAttribute</code></td><td>给消息 / 状态组件加 <code>Desc/Group/Order</code> 元数据</td></tr>
+        <tr><td><code>MessageClearSystem</code></td><td><code>[UpdateInGroup(SimulationSystemGroup), OrderLast = true]</code></td></tr>
+        <tr><td><code>MessageExpirySystem</code></td><td><code>UpdateGroup_B9</code>（OrderLast），专清 <code>DestroyEndOfFrame</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>日志门面 Log</h2>
+<pre><code class="language-csharp">Log.Open(dir = null);                       // 在 PersistentDataPath/logs 下开 framework_时间.log
+Log.Trace(msg); Log.Info(msg); Log.Warn(msg); Log.Error(msg);
+Log.Error(ex, "context");                   // 异常 → 字符串
+Log.Format(LogLevel.Info, "玩家 {0} 升到 {1} 级", id, lv);
+Log.Close();                                // flush + dispose
+
+LogLevel : Trace(0) / Info(1) / Warning(2) / Error(3) / Fatal(4)
+Log.OnLog += (level, row, a, b) => { /* 转服务器 */ };</code></pre>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><b>迁移说明：</b><code>GameLog</code>（写 <code>{dataPath}/../log.json</code> + 劫持 <code>Debug.unityLogger.logHandler</code>）<b>已在 3.0.0 删除</b>，全仓库零引用。日志落盘用 <code>Log.Open(dir)</code>，加时间戳自行封装 <code>ILogHandler</code>。</div>
+    </div>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b>消息实体必须同帧消费完</b>——下一帧就没了（<code>MessageClearSystem</code> 帧末清）。延迟处理（如等动画）请改用 <code>DestroyEndOfFrame</code> 或自己维护状态组件。</li>
+      <li><b>发消息只加 <code>Message</code> 不行</b>，必须 <code>MessageEntity</code> 才会被自动清，否则实体泄漏。</li>
+      <li>别往消息实体上堆 <code>class</code> 组件。</li>
+      <li><b><code>MessageClearSystem</code> 要求 <code>RequireForUpdate&lt;MessageEntity&gt;()</code></b>——没有消息实体时整个系统跳过（零开销）。</li>
+      <li><b>两个清理系统别动排序</b>：改 <code>[UpdateInGroup/OrderLast]</code> 会让 Entities sorter 抛 NRE（已踩过）。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

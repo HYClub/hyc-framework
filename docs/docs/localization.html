@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多语言 Localization · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本，如需抢先体验请通过 <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">GitHub Issues</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>多语言 Localization</h1>
+    <p class="lead">把策划维护的 Excel 文案表，在<b>生成期</b>烘焙成 Blob 文件，运行期由静态管理器按 key 取当前语言文本，并驱动 UI 组件自动刷新。</p>
+    <p class="subtitle">命名空间 <code>HYC.Framework.Loc</code>。一句话：编辑期是 Excel，产物是 StreamingAssets 下的 Blob，运行期只有两个 Dictionary 查表。</p>
+
+    <h2>全链路</h2>
+<pre><code class="language-text">① Excel（.xls/.xlsx，默认 Assets/Localization）
+   首行 = 表头（必须有 id 列，其余列按语言代码归一化）
+        ↓  HYC Framework/Localization/Import/Excel (Import & Build Blob)（NPOI 读取）
+② 产物目录（默认 Assets/StreamingAssets/Localization）
+   id / cn.lang / en.lang / ...   BlobArray&lt;BlobString&gt;
+   lang / filter / debug_ids / debug_names
+        ↓  运行期 LocalizationBlobSystem（BeforeSceneLoad）
+③ LocalizationManager.Reload(folder)
+        ↓
+④ LocalizationManager.GetText(key)  →  LocalizedBase 组件 / 业务代码</code></pre>
+
+    <h2>核心类</h2>
+    <table>
+      <thead><tr><th>类 / 文件</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td><code>Locale</code></td><td>语言枚举：<code>Default=0</code> / <code>Chinese=1</code> / <code>English=2</code> / <code>Japanese=3</code> / <code>Korean=4</code></td></tr>
+        <tr><td><code>LocaleUtil</code></td><td>语言代码 ↔ 枚举 ↔ Excel 表头归一化</td></tr>
+        <tr><td><code>LocalizationManager</code></td><td>静态管理器：加载、语言切换、查文本</td></tr>
+        <tr><td><code>LocalizationBlobSystem</code></td><td><code>SystemBase</code>，开机自动从 StreamingAssets 加载</td></tr>
+        <tr><td><code>SensitiveWordManager</code></td><td>敏感词 Trie 过滤（字符串扩展方法）</td></tr>
+        <tr><td><code>LocalizedBase</code> + 三子类</td><td>挂在文本组件上自动刷新（<code>LocalizedText</code> / <code>LocalizedTMP</code> / <code>LocalizedTextMesh</code>）</td></tr>
+        <tr><td><code>LocalizedTextAttribute</code> / <code>LocKeyAttribute</code></td><td>标记 string 字段为本地化 key（Inspector 画选择器 + 预览）</td></tr>
+      </tbody>
+    </table>
+
+    <h2>语言代码约定</h2>
+    <table>
+      <thead><tr><th>Locale</th><th>代码</th><th>Excel 表头可写</th></tr></thead>
+      <tbody>
+        <tr><td>Default</td><td>en</td><td>—（兜底）</td></tr>
+        <tr><td>Chinese</td><td>cn</td><td>中文 / 简体中文 / 简中 / cn / zh / chs</td></tr>
+        <tr><td>English</td><td>en</td><td>English / en / us</td></tr>
+        <tr><td>Japanese</td><td>jp</td><td>日本語 / 日文 / jp / ja</td></tr>
+        <tr><td>Korean</td><td>kr</td><td>한국어 / 韩文 / kr / ko</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><code>繁體中文 / 繁中 / tc / cht</code> 会归一化成 <code>tc</code>——这是一个<b>没有对应 <code>Locale</code> 枚举值</b>的代码，<code>LocaleUtil.FromCode("tc")</code> 会回落到 <code>Default</code>。未知表头原样保留，所以自定义语种也能导，只是枚举认不出来。</div>
+    </div>
+
+    <h2>运行期 API</h2>
+<pre><code class="language-csharp">// 语言
+LocalizationManager.SetLanguage(Locale.Chinese);
+LocalizationManager.SelectedLanguage = "cn";    // 直接给代码也行
+var cur = LocalizationManager.CurrentLocale;    // → Locale.Chinese
+
+// 查询
+string s = LocalizationManager.GetText("ui/common/confirm");
+string f = LocalizationManager.GetText("tip/level_up", 12, "Aria");  // string.Format 占位符
+string e = LocalizationManager.GetTextByLang("ui/common/confirm", "en");
+bool ok  = LocalizationManager.HasKey("ui/common/confirm");
+
+// 扩展方法（等价）
+string s2 = "ui/common/confirm".ToLocal();
+tmpText.SetKey("ui/common/confirm");
+
+// 切换监听
+LocalizationManager.onLanguageChanged += OnLangChanged;</code></pre>
+    <p>查不到 key 时的表现：key 不存在 → <code>"未找到Key : {key}"</code>；key 存在但文本为空 → <code>"[{key 最后一段}]"</code>（如 <code>[confirm]</code>）；key 为 null/空 → <code>string.Empty</code>。所以<b>空文案不会静默消失</b>，会显示成 <code>[xxx]</code> 方便定位漏翻。</p>
+
+    <h2>文本组件</h2>
+    <table>
+      <thead><tr><th>组件</th><th>目标</th><th>约束</th></tr></thead>
+      <tbody>
+        <tr><td><code>LocalizedText</code></td><td><code>UnityEngine.UI.Text</code></td><td><code>[RequireComponent(typeof(Text))]</code> + <code>[DisallowMultipleComponent]</code></td></tr>
+        <tr><td><code>LocalizedTMP</code></td><td><code>TMP_Text</code></td><td>同上</td></tr>
+        <tr><td><code>LocalizedTextMesh</code></td><td><code>TextMesh</code>（3D）</td><td>同上</td></tr>
+      </tbody>
+    </table>
+    <p>基类 <code>LocalizedBase</code>：<code>Key</code> 字段带 <code>[InspectorName("本地化ID"), LocalizedText]</code>，Inspector 里是「文本框 + ▾ 选择器 + ◉ 预览」。<code>OnEnable</code> 订阅 <code>onLanguageChanged</code>，语言切换时自动 <code>Refresh()</code>。代码里动态改：<code>GetComponent&lt;LocalizedTMP&gt;().SetKey("ui/common/confirm");</code></p>
+
+    <h2>编辑器入口</h2>
+    <table>
+      <thead><tr><th>菜单</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>HYC Framework / Localization / Import / Excel (Import & Build Blob)</code></td><td>导入全部 Excel 并写 Blob、Reload</td></tr>
+        <tr><td><code>HYC Framework / Localization / Settings / Localization Settings</code></td><td>配 Excel 目录 / 输出目录 / 默认语言 / 敏感词文件</td></tr>
+        <tr><td><code>HYC Framework / Localization / Editors / Key Browser</code></td><td>浏览表、按 key 过滤、看每语言文本、导出 CSV</td></tr>
+        <tr><td><code>HYC Framework / Localization / Editors / Sensitive Words</code></td><td>敏感词过滤测试台</td></tr>
+      </tbody>
+    </table>
+
+    <h2>常见坑</h2>
+    <ul>
+      <li><b>产物必须落在 StreamingAssets 下</b>，否则打包后 <code>LocalizationBlobSystem</code> 读不到（它只读 <code>Application.streamingAssetsPath/Localization</code>）。</li>
+      <li><b>CJK 文本要靠自定义 <code>AllocateString</code></b>：Unity 自带的按 <code>Length * 2 + 1</code> 分配，中文 UTF-8 是 3 字节/字会被截断。<code>LocalizedExcelReader</code> 按真实 UTF-8 字节数 + 1 手写分配，<b>不要换回内置方法</b>。</li>
+      <li>真正稳定的是语言<b>代码字符串</b>（<code>cn</code>/<code>en</code>/<code>jp</code>/<code>kr</code>），跨系统传递用代码，别传枚举数值。</li>
+      <li>编辑器专用的 <code>debug_ids</code> / <code>debug_names</code> 只在 <code>UNITY_EDITOR</code> 下读写，运行时代码不要访问。</li>
+      <li><code>GetText(key, args)</code> 走 <code>string.Format</code>，<code>{0}</code> 索引写错会 <code>LogException</code> 并返回未格式化原文，不会崩。</li>
+      <li>切换语言只通知订阅者——自己写的文本（非 <code>LocalizedBase</code> 组件）必须挂 <code>onLanguageChanged</code> 手动刷新。</li>
+    </ul>
+  </div></main>
+
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>
