@@ -85,8 +85,6 @@ namespace HYC.Framework.Config.Editor
 
         private void OnDisable()
         {
-            if (!mClosedByAction)
-                Debug.Log("ConfigCreateWindow closed without action.");
         }
 
         private void InitializeCategoryData()

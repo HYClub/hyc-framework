@@ -144,12 +144,10 @@ namespace HYC.Framework.UI
         /// <summary>Update.</summary>
         protected override void OnUpdate()
         {
-            // 一次性诊断：若下次 Play 看不到这行日志，说明 UIManager 根本没被 tick（宿主世界/组装配问题）。
+            // 一次性诊断闸门：确保 UIManager 至少被 tick 过一次（宿主世界/组装配问题排查用）。
             if (!mLoggedFirstUpdate)
             {
                 mLoggedFirstUpdate = true;
-                var cam = ResolveUICamera();
-                Debug.Log($"[UIManager] 首次 OnUpdate tick：UICamera={(cam != null ? cam.name : "null")}，Screen={Screen.width}x{Screen.height}");
             }
 
             // ScaleFactor<=0 ⇒ m_UIFitData 还是 struct 全零（ResetUIFitData 从未成功跑过，

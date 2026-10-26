@@ -25,7 +25,6 @@ namespace HYC.Framework.BT.Editor
         {
             if (state != PlayModeStateChange.EnteredPlayMode) return;
 
-            int ok = 0, fail = 0;
             foreach (var guid in AssetDatabase.FindAssets("t:BTTreeAsset"))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
@@ -34,15 +33,12 @@ namespace HYC.Framework.BT.Editor
                 if (BTBlobBuilder.Build(asset, out var blob))
                 {
                     BTManager.Register(asset.TreeId, blob);
-                    ok++;
                 }
                 else
                 {
-                    fail++;
                     Debug.LogWarning($"[BT] 自动注册失败(树数据无效): {path} treeId={asset.TreeId}");
                 }
             }
-            Debug.Log($"[BT] 播放模式自动注册完成: 成功 {ok} 棵, 失败 {fail} 棵(实体挂 RunningBT 即可运行)");
         }
     }
 }

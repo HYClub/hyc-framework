@@ -1069,7 +1069,6 @@ namespace HYC.Framework.Config.Editor
             // 此 Unity 版本（2022.3）的 RenameEndedArgs 无 accepted 字段：取消（Esc）时 newName 回退为原名，
             // 以此判定跳过；空名/未变也由 ApplyRenameCore 的 null/empty 守卫兜底。
             var item = FindItem(args.itemID, rootItem);
-            Debug.Log($"[ConfigDataTree] RenameEnded itemId={args.itemID}, newName={args.newName}, item={(item == null ? "null" : item.displayName)}");
             if (item == null || args.newName == item.displayName)
                 return;
 
@@ -1098,7 +1097,6 @@ namespace HYC.Framework.Config.Editor
 
             var newName = args.newName;
             var itemId = args.itemID;
-            Debug.Log($"[ConfigDataTree] Schedule delayCall rename: path={path}, newName={newName}, isFolder={isFolder}, itemId={itemId}");
             EditorApplication.delayCall += () => ApplyRenameCore(path, newName, isFolder, itemId);
         }
 
@@ -1112,7 +1110,6 @@ namespace HYC.Framework.Config.Editor
         /// </summary>
         private void ApplyRenameCore(string path, string newName, bool isFolder, int itemId)
         {
-            Debug.Log($"[ConfigDataTree] ApplyRenameCore start: path={path}, newName={newName}, isFolder={isFolder}, itemId={itemId}");
             if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(newName))
                 return;
 
@@ -1132,13 +1129,11 @@ namespace HYC.Framework.Config.Editor
 
                 // 诊断：重命名前 GUID 映射与磁盘状态
                 var guid = AssetDatabase.AssetPathToGUID(path);
-                Debug.Log($"[ConfigDataTree] Before: guid={guid}, oldDir={Directory.Exists(absOld)}, newDir={Directory.Exists(absNew)}, oldMeta={File.Exists(absOldMeta)}, newMeta={File.Exists(absNewMeta)}");
 
                 string result = null;
                 if (isFolder)
                 {
                     // 文件夹：FileUtil 支持目录搬家，但 .meta 要手动一起搬；内容是「搬」不是「复制+删除」。
-                    Debug.Log($"[ConfigDataTree] Folder move: {path} -> {newPath}");
                     try
                     {
                         FileUtil.MoveFileOrDirectory(path, newPath);
@@ -1153,14 +1148,12 @@ namespace HYC.Framework.Config.Editor
                 else
                 {
                     // 文件：AssetDatabase.RenameAsset 是官方支持的文件改名 API，自动处理 .meta。
-                    Debug.Log($"[ConfigDataTree] File rename: {path} -> {newName}");
                     result = AssetDatabase.RenameAsset(path, newName);
                 }
 
                 // 诊断：重命名后 GUID 映射与磁盘状态
                 var pathAfter = AssetDatabase.GUIDToAssetPath(guid);
                 var absAfter = Path.Combine(projectRoot, pathAfter).Replace("\\", "/");
-                Debug.Log($"[ConfigDataTree] After: result='{result ?? "<null>"}', guidPathAfter={pathAfter}, afterDir={Directory.Exists(absAfter)}, oldDir={Directory.Exists(absOld)}, oldMeta={File.Exists(absOldMeta)}");
 
                 if (!string.IsNullOrEmpty(result))
                 {
@@ -1251,7 +1244,6 @@ namespace HYC.Framework.Config.Editor
                         moves.Add((dragPath, newPath));
                     }
 
-                    Debug.Log($"[ConfigDataTree] DragDrop scheduled {moves.Count} moves to {dropPath}");
                     // AssetDatabase.MoveAsset 在 TreeView 拖拽回调的事务内调用会返回成功但不落盘，
                     // 必须延迟到下一编辑器 tick 真正执行（与 RenameEnded/ApplyRenameCore 同因）。
                     EditorApplication.delayCall += () => ApplyMoveCore(moves);
@@ -1278,7 +1270,6 @@ namespace HYC.Framework.Config.Editor
                 var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
                 foreach (var (dragPath, newPath) in moves)
                 {
-                    Debug.Log($"[ConfigDataTree] FileUtil move: {dragPath} -> {newPath}");
 
                     // 手动复现「移出类型文件夹守护」弹窗（FileUtil 不会触发 ConfigAssetMoveGuard）
                     var block = ConfigAssetLayout.ShouldBlockMove(dragPath, newPath);
@@ -1292,7 +1283,6 @@ namespace HYC.Framework.Config.Editor
                     var absTo = Path.Combine(projectRoot, newPath).Replace("\\", "/");
                     var absFromMeta = Path.Combine(projectRoot, dragPath + ".meta").Replace("\\", "/");
                     var absToMeta = Path.Combine(projectRoot, newPath + ".meta").Replace("\\", "/");
-                    Debug.Log($"[ConfigDataTree] Before move: from={File.Exists(absFrom)}, to={File.Exists(absTo)}, fromMeta={File.Exists(absFromMeta)}, toMeta={File.Exists(absToMeta)}");
 
                     try
                     {
@@ -1307,7 +1297,6 @@ namespace HYC.Framework.Config.Editor
                         break;
                     }
 
-                    Debug.Log($"[ConfigDataTree] After move: from={File.Exists(absFrom)}, to={File.Exists(absTo)}, fromMeta={File.Exists(absFromMeta)}, toMeta={File.Exists(absToMeta)}");
                 }
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                 Reload();

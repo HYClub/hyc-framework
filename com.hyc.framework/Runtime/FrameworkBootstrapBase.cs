@@ -114,7 +114,6 @@ namespace HYC.Framework.Runtime
             if (AlignPhysicsToFixedStep)
                 Time.fixedDeltaTime = FixedStep;
 
-            Debug.Log($"[HYC] FrameworkBootstrapBase.Initialize 开始（{WorldName}）。");
 
             // ICustomBootstrap.Initialize 必须同步返回；WebGL/Android 预取是异步的，
             // 用一个临时 MonoBehaviour 驱动协程等预取完成后再装配世界。
@@ -194,7 +193,6 @@ namespace HYC.Framework.Runtime
 #if !UNITY_DOTSRUNTIME
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(World);
 #endif
-            Debug.Log($"[HYC] FrameworkBootstrapBase 装配完成：{WorldName}，FixedStep={FixedStep}s。");
         }
 
         // ===== 自动装配 =====
@@ -304,7 +302,6 @@ namespace HYC.Framework.Runtime
             HotkeyManager.BindAsset(asset);
             asset.Enable(); // HotkeyManager 只持引用、从不 Enable，不调则静默失败
 
-            Debug.Log("[HYC] 已为 HotkeyManager 绑定默认 UI 导航 InputActionAsset（并 Enable）。");
         }
 
         /// <summary>确保场景有 EventSystem（uGUI 点击前置）。已存在则跳过。</summary>
@@ -320,7 +317,6 @@ namespace HYC.Framework.Runtime
             UnityEngine.Object.DontDestroyOnLoad(go);
             go.AddComponent<EventSystem>();
             go.AddComponent<StandaloneInputModule>();
-            Debug.Log("[HYC] 已创建 EventSystem（UI 点击生效）。");
         }
 
         /// <summary>
@@ -358,7 +354,6 @@ namespace HYC.Framework.Runtime
             if (Camera.main != null && uiLayer >= 0)
                 Camera.main.cullingMask &= ~(1 << uiLayer);
 
-            Debug.Log($"[HYC] UI 相机就绪（透视 fov={cam.fieldOfView}，cullingMask=UI 层 {uiLayer}）。");
             return cam;
         }
 

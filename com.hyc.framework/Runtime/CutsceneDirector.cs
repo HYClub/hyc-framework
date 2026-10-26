@@ -62,7 +62,6 @@ namespace HYC.Framework.Timeline
         {
             // Abstract: the game plays the actual Timeline asset here and must
             // call NotifyFinished() when done.
-            Debug.Log("CutsceneDirector playing: " + clip.Name);
         }
 
         /// <summary>Override to actually halt/resume the underlying PlayableDirector.</summary>

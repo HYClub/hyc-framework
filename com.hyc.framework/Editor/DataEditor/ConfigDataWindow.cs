@@ -187,7 +187,6 @@ namespace HYC.Framework.Config.Editor
         private void OnProjectChanged()
         {
             var skip = mTreeView != null && mTreeView.SkipNextProjectChangedReload;
-            Debug.Log($"[ConfigDataWindow] OnProjectChanged skipReload={skip}");
             if (skip)
             {
                 mTreeView.SkipNextProjectChangedReload = false;

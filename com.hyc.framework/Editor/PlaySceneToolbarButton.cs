@@ -156,9 +156,6 @@ namespace HYC.Framework.Editor
             dock.Add(container);
 
             zone.Add(dock);
-            Debug.Log("[HYC] 「仅场景运行」按钮已注入工具栏（" +
-                      (zone.name == ToolbarZoneMiddle ? "中间区 ToolbarZonePlayMode，水平居中" :
-                       zone == root ? "m_Root 回退" : "ToolbarZoneLeftAlign 末尾") + "）。");
             EditorApplication.update -= OnUpdate;
         }
 
