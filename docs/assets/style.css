@@ -348,6 +348,8 @@ html[data-theme="dark"] .site-notice a { color: #FAC775; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(79, 70, 229, .28); text-decoration: none; }
 .btn-ghost { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border-strong); }
 .btn-ghost:hover { border-color: var(--accent); transform: translateY(-1px); text-decoration: none; }
+.btn-warn { background: #EF9F27; color: #2A1703; border: 1px solid #EF9F27; }
+.btn-warn:hover { background: #F5B342; border-color: #F5B342; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(239, 159, 39, .3); text-decoration: none; }
 .portal-section { padding: 26px 0 10px; }
 .portal-section .section-title { margin-top: 0; }
 .portal-note { text-align: center; color: var(--text-faint); font-size: 13px; margin: 34px 0 0; }
