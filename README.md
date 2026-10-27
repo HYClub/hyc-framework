@@ -1,5 +1,5 @@
 > [!WARNING]
-> **持续开发中** · 当前为非稳定版本，如需抢先体验请通过 [GitHub Issues](https://github.com/HYClub/hyc-framework/issues) 联系作者
+> **持续开发中** · 当前为非稳定版本 —— 抢先体验必须到 [Discussions](https://github.com/HYClub/hyc-framework/discussions/1) 联系作者
 
 # HYC Framework
 
