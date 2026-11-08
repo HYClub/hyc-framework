@@ -589,19 +589,27 @@ namespace HYC.Framework.Config.Editor
                 if (string.IsNullOrEmpty(newText.Trim()))
                     LocKeySuggestWindow.CloseAll();
                 else
-                    LocKeySuggestWindow.Open(GUIUtility.GUIToScreenRect(new Rect(inputRect.x, inputRect.yMax, inputRect.width, 20)),
+                {
+                    // 锚点改用鼠标屏幕坐标：GUIToScreenRect 在 BeginArea+BeginScrollView 嵌套下会漏减滚动偏移，
+                    // 导致联想窗被 Unity 夹到窗口顶边、远离输入框。x 取字段屏幕坐标（无横向滚动，正确），y 取鼠标。
+                    var fieldScreen = GUIUtility.GUIToScreenRect(inputRect);
+                    var mp = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                    var suggestAnchor = new Rect(fieldScreen.x, mp.y + 4f, inputRect.width, 20f);
+                    LocKeySuggestWindow.Open(suggestAnchor,
                         newText, picked =>
                         {
                             prop.stringValue = picked;
                             prop.serializedObject.ApplyModifiedProperties();
                         });
+                }
             }
 
-            // 弹窗选择按钮（折叠多级菜单，含"搜索 key…"入口）
+            // 弹窗选择按钮：打开独立的 Key 选择窗口。LocKeyPickerWindow.OpenSearch 内部
+            // 以宿主窗口居中定位并夹进屏幕内（保证标题栏可拖动），此处 anchor 不参与定位。
             if (GUI.Button(pickRect, "\u25BE"))
             {
                 LocKeySuggestWindow.CloseAll();
-                LocKeyPickerWindow.OpenFoldMenu(GUIUtility.GUIToScreenRect(pickRect), text, picked =>
+                LocKeyPickerWindow.Open(Rect.zero, text, picked =>
                 {
                     prop.stringValue = picked;
                     prop.serializedObject.ApplyModifiedProperties();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
@@ -119,9 +120,49 @@ namespace HYC.Framework.Config.Editor
                     var def = GetAsset() as ConfigEnumDefinition;
                     return def != null ? def.displayName : "";
                 }
-                var attr = type?.GetCustomAttributes(typeof(CfgAssetAttribute), true).FirstOrDefault() as CfgAssetAttribute;
+                // 只读本体直接标注：配置类由生成器产出，本体必定有一条 [CfgAsset]
+                var attr = type?.GetCustomAttributes(typeof(CfgAssetAttribute), false).FirstOrDefault() as CfgAssetAttribute;
                 return attr != null ? attr.Name : "";
             }
+        }
+    }
+
+    /// <summary>
+    /// 「外部配置」虚拟文件夹节点：挂在配置树最底部，名下子节点是外部资产的**引用**。
+    /// <para><b>虚拟</b>的含义：资产本体留在原路径，不移动也不复制；这里只登记
+    /// <see cref="HYCSettings.IncludedAssetGuids"/> 里的 GUID 引用。由此推导出的三条约束：
+    /// 子节点不能重命名（改名等于改真资产）、不能拖拽移动（资产不在配置根目录内，无路径可搬）、
+    /// 「移除」只能删引用不能删文件。</para>
+    /// </summary>
+    public sealed class ConfigDataTreeVirtualFolderNode : ConfigDataTreeNode
+    {
+        /// <summary>固定节点 ID（独立负数段，不与文件（+）/ 文件夹（高位 -）/ 外部资产（-1000 起）冲突。</summary>
+        public const int NodeId = -4;
+    }
+
+    /// <summary>外部纳入「数据配置」编辑器的 Unity 资产节点（如 .inputactions）。</summary>
+    public sealed class ConfigDataTreeExternalNode : ConfigDataTreeNode
+    {
+        public string guid;
+        public Type type;
+
+        public ConfigDataTreeExternalNode(string guid, Type type)
+        {
+            this.guid = guid;
+            this.type = type;
+        }
+
+        public override UnityEngine.Object GetAsset()
+            => AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(AssetDatabase.GUIDToAssetPath(guid));
+
+        /// <summary>树标签："[类型名] 文件名"，资产有未保存修改时追加 " *"。</summary>
+        public string BuildDisplayLabel(string originalLabel)
+        {
+            var label = $"[{(type != null ? type.Name : "资产")}] {originalLabel}";
+            var asset = GetAsset();
+            if (asset != null && EditorUtility.IsDirty(asset))
+                label += " *";
+            return label;
         }
     }
 
@@ -186,12 +227,56 @@ namespace HYC.Framework.Config.Editor
                     return;
                 }
             }
+            else if (item is ConfigDataTreeExternalNode ext)
+            {
+                var asset = ext.GetAsset();
+                if (asset != null && EditorUtility.IsDirty(asset))
+                {
+                    any = true;
+                    return;
+                }
+            }
             if (item.children != null)
             {
                 foreach (var c in item.children)
                     WalkDirty(c, ref any);
             }
         }
+
+        #region 文件夹子节点查询（供 FolderConfigEditor 使用）
+
+        /// <summary>返回指定文件夹节点下的直接子文件夹与配置文件节点（按树内存层级遍历，不重新扫磁盘）。</summary>
+        public void GetFolderChildren(string folderGuid, out List<ConfigDataTreeFolderNode> subfolders, out List<ConfigDataTreeFileNode> files)
+        {
+            subfolders = new List<ConfigDataTreeFolderNode>();
+            files = new List<ConfigDataTreeFileNode>();
+            var node = FindFolderNodeByGuid(rootItem, folderGuid);
+            if (node == null || node.children == null)
+                return;
+            foreach (var c in node.children)
+            {
+                if (c is ConfigDataTreeFolderNode fn) subfolders.Add(fn);
+                else if (c is ConfigDataTreeFileNode filen) files.Add(filen);
+            }
+        }
+
+        private static ConfigDataTreeFolderNode FindFolderNodeByGuid(TreeViewItem item, string guid)
+        {
+            if (item is ConfigDataTreeFolderNode fn && fn.guid == guid)
+                return fn;
+            if (item.children != null)
+            {
+                foreach (var c in item.children)
+                {
+                    var r = FindFolderNodeByGuid(c, guid);
+                    if (r != null)
+                        return r;
+                }
+            }
+            return null;
+        }
+
+        #endregion
 
         #region 节点ID
 
@@ -220,6 +305,15 @@ namespace HYC.Framework.Config.Editor
             return mFileID;
         }
 
+        // 外部资产（虚拟文件夹的引用子节点）用独立负数 ID 段，避开文件（+）与文件夹（高位 -）
+        private static int mExternalID = -1000;
+
+        private static int GetExternalID()
+        {
+            mExternalID--;
+            return mExternalID;
+        }
+
         #endregion
 
         #region 构建树
@@ -237,6 +331,8 @@ namespace HYC.Framework.Config.Editor
 
             InstallFolders(root, folder);
             InstallFiles(root, folder);
+            // 挂在最底部：真实配置层级之后，避免混进正常配置结构里
+            InstallVirtualFolder(root);
 
             mGuid2FolderNode.Clear();
 
@@ -320,12 +416,49 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
+        /// <summary>
+        /// 底部「外部配置」虚拟文件夹：把 <see cref="HYCSettings.IncludedAssetGuids"/> 注册表里的
+        /// 外部资产渲染成引用子节点。分组本身恒定显示（即便为空），作为拖入外部资产的可见落点说明。
+        /// 资产已被删除（GUID 解析不到路径）的幽灵项跳过，由右键「移除 / 清空」清理。
+        /// </summary>
+        private void InstallVirtualFolder(TreeViewItem root)
+        {
+            var folder = new ConfigDataTreeVirtualFolderNode
+            {
+                id = ConfigDataTreeVirtualFolderNode.NodeId,
+                depth = 0,
+                displayName = "外部配置",
+                icon = (Texture2D)EditorGUIUtility.IconContent("Folder Icon").image,
+                children = new List<TreeViewItem>(),
+            };
+            root.AddChild(folder);
+
+            var guids = HYCSettings.Instance.IncludedAssetGuids;
+            if (guids == null || guids.Count == 0)
+                return;
+
+            foreach (var g in guids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(g);
+                if (string.IsNullOrEmpty(path))
+                    continue;
+                var type = AssetDatabase.GetMainAssetTypeAtPath(path);
+                folder.AddChild(new ConfigDataTreeExternalNode(g, type)
+                {
+                    id = GetExternalID(),
+                    depth = 1,
+                    displayName = Path.GetFileNameWithoutExtension(path),
+                    icon = (Texture2D)AssetDatabase.GetCachedIcon(path),
+                });
+            }
+        }
+
         /// <summary>All config asset types declared with <c>[CfgAsset]</c>, sorted by Order.</summary>
         private static CfgAssetItem[] GetCfgItems()
         {
             return TypeCache.GetTypesWithAttribute<CfgAssetAttribute>()
                 .Where(r => typeof(ScriptableObject).IsAssignableFrom(r) && !r.IsAbstract && !r.IsGenericType)
-                .SelectMany(r => r.GetCustomAttributes<CfgAssetAttribute>()
+                .SelectMany(r => r.GetCustomAttributes<CfgAssetAttribute>(false)
                     .Select(a => new CfgAssetItem { Name = a.Name, Order = a.Order, Unique = a.Unique, Type = r }))
                 .OrderBy(r => r.Order)
                 .ToArray();
@@ -362,6 +495,25 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
+        /// <summary>「外部配置」虚拟文件夹的标签样式：按 Pro/普通皮肤取两套青色，保证深浅底都能读清。</summary>
+        private static GUIStyle _virtualFolderLabelStyle;
+
+        private static GUIStyle VirtualFolderLabelStyle
+        {
+            get
+            {
+                if (_virtualFolderLabelStyle == null)
+                {
+                    _virtualFolderLabelStyle = new GUIStyle(EditorStyles.label);
+                    _virtualFolderLabelStyle.alignment = TextAnchor.MiddleLeft; // 行高有留白，垂直居中
+                    _virtualFolderLabelStyle.normal.textColor = EditorGUIUtility.isProSkin
+                        ? new Color(0.30f, 0.79f, 0.88f)
+                        : new Color(0.04f, 0.42f, 0.50f);
+                }
+                return _virtualFolderLabelStyle;
+            }
+        }
+
         protected override void RowGUI(RowGUIArgs args)
         {
             var label = args.label;
@@ -372,9 +524,12 @@ namespace HYC.Framework.Config.Editor
             if (args.item is ConfigDataTreeFileNode file)
                 label = file.BuildDisplayLabel(label);
 
+            // 「外部配置」虚拟文件夹用独立颜色区分于真实目录（子节点保持默认色，避免整棵花掉）
+            var style = args.item is ConfigDataTreeVirtualFolderNode ? VirtualFolderLabelStyle : LabelStyle;
+
             var indent = GetContentIndent(args.item) + 16;
             var textRect = new Rect(args.rowRect.x + indent, args.rowRect.y, args.rowRect.width - indent, args.rowRect.height);
-            GUI.Label(textRect, label, LabelStyle);
+            GUI.Label(textRect, label, style);
         }
 
         #endregion
@@ -735,6 +890,44 @@ namespace HYC.Framework.Config.Editor
             return menu;
         }
 
+        /// <summary>
+        /// 构建「外部配置」虚拟文件夹的右键菜单。清空仅删引用不动文件，故文案里必须写明，
+        /// 且因一次涉及全部条目，走一次二次确认。
+        /// </summary>
+        private GenericMenu BuildVirtualFolderContextMenu(ConfigDataTreeVirtualFolderNode node)
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("清空外部配置（仅移除引用）"), false, () =>
+            {
+                if (EditorUtility.DisplayDialog("清空外部配置",
+                        "将移除「外部配置」下的全部引用。\n\n资产文件本身不会被删除，仍保留在原位置。",
+                        "清空", "取消"))
+                    ClearExternalGuids();
+            });
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("展开全部"), false, () => SetExpanded(new List<int> { ConfigDataTreeVirtualFolderNode.NodeId }));
+            menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+            return menu;
+        }
+
+        /// <summary>
+        /// 构建外部资产引用节点的右键菜单。因这里是**引用语义**，
+        /// 「移除」只删注册表条目，绝不触碰磁盘上的资产文件。
+        /// </summary>
+        private GenericMenu BuildExternalContextMenu(ConfigDataTreeExternalNode ext)
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("从外部配置移除（不删除资产）"), false, () => RemoveExternalGuid(ext.guid));
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("定位资源"), false, () => PingGuid(ext.guid));
+            menu.AddItem(new GUIContent("在 Inspector 中打开"), false, () =>
+            {
+                var asset = ext.GetAsset();
+                if (asset != null) Selection.activeObject = asset;
+            });
+            return menu;
+        }
+
         /// <summary>生成枚举代码并刷新树（带错误提示）。</summary>
         private void GenerateEnumCode(ConfigEnumDefinition def)
         {
@@ -791,16 +984,27 @@ namespace HYC.Framework.Config.Editor
             if (item == null)
                 return;
 
-            var menu = new GenericMenu();
+            GenericMenu menu = null;
 
             if (item is ConfigDataTreeFolderNode folder)
             {
                 menu = BuildFolderContextMenu(folder, false);
             }
+            else if (item is ConfigDataTreeExternalNode ext)
+            {
+                menu = BuildExternalContextMenu(ext);
+            }
+            else if (item is ConfigDataTreeVirtualFolderNode vf)
+            {
+                menu = BuildVirtualFolderContextMenu(vf);
+            }
             else if (item is ConfigDataTreeFileNode file)
             {
                 menu = BuildFileContextMenu(file);
             }
+
+            if (menu == null)
+                return;
 
             menu.ShowAsContext();
 
@@ -814,7 +1018,65 @@ namespace HYC.Framework.Config.Editor
             var item = FindItem(id, rootItem);
             if (item is ConfigDataTreeFileNode file)
                 PingGuid(file.guid);
+            else if (item is ConfigDataTreeExternalNode ext)
+                PingGuid(ext.guid); // 引用节点双击 = 在 Project 里定位原资产
         }
+
+        #region 外部配置（虚拟文件夹）
+
+        /// <summary>把外部资产 GUID 加入注册表（去重，已存在返回 false）。写入自带落盘。</summary>
+        public bool AddExternalGuid(string guid)
+        {
+            if (string.IsNullOrEmpty(guid))
+                return false;
+            return HYCSettings.Instance.AddIncludedAssetGuid(guid);
+        }
+
+        /// <summary>从注册表移除一个外部资产 GUID 并刷新树（只删引用，不动磁盘上的资产）。</summary>
+        public void RemoveExternalGuid(string guid)
+        {
+            if (HYCSettings.Instance.RemoveIncludedAssetGuid(guid))
+                Reload();
+        }
+
+        /// <summary>清空注册表全部条目并刷新树（只删引用，不动磁盘上的资产）。</summary>
+        public void ClearExternalGuids()
+        {
+            HYCSettings.Instance.ClearIncludedAssets();
+            Reload();
+        }
+
+        /// <summary>选中并滚动到指定 GUID 对应的引用节点（树会先重建）。</summary>
+        private void SelectExternalNode(string guid)
+        {
+            var node = FindExternalNode(rootItem, guid);
+            if (node == null)
+                return;
+            SetExpanded(new List<int> { ConfigDataTreeVirtualFolderNode.NodeId });
+            SetSelection(new List<int> { node.id });
+            FrameItem(node.id);
+            OnSelectionChanged?.Invoke();
+        }
+
+        private static ConfigDataTreeExternalNode FindExternalNode(TreeViewItem item, string guid)
+        {
+            if (item is ConfigDataTreeExternalNode ext && ext.guid == guid)
+                return ext;
+
+            if (item.children != null)
+            {
+                foreach (var child in item.children)
+                {
+                    var result = FindExternalNode(child, guid);
+                    if (result != null)
+                        return result;
+                }
+            }
+
+            return null;
+        }
+
+        #endregion
 
         protected override void SelectionChanged(IList<int> selectedIds)
         {
@@ -932,14 +1194,15 @@ namespace HYC.Framework.Config.Editor
             }
         }
 
-        private void CloneAsset(ConfigDataTreeFileNode item)
+        public void CloneAsset(ConfigDataTreeFileNode item)
         {
             var fromPath = AssetDatabase.GUIDToAssetPath(item.guid);
             var type = item.type ?? AssetDatabase.GetMainAssetTypeAtPath(fromPath);
             if (type == null)
                 return;
 
-            var typeAttr = type.GetCustomAttributes(typeof(CfgAssetAttribute), true).FirstOrDefault() as CfgAssetAttribute;
+            // 与 ConfigAssetFactory.IsUniqueType 同语义：只认本体直接标注
+            var typeAttr = type.GetCustomAttributes(typeof(CfgAssetAttribute), false).FirstOrDefault() as CfgAssetAttribute;
             if (typeAttr != null && typeAttr.Unique)
             {
                 if (HasAnyAssetOfType(type))
@@ -985,7 +1248,7 @@ namespace HYC.Framework.Config.Editor
             Reload();
         }
 
-        private void DeleteAsset(ConfigDataTreeFileNode item)
+        public void DeleteAsset(ConfigDataTreeFileNode item)
         {
             var path = AssetDatabase.GUIDToAssetPath(item.guid);
             if (EditorUtility.DisplayDialog("删除配置", $"确定删除 {Path.GetFileName(path)} ？", "删除", "取消"))
@@ -1007,7 +1270,7 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>删除文件夹（递归删除其中所有资产），根目录不可删。</summary>
-        private void DeleteFolder(ConfigDataTreeFolderNode folder)
+        public void DeleteFolder(ConfigDataTreeFolderNode folder)
         {
             var path = AssetDatabase.GUIDToAssetPath(folder.guid);
 
@@ -1063,6 +1326,9 @@ namespace HYC.Framework.Config.Editor
         {
             return item is ConfigDataTreeFolderNode || item is ConfigDataTreeFileNode;
         }
+
+        /// <summary>供 FolderConfigEditor 触发重命名，复用 TreeView 内置重命名流程与 RenameEnded 的 FileUtil 搬家逻辑（文件夹改名 GUID 不变）。</summary>
+        public void BeginRenameNode(ConfigDataTreeNode node) => BeginRename(node);
 
         protected override void RenameEnded(RenameEndedArgs args)
         {
@@ -1215,12 +1481,68 @@ namespace HYC.Framework.Config.Editor
 
         protected override DragAndDropVisualMode HandleDragAndDrop(DragAndDropArgs args)
         {
+            if (DragAndDrop.paths == null || DragAndDrop.paths.Length <= 0)
+                return DragAndDropVisualMode.Rejected;
+
+            // 先按「是否在配置根目录内」把拖拽项分成两组，两组走完全不同的语义：
+            //   外部组 → 只登记引用到「外部配置」虚拟文件夹（文件原地不动）
+            //   内部组 → 沿用原有「树内移动」（真实搬家）
+            // 两条路径彻底隔离，外部项绝不进入下面的 Move 分支。
+            var root = ConfigDataSettings.RootFolder.Replace('\\', '/').TrimEnd('/');
+            var external = new List<string>();
+            var inner = new List<string>();
+            foreach (var p in DragAndDrop.paths)
+            {
+                if (string.IsNullOrEmpty(p))
+                    continue;
+                var np = p.Replace('\\', '/');
+                if (np.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(np, root, StringComparison.OrdinalIgnoreCase))
+                    inner.Add(np);
+                else
+                    external.Add(np);
+            }
+
+            if (external.Count > 0)
+            {
+                // 混合拖放（既有内部配置又有外部资产）语义冲突，直接拒并说明
+                if (inner.Count > 0)
+                {
+                    if (args.performDrop)
+                        RejectDrop("一次只能处理外部资产或配置资产，请勿混合拖放。");
+                    return DragAndDropVisualMode.Rejected;
+                }
+
+                // 落点必须是树的空白区：压在具体节点行上时保持老行为（返回 None = 本控件不处理）
+                if (!IsBlankDropArea(args))
+                    return DragAndDropVisualMode.None;
+
+                string reason;
+                List<string> accepted;
+                if (!TryClassifyExternal(external, out accepted, out reason))
+                {
+                    if (args.performDrop)
+                        RejectDrop(reason);
+                    return DragAndDropVisualMode.Rejected;
+                }
+
+                if (args.performDrop)
+                {
+                    DragAndDrop.AcceptDrag();
+                    if (Event.current != null)
+                        Event.current.Use();
+                    // 弹模态确认框与写注册表都推迟到下一个编辑器 tick：
+                    // 拖拽事务内做 IO / 弹窗不稳（与 MoveFileOrDirectory 同因）。
+                    EditorApplication.delayCall += () => ConfirmAndIncludeExternal(accepted);
+                }
+
+                // Link：明确告诉用户这是「建立引用」而不是 Move
+                return DragAndDropVisualMode.Link;
+            }
+
             var dropNode = args.parentItem;
             if (dropNode is ConfigDataTreeFileNode)
                 dropNode = dropNode.parent;
-
-            if (DragAndDrop.paths == null || DragAndDrop.paths.Length <= 0)
-                return DragAndDropVisualMode.Rejected;
 
             if (dropNode is ConfigDataTreeFolderNode folder)
             {
@@ -1253,6 +1575,107 @@ namespace HYC.Framework.Config.Editor
             }
 
             return DragAndDropVisualMode.Rejected;
+        }
+
+        /// <summary>
+        /// 判断本次落点是否为树的空白区。Unity 在空白处悬停时 <c>parentItem</c> 可能为 null，
+        /// 也可能给出隐藏的根节点（id/depth 均为 -1），两种都算空白。
+        /// </summary>
+        private static bool IsBlankDropArea(DragAndDropArgs args)
+        {
+            var item = args.parentItem;
+            return item == null || item.depth < 0 || item.id == -1;
+        }
+
+        /// <summary>
+        /// 筛选可纳入「外部配置」的外部路径：只收单个主资产，文件夹与黑名单一律拒绝并给出理由。
+        /// </summary>
+        private static bool TryClassifyExternal(List<string> paths, out List<string> accepted, out string reason)
+        {
+            accepted = new List<string>();
+            reason = null;
+
+            foreach (var np in paths)
+            {
+                if (Directory.Exists(np))
+                {
+                    reason = $"不支持文件夹：{Path.GetFileName(np)}\n「外部配置」只登记单个资产。";
+                    return false;
+                }
+                if (!ExternalAssetFilter.IsIncludablePath(np))
+                {
+                    reason = $"不支持该文件类型：{Path.GetFileName(np)}\n（代码、着色器、UI 资源、程序集定义与预制体不可加入）";
+                    return false;
+                }
+                var type = AssetDatabase.GetMainAssetTypeAtPath(np);
+                if (ExternalAssetFilter.IsBlacklistedType(type))
+                {
+                    reason = $"「{Path.GetFileName(np)}」是本框架自身产出的资产，\n它本就应该显示在配置树里，无需加入「外部配置」。";
+                    return false;
+                }
+                if (string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(np)))
+                {
+                    reason = $"无法解析资产 GUID（可能不在 Assets 目录下）：\n{np}";
+                    return false;
+                }
+                accepted.Add(np);
+            }
+
+            return accepted.Count > 0;
+        }
+
+        /// <summary>拖拽拒绝时的统一出口：吞掉本次 Perform 并说明原因。</summary>
+        private static void RejectDrop(string reason)
+        {
+            DragAndDrop.AcceptDrag();
+            if (Event.current != null)
+                Event.current.Use();
+            EditorApplication.delayCall += () =>
+                EditorUtility.DisplayDialog("无法加入「外部配置」", reason, "确定");
+        }
+
+        /// <summary>
+        /// 外部资产落盘的确认 + 登记：先弹「确定/取消」列出资产名，确认后才写入注册表，
+        /// 随后重建树、自动展开「外部配置」并选中首个新增项。全程只写引用，不碰磁盘上的原文件。
+        /// </summary>
+        private void ConfirmAndIncludeExternal(List<string> paths)
+        {
+            var pending = new List<string>();
+            foreach (var p in paths)
+            {
+                var guid = AssetDatabase.AssetPathToGUID(p);
+                if (string.IsNullOrEmpty(guid) || pending.Contains(guid))
+                    continue;
+                if (HYCSettings.Instance.IsIncluded(guid))
+                    continue;
+                pending.Add(guid);
+            }
+
+            if (pending.Count == 0)
+            {
+                EditorUtility.DisplayDialog("外部配置", "这些资产已经在「外部配置」里了。", "确定");
+                return;
+            }
+
+            var names = pending.Select(g => Path.GetFileName(AssetDatabase.GUIDToAssetPath(g))).ToArray();
+            var shown = names.Length <= 6
+                ? names
+                : names.Take(6).Concat(new[] { $"…等共 {names.Length} 个" }).ToArray();
+
+            var message = $"是否将以下 {pending.Count} 个资产加入「外部配置」？\n\n· "
+                          + string.Join("\n· ", shown)
+                          + "\n\n「外部配置」是一个虚拟文件夹：\n"
+                          + "文件不会被移动或复制，仍保留在原位置；这里只登记引用，\n"
+                          + "可在右键菜单中移除（移除只删引用，不会删除资产本身）。";
+
+            if (!EditorUtility.DisplayDialog("加入「外部配置」", message, "确定", "取消"))
+                return;
+
+            foreach (var guid in pending)
+                HYCSettings.Instance.AddIncludedAssetGuid(guid);
+
+            Reload();
+            SelectExternalNode(pending[0]);
         }
 
         /// <summary>

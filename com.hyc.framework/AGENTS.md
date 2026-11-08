@@ -15,7 +15,7 @@
 > - §2.1 行为树资产创建（`BTAssetFactory` / `TreeId`·`NodeId` 派发）
 > - §1.1 Blob / 配置数据 blittable 铁律
 > - **§2.2 配置引用安全铁律（ref 链三连：EA0001 + CS8329 + CS8347/CS8168，含「取行助手必须按值传参 + 指针派生」）**
-> - **§9 编辑器 / 编译铁律（IMGUI 控件集合每帧一致 / 钉死尺寸三不选 / EditorWindow 关闭必须 delayCall+伪 null / Popup·菜单标签半角 `/` 拆子菜单 / 三类名字撞车 CS0234·CS0104·CS0103 / Unity 图标 API `SetIconForObject` 只收 GameObject·MonoScript / API 断言必须源码实证）**
+> - **§9 编辑器 / 编译铁律（IMGUI 控件集合每帧一致 / 钉死尺寸三不选 / EditorWindow 关闭必须 delayCall+伪 null / Popup·菜单标签半角 `/` 拆子菜单 / 三类名字撞车 CS0234·CS0104·CS0103 / Unity 图标 API `SetIconForObject` 只收 GameObject·MonoScript / API 断言必须源码实证 / 命名空间铁律：禁 `using` 引入类型、类型引用写全名 §9.⑧）**
 > - **§3 生成物禁手改（宿主一律走重新生成，禁止手动编辑 HYC 框架生成的代码）**
 > 上述铁律是 HYC 框架经多次实编译踩坑沉淀的硬约束；宿主（使用方工程）复用框架的 IMGUI / 配置 / 导出 / 行为树能力时同样会踩，复制后宿主 AI 才不会重蹈覆辙。
 > 在所有相关操作中**严格按 HYC 的 `AGENTS.md` 与 `Documentation~/` 文档执行**；事项冲突以 HYC 文档为准，不得擅自绕过工厂手填身份字段。
@@ -67,6 +67,7 @@
 - **跨配置引用必须用「配置引用」字段类型，禁止手填 ID**：配置模板里若某字段要引用另一个配置（如 A 用到 B 的 `ID` / 某成员），该字段必须用 `ConfigFieldType.Reference`（UI 称「配置引用」）**直接选目标配置类型**，而非定义一个 `long`/`Int64` 字段手填 ID。导出时在该字段的「取成员」里选要落盘的成员（如 `id`）即可——引用关系由框架维护，重派发 / 复制不会悬空，运行期经**生成式静态门面 `{ns}.ConfigManager.{Type}.GetByID(id)`**（无 World 依赖，内部转框架 `ConfigRegistry.GetRef`，零拷贝 ref）取回（不再提供 World 扩展——返回 blob 行值拷贝 / 未命中返 `default`，是 EA0001 运行期炸弹，已从生成器删除）。框架低层注册表名为 `ConfigRegistry`（`HYC.Framework.Config.ConfigRegistry`，`Runtime/ConfigRegistry.cs`；原 `ConfigManager` 已改名，破坏性）：宿主查询一律写门面 `ConfigManager`，两者不再重名、不再有 CS0104；只有手工建表 / 注册（如生成的 `XxxBlobSystem` 内部）才直接调 `ConfigRegistry`。详见 `Documentation~/11-字段类型与导出设置.md`。
 - **宿主查配置只能用门面 `{ns}.ConfigManager.{Type}.GetByID(id)`，禁止调用 `ConfigRegistry`（铁律）**：门面是框架对宿主承诺的**唯一稳定查询入口**——按类型分组、零字符串键、零拷贝 ref；框架低层注册表 `HYC.Framework.Config.ConfigRegistry`（`Register`/`TryGet`/`GetRef`/`GetAllRows`/`Clear`…）是**生成代码与加载系统的内部机制**，API 形态不受宿主兼容承诺。三条理由：① 低层可能随版本演进，直接调用把升级风险接进业务代码；② 宿主代码里只应有一个 `ConfigManager` 解析目标——两类同名曾直接造成 CS0104 / CS1061，禁用低层从根上消除；③ 注册（造表）是加载系统的事，查询（用表）才是业务代码的事。宽松语义（未命中不抛异常）用门面 `ConfigManager.{Type}.Contains(id)` 预判存在性、命中再 `ref var row = ref GetByID(id)` 取行——**不得**走 World 扩展 `world.GetCfg{className}(id)`：它返回 blob 行的值拷贝、未命中返 `default`，二者都是 EA0001 运行期炸弹，已从生成器删除。**唯一例外**：宿主自建 Blob 加载系统（不用生成的 `XxxBlobSystem` 时才发生）可调 `ConfigRegistry.Register(table)`——那是"造表"不是"查表"，普通业务代码永远只查不注册。**取行必须 ref 接收（EA0001 铁律）**：一律 `ref var row = ref ConfigManager.{Type}.GetByID(id);`——行结构含 `BlobString`/`BlobArray`（自相对偏移），值拷贝寻址错位（dev 构包抛 `InvalidOperationException`、release 静默读垃圾）；ref 局部变量禁跨方法传参（传 id 方法内自查）、禁存字段/容器、禁闭包捕获、禁跨帧缓存。完整说明见 `Documentation~/10-配置管线-总览.md` 的「运行期查询 API」节。
 - **配置类型分「实例基数」：`Multiple`（默认，可多个）/ `Single`（全工程唯一）**：`Single` 用 `[CfgAsset(name, order, unique: true)]` 声明（`CfgAssetAttribute.Unique`，默认 `false` = `Multiple`）。`Single` 类型 `ConfigAssetFactory.Create` 在已存在时直接抛 `InvalidOperationException`（禁止重复创建）、`CreateMany` 直接抛「不支持批量创建」，创建器 UI 也显示唯一标记、不提供二次创建。这是**声明即强制**，不要手填多个同名唯一类型的资产。完整词汇与强制点见 `Documentation~/10-配置管线-总览.md` 的「配置实例基数（Cardinality）」一节。
+- **创建配置模板（`ConfigTemplate`）必须走 `ConfigAssetFactory.CreateTemplate(displayName, className, folder)`**：模板是无 `ID`/`GUID` 的框架基础设施资产（不参与发号服），对模板调 `Create`/`CreateMany` 会因派发 ID 失败而整体回滚；`CreateTemplate` 自动归置到 `根目录/配置模板/`、文件名冲突自动加序号、自动挂 ConfigBase 基类模板。禁止对模板 `CreateInstance` + 手拼路径落盘。
 - 完整规则与用法见 `Documentation~/12-数据编辑与校验.md` 的「程序化创建」小节。
 - **配置枚举成员顺序 / 增删 = 破坏性变更**：改枚举成员顺序或增删成员会改变既有数值，已导出的 Blob 会读不出 / 串号，必须重跑配置导出（`EnsureEnumDefs` 必须在清理 OutputDir 之后、生成配置类之前）。
 
@@ -141,6 +142,7 @@
 | 同步 / Sync（帧同步 P1） | `Documentation~/61-同步-总览.md` |
 | 音频 / Audio | `Documentation~/55-音频用法.md` |
 | 过场 / Timeline | `Documentation~/50-过场-Timeline.md`、`51-自定义Timeline编辑器-设计.md` |
+| ECS 内容导出 / AI·Unity CLI 调用 | `Documentation~/92-ECS内容导出与AI调用指南.md`（模块 `Editor/ContentExport/`） |
 | 编辑器工具链 / CI | `Documentation~/90-编辑器工具链.md`、`95-CI与本地验证.md` |
 | 示例（不编译） | `Samples~/HYCSimple/`（导入落 `Assets/HYCSimple/`）：各模块含 `AI-NOTES.md` —— `Attr/`、`BT/`、`Config/`、`Loc/`、`Cinemachine/`、`Scene/`、`Input/` |
 
@@ -157,9 +159,12 @@
 - `CinemachineDualVariant` 默认按**层名**解析，无名层要走 `SetLayers(层号,层号)`；`CinemachineRigBinder` 在 `Awake` 一次性扫描机位，晚加的机位需 `binder.Rescan()`。
 
 ### SceneContent（场景内容物）
-- **编辑器期 prefab→id 解析器必须放样例自己的 Editor asmdef**：解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它（`#if UNITY_EDITOR` 包在运行时 asmdef 里照样 CS0234）。`SceneContentResolvers.Register` 一次性、编辑器期自注册；运行期 `SceneContentLoader.Load(levelId, spawner)` 只做加载。
-- 双来源合并：`SceneContentAuthoring` 实例条目 + `ISceneContentMarker`（标记组件，挂 prefab 即被自动发现）。`levelId` 须与导出文件名、运行期 `Load` 一致。
-- 写 entries 必须 Undo + SetDirty；blob ref 注意 EA0001、payload 复制显式 try/finally。
+- **编辑器期 prefab→id 解析器必须放样例自己的 Editor asmdef**：解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它（`#if UNITY_EDITOR` 包在运行时 asmdef 里照样 CS0234）。`SceneContentResolvers.Register` 一次性、编辑器期自注册；运行期 `SceneContentLoader` 只做加载。
+- **运行期身份 = 业务 key，禁止手抄资产 GUID（铁律）**：GUID 只在 Editor 可得（`AssetDatabase` 属 `UnityEditor`），程序化重建 prefab（先 `DeleteAsset` 再 `SaveAsPrefabAsset`）还会换 GUID。导出期 `Export(asset, alias = null)` 把「业务 key → GUID」upsert 进 `SceneContent/index.json`（key 优先级：显式 alias > Addressables 地址 > 资产名）；运行期关卡加载器用自己本来就有的业务 key（`LevelConfig.MapAddress` / 配置 id / 资产名）调 `SceneContentLoader.LoadByKey(key, spawner[, side])`，框架查表换 GUID 后复用 `Load`。`Load(guid,…)` 仅作底层通道。**不要**在代码 / Inspector / 字典里硬编码 GUID；查不到 key 时框架会报 Error 并列出清单全部可用 key。
+- **Blob 身份 = 资产 GUID（彻底无描述器组件）**：导出器直接对关卡 **Prefab / Scene 资产**调用，用其 `.meta` GUID 命名 Blob（`SceneContent/<guid>.blob`）。来源只有 B（标记组件 `ISceneContentMarker`，挂资产内 GO 即被自动发现）；早期 A 来源（手填实例条目 + `SceneContentAuthoring`）已移除。`SceneContentBlob.BlobVersion` / `LevelGuid` / 自校验不动，清单结构变更只抬 `SceneContentManifest.ManifestVersion`。
+- **WebGL / Android 零接线**：`index.json` 由构建期 `StreamingAssetsManifestBuilder` 递归收录进 `hyc_streaming_manifest.txt`，随 `FrameworkBootstrap.InitializeAsync` 的 `PreloadAsync()` 预取；读它必须走 `StreamingAssets.ReadText`（`LoadByKey` 已封装），**禁 `File.ReadAllText`**。
+- 导出写 Blob 注意 `EA0001`（BlobBuilder Allocator/线程约束）、payload 字节复制显式 `try/finally`；生成代码走框架 asmdef，不可手改。
+- **用法速查（给接入方 AI）**：建类型 `SceneContentFactory.CreateType(name, className)` → 设计器配字段 → 「生成代码」→ 挂组件到关卡 prefab → `SceneContentExporter.Export(资产, 业务key)` / `ExportAll()` → 运行期用业务 key 调 `SceneContentLoader.LoadByKey(key, spawner[, side])`。完整 6 步 + 代码示例见 `14-场景内容物-SceneContent.md` 的「用法速查」节，映射清单规则见 3.5.1。
 
 ### Input（输入组件化）
 - **每名玩家要独立 `InputActionAsset` 实例**：`Object.Instantiate(...)` 克隆；共享同一实例会让边沿（`justPressed`）与启用状态跨玩家串味。
@@ -192,3 +197,4 @@
 - **⑤ 三类名字撞车编译错（铁律）**：① CS0234 类型与命名空间同名 → `using X = ...;` 别名；② CS0104 跨命名空间二义 → 去 `using` 写全名；③ CS0103 改名留漏网 → 改名后全仓 grep 旧名。改名 / 新增类型必 `grep 旧名/新名` 核漏。
 - **⑥ Unity 图标 API 铁律（铁律）**：`EditorGUIUtility.SetIconForObject(obj, icon)` 的 `obj` **只接受 GameObject 或 MonoScript**；传 ScriptableObject 实例时图标落到该实例的类 MonoScript 上——**同类全部资产共享**（症状：给一个模板设图标，所有模板 + 基类字段全变）。SO 资产 per-instance 原生图标通道不存在；per-instance 图标只能框架自绘（读字段自己画）。持久化唯一通道 = `MonoImporter.SetIcon` + `SaveAndReimport` 写 `.cs.meta`；session 泄漏不跨域存活，改错代码重编译即自愈。
 - **⑦ API 断言必须源码实证（铁律）**：沙箱禁编译，改代码时任何"这个 API 存在 / 能这样用"的判断都必须去包缓存或框架源码读到实证，不能靠训练记忆或规范推断（已三次踩坑：`NativeHashSet.Count`/无 `ToNativeArray`、`ConfigExportService.ExportSingle` 的 Linq 依赖、删 `using` 前未扫依赖）。定位包源码：`Library/PackageCache/com.unity.*@<ver>/`；删 `using` 前全文件扫描 Linq 扩展方法名残留；依赖重载解析处一律改显式转换。改完让用户进 Unity 编译验证，别自称"编译通过"。
+- **⑧ 命名空间铁律（禁止 `using <Namespace>` 引入类型，一律写全名）**：禁止 `using <命名空间>;` 引入类型；所有类型引用必须写**含命名空间的长名**（如 `Unity.Entities.SystemBase`、`HYC.Framework.Config.ConfigAssetFactory`、`UnityEngine.GameObject`）。本律**仅禁"命名空间导入式 `using`"**：`using` 语句（资源释放 `using var x = ...`）、`using static <Type>`、`using Alias = <Namespace>` 不在禁止范围。**例外：仅提供扩展方法的命名空间必须保留 `using`**（典型 `System.Linq`；`.Where/.Select/.ToList` 等无全名调用等价写法——强行去 using 只能手写 `System.Linq.Enumerable.Select(...)`，反而更糟）。局部类型/命名空间遮蔽全局名时用 `global::System.Int32` 等显式脱离遮蔽。**适用范围**：新增代码一律遵守；存量代码**全仓一次性改为全名**（在专用分支执行，按 asmdef 分批、每批经 Unity 编译验证；扩展方法命名空间 / `using static` / `using Alias` 保留）。收益对应：根除 CS0104/CS0234，及"跨命名空间漏 using"类 CS0246；每个引用自文档化。不解决：asmdef 引用缺失 / 真·拼写错的 CS0246；`var` 仍可用。**生成器跟进**：所有 `*CodeGen.cs`/`*Generator.cs` 的 emit 必须输出全名（扩展方法命名空间除外），否则生成文件违反本律。

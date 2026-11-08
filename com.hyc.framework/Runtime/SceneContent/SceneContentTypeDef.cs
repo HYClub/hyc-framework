@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HYC.Framework.Config;
 using UnityEngine;
 
 namespace HYC.Framework.SceneContent
@@ -8,7 +9,7 @@ namespace HYC.Framework.SceneContent
     /// 场景内容类型定义（策划配的「场景内容模板」）。
     /// <para>
     /// 一个定义 ↔ 一个标记组件：代码生成器按本资产吐出
-    /// <c>{className} : MonoBehaviour, ISceneContentMarker, ISceneContentMarkerPayload</c>，
+    /// <c>{className} : SceneContentMarkerBase, ISceneContentMarker, ISceneContentMarkerPayload</c>，
     /// 策划把生成的组件挂在关卡 prefab 的出生点/开关等 GO 上，就能在导出时变成一条场景内容条目。
     /// </para>
     /// <para>
@@ -32,14 +33,6 @@ namespace HYC.Framework.SceneContent
         [HideInInspector]
         public string lastGeneratedClassName = "";
 
-        /// <summary>
-        /// 编辑器侧扫描对象：把关卡 prefab 拖进来，面板会列出其上所有标记组件、
-        /// 以及本类型的字段能否与组件的序列化字段对上（反向填充用）。
-        /// 仅编辑器使用，不进 Blob、不影响运行期。
-        /// </summary>
-        [Tooltip("编辑器侧扫描对象（关卡 prefab）。拖进来可列出其上全部标记组件并反填字段，仅编辑器用。")]
-        public GameObject scanPrefab;
-
         /// <summary>策划可配的参数字段列表。</summary>
         public List<SceneContentFieldDef> fields = new List<SceneContentFieldDef>();
 
@@ -48,23 +41,6 @@ namespace HYC.Framework.SceneContent
         /// 生成代码把它写成 <c>public const int ContentTypeId</c>，导出与运行期共用同一个值。
         /// </summary>
         public int ContentTypeId => SceneContentTypeId.Compute(className);
-    }
-
-    /// <summary>场景内容字段的取值类型（只放<b>能落进 JSON payload</b> 的种类）。</summary>
-    public enum SceneContentFieldType
-    {
-        /// <summary>整型标量。</summary>
-        Int,
-        /// <summary>浮点标量。</summary>
-        Float,
-        /// <summary>布尔开关（如「这个门是否开启」）。</summary>
-        Bool,
-        /// <summary>字符串（枚举之外的自由文本）。</summary>
-        String,
-        /// <summary>枚举（引用数据编辑器里的枚举定义，见 <see cref="SceneContentFieldDef.enumRefClassName"/>）。</summary>
-        Enum,
-        /// <summary>场景内 GameObject 引用（导出时按该侧导出方式转成路径/名字/地址）。</summary>
-        GameObject,
     }
 
     /// <summary>
@@ -125,24 +101,48 @@ namespace HYC.Framework.SceneContent
         [Tooltip("字段说明，生成代码里作为 [Tooltip]")]
         public string description = "";
 
-        /// <summary>取值类型。</summary>
-        public SceneContentFieldType type = SceneContentFieldType.Int;
+        /// <summary>
+        /// 取值类型，与配置模板共用 <see cref="ConfigFieldType"/>；菜单里不支持的项在编辑器内置灰，
+        /// 生成器另有一份「可生成」白名单做兜底校验。
+        /// </summary>
+        public ConfigFieldType type = ConfigFieldType.Int;
 
         /// <summary>是否生成为 <c>List&lt;T&gt;</c>（策划一次管一批 GO 时用）。</summary>
         [Tooltip("勾选则生成 List<T>（如一批门）")]
         public bool isList;
 
         /// <summary>
-        /// 引用数据编辑器的枚举定义类名（<see cref="ConfigEnumDefinition.className"/>），
-        /// 仅 <see cref="SceneContentFieldType.Enum"/> 时使用。
+        /// 枚举定义类名（<see cref="ConfigEnumDefinition.className"/>），仅
+        /// <see cref="ConfigFieldType.Enum"/> 使用；在类型下拉里选「引用/枚举引用/…」自动写入。
         /// </summary>
-        [Tooltip("引用枚举定义的类名（仅 Enum 类型使用）")]
+        [Tooltip("枚举定义类名（在类型下拉里选）")]
         public string enumRefClassName = "";
+
+        /// <summary>
+        /// 配置引用目标类型的全名（<c>AssemblyQualifiedName</c>），仅
+        /// <see cref="ConfigFieldType.Reference"/> 使用；生成的字段是 <c>long</c>（配置成员 id）。
+        /// </summary>
+        [Tooltip("配置引用目标类型（在类型下拉里选）")]
+        public string refTypeFullName = "";
 
         /// <summary>客户端导出设置。</summary>
         public SceneContentFieldExport clientExport = new SceneContentFieldExport();
 
         /// <summary>服务端导出设置。默认不导出：服务端通常不需要可视对象引用。</summary>
         public SceneContentFieldExport serverExport = new SceneContentFieldExport(SceneContentExportMode.None);
+
+        /// <summary>
+        /// 组件 Inspector 中该字段只读（生成代码打 <c>[ReadOnly]</c>，绘制时禁用输入）。
+        /// 仅影响展示，不影响导出。与配置模板字段的 <c>readOnly</c> 同语义。
+        /// </summary>
+        public bool readOnly;
+
+        /// <summary>
+        /// 关联参数：条件显示规则（AND）。生成代码转成字段上的 <c>[CfgVisibleWhen]</c>，
+        /// 生成组件的 Inspector 据此按条件绘制 / 跳过本字段。目标字段只能是 bool / enum 标量字段；
+        /// 无效条件在生成时跳过、求值时视为满足（保持显示），不会把字段吞掉。
+        /// 与配置模板字段的 <c>visibility</c> 共用同一份条件结构。
+        /// </summary>
+        public List<ConfigVisibilityCondition> visibility = new List<ConfigVisibilityCondition>();
     }
 }

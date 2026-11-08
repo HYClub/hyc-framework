@@ -14,7 +14,8 @@ namespace HYC.Framework.Config.Editor
         {
             if (type == null)
                 return "";
-            var attr = type.GetCustomAttributes(typeof(CfgAssetAttribute), true).FirstOrDefault() as CfgAssetAttribute;
+            // 只读本体直接标注：配置类由生成器产出，本体必定有一条 [CfgAsset]
+            var attr = type.GetCustomAttributes(typeof(CfgAssetAttribute), false).FirstOrDefault() as CfgAssetAttribute;
             if (attr != null && !string.IsNullOrEmpty(attr.Name))
             {
                 var parts = attr.Name.Split('/', '\\');

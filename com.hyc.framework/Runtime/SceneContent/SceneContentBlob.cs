@@ -40,10 +40,12 @@ namespace HYC.Framework.SceneContent
         /// <summary>
         /// Blob 格式版本。改动条目结构时 +1；运行期 <c>TryRead</c> 版本不符会拒绝加载。
         /// <para>v2：条目坐标从 <c>float3</c>/<c>quaternion</c> 改为扁平 float（消除 Editor 侧对 Unity.Mathematics 的依赖）。</para>
+        /// <para>v3：移除 int LevelId，改以 BlobArray&lt;byte&gt; LevelGuid 存资产 GUID（关卡身份改为 GUID 绑定，无手填 id、不用关卡名）。</para>
         /// </summary>
-        public const int BlobVersion = 2;
+        public const int BlobVersion = 3;
 
-        public int LevelId;
+        /// <summary>关卡身份：资产 .meta 的 GUID（UTF8 字节）。导出以此命名 Blob，运行期以此查找，无手填 id、不用关卡名。</summary>
+        public BlobArray<byte> LevelGuid;
         public BlobArray<SceneContentEntryBlob> Entries;
     }
 }

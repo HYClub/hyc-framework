@@ -140,18 +140,15 @@ namespace HYC.Framework.Config.Editor
 
             var tplFolder = ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigTemplate)) ?? ConfigDataSettings.RootFolder;
 
-            // 1. 模板资产（默认基类 ConfigBase，与 CreateTemplateAsset 同规）
-            var tpl = ScriptableObject.CreateInstance<ConfigTemplate>();
-            tpl.displayName = string.IsNullOrWhiteSpace(plan.DisplayName) ? plan.ClassName : plan.DisplayName;
-            tpl.className = plan.ClassName;
-            tpl.baseTemplate = ConfigTemplateCodeGen.GetConfigBaseTemplate();
+            // 1. 模板资产（走工厂唯一入口：自动挂 ConfigBase 基类模板、文件名冲突自动加序号）
+            var tpl = ConfigAssetFactory.CreateTemplate(
+                string.IsNullOrWhiteSpace(plan.DisplayName) ? plan.ClassName : plan.DisplayName,
+                plan.ClassName);
             foreach (var f in fields)
                 tpl.fields.Add(ToTemplateField(f));
-            var tplName = ConfigTemplateCodeGen.DisplayNameToAssetName(tpl.displayName);
-            var tplPath = UniqueAssetPath(tplFolder, tplName);
-            AssetDatabase.CreateAsset(tpl, tplPath);
             EditorUtility.SetDirty(tpl);
             AssetDatabase.SaveAssets();
+            var tplPath = AssetDatabase.GetAssetPath(tpl);
 
             // 2. 待处理数据（先挂载荷：即使代码生成失败，用户修好模板重生成后也能自动落数据）
             var pending = ScriptableObject.CreateInstance<ConfigExcelPendingImport>();

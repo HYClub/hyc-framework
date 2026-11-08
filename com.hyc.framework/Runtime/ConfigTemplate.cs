@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -255,6 +255,9 @@ namespace HYC.Framework.Config
 
         [Tooltip("基类模板：生成类将继承基类模板生成的类。基类字段以只读形式展示")]
         public ConfigTemplate baseTemplate;
+
+        [Tooltip("唯一（Single）：勾选后该类型全工程只能存在一份配置；生成 [CfgAsset(..., unique: true)]，创建器不再提供二次创建")]
+        public bool unique;
 
         [Tooltip("内置图标名（EditorGUIUtility.IconContent），与 iconCustom 二选一")]
         public string iconBuiltInName = "";

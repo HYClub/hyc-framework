@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using HYC.Framework.Editor;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
@@ -139,6 +140,9 @@ namespace HYC.Framework.Config.Editor
             EditorUtility.DisplayDialog("Regenerate All Config Code", summary, "OK");
         }
 
+        // 注：外部资产的唯一入口是把 Project 窗口里的资产拖到左侧树的空白区，
+        // 见 ConfigDataTree.HandleDragAndDrop 的外部分支（登记引用，文件留在原位置）。
+
         private void OnEnable()
         {
             ConfigDataSettings.EnsureRootFolder();
@@ -214,14 +218,7 @@ namespace HYC.Framework.Config.Editor
 
             DrawToolbar();
 
-            if (mTreeView == null)
-            {
-                mTreeView = ConfigDataTree.Create();
-                mTreeView.Reload();
-                mTreeView.searchString = string.Empty;
-                mSearchField = new SearchField();
-                mSearchField.downOrUpArrowKeyPressed += mTreeView.SetFocusAndEnsureSelectedItem;
-            }
+            EnsureTrees();
 
             if (mPropertyView == null)
                 mPropertyView = new ConfigDataContainer();
@@ -243,7 +240,7 @@ namespace HYC.Framework.Config.Editor
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
 
-            // 树
+            // 树（外部资产以「外部配置」虚拟文件夹挂在树最底部，与外部拖放登记同一处处理）
             var treeRect = new Rect(0, 48, mTreeWidth, position.height - 48);
             mTreeView.OnGUI(treeRect);
 
@@ -269,6 +266,21 @@ namespace HYC.Framework.Config.Editor
             GUI.color = new Color(0, 0, 0, 0.3f);
             GUI.DrawTexture(new Rect(treeRect.xMax, 22, viewWidth - treeRect.xMax, 1), Texture2D.whiteTexture);
             GUI.color = color;
+        }
+
+        /// <summary>
+        /// <summary>确保配置树已创建并接好选中回调。</summary>
+        private void EnsureTrees()
+        {
+            if (mTreeView != null)
+                return;
+
+            mTreeView = ConfigDataTree.Create();
+            mTreeView.Reload();
+            mTreeView.searchString = string.Empty;
+            mSearchField = new SearchField();
+            mSearchField.downOrUpArrowKeyPressed += mTreeView.SetFocusAndEnsureSelectedItem;
+            mTreeView.OnSelectionChanged += Repaint;
         }
 
         private void DrawToolbar()
@@ -389,6 +401,19 @@ namespace HYC.Framework.Config.Editor
             foreach (var guid in AssetDatabase.FindAssets("t:ConfigTemplate t:ConfigEnumDefinition", new[] { ConfigDataSettings.RootFolder }))
             {
                 var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset != null && EditorUtility.IsDirty(asset))
+                {
+                    EditorUtility.SetDirty(asset);
+                    any = true;
+                }
+            }
+            // 已纳入的外部资产（如 .inputactions）同样随 Ctrl+S 落盘
+            foreach (var g in HYCSettings.Instance.IncludedAssetGuids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(g);
+                if (string.IsNullOrEmpty(path))
+                    continue;
+                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
                 if (asset != null && EditorUtility.IsDirty(asset))
                 {
                     EditorUtility.SetDirty(asset);

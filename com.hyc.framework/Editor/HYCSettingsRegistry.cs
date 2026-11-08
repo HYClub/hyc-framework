@@ -137,7 +137,10 @@ namespace HYC.Framework.Editor
                 var types = SafeGetTypes(asm);
                 foreach (var type in types)
                 {
-                    if (type == null || type.IsAbstract || type.IsGenericTypeDefinition)
+                    // 静态类编译后是 abstract sealed，正是静态设置项的宿主；
+                    // 只有「抽象但非 sealed」（真正可继承的抽象类）才该跳过。
+                    if (type == null || type.IsGenericTypeDefinition ||
+                        (type.IsAbstract && !type.IsSealed))
                         continue;
 
                     CollectMembers(type, null, StaticFlags, root);

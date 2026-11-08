@@ -6,228 +6,295 @@ using UnityEngine;
 namespace HYC.Framework.Loc.Editor
 {
     /// <summary>
-    /// Editor window to browse the loaded localization tables, search keys,
-    /// view the per-language text side by side (one row per key, one column
-    /// per language), and export a language to a CSV.
-    /// Data comes from the blob files written by the import pipeline into
-    /// <see cref="LocalizationSettings.OutputFolder"/>.
+    /// Localization editor. Maintains an in-memory table of keys × languages
+    /// that can be edited without any Excel file present: authors add key rows
+    /// and language columns, fill text, then "Save" writes a single canonical
+    /// <c>.xlsx</c> via NPOI and re-runs the import to refresh the blobs.
+    /// Opening an existing <c>.xlsx</c> loads it for round-trip editing.
+    /// Single canonical file model: the grid maps 1:1 to one chosen Excel file.
     /// </summary>
     public sealed class LocaleWindow : EditorWindow
     {
         // priority=31：Localization 档内，紧跟 Import(30)。
-        [MenuItem("HYC Framework/Localization/Editors/Key Browser", false, 31)]
+        [MenuItem("HYC Framework/Localization/Editors/Localization Editor", false, 31)]
         public static void Open() => GetWindow<LocaleWindow>("Localization");
 
-        private const float KeyColWidth = 240f;
-        private const float SourceColWidth = 170f;
-        // 语言列宽下限：窄窗口下等分结果低于此值时按此值取宽，内容超出即整体横向滚动。
-        private const float MinLangColWidth = 200f;
-        // 滚动区垂直滚动条占位宽：表头画在滚动区外，预留同宽才能与行轨左右对齐。
-        private const float ScrollBarAllowance = 15f;
-        private const float ViewPadding = 12f;
+        private const float KeyColWidth = 220f;
+        private const float LangColWidth = 200f;
+        private const float DelColWidth = 22f;
 
+        private readonly List<string> _keys = new List<string>();
+        private readonly List<string> _langs = new List<string>();
+        private readonly Dictionary<string, Dictionary<string, string>> _cells =
+            new Dictionary<string, Dictionary<string, string>>();
+
+        private string _sourceFile;
+        private string _defaultLang = LocaleUtil.DefaultCode;
         private string _filter = "";
         private Vector2 _scroll;
-        private readonly List<int> _rows = new List<int>();
+        private readonly List<System.Action> _deferred = new List<System.Action>();
 
-        private static Texture2D _headerBg;
-        private static Texture2D _missingBg;
-        private GUIStyle _headerStyle;
-        private GUIStyle _headerWarnStyle;
-        private GUIStyle _missingStyle;
-        private GUIStyle _dimStyle;
+        private void OnEnable() => LoadInitial();
+
+        /// <summary>Prefers the canonical Excel (Localization.xlsx in the Excel
+        /// folder); falls back to the loaded blob; otherwise starts blank.</summary>
+        private void LoadInitial()
+        {
+            var canonical = Path.Combine(Path.GetFullPath(LocalizationSettings.ExcelFolder), "Localization.xlsx");
+            if (File.Exists(canonical)) { LoadFromExcel(canonical); return; }
+            if ((LocalizationManager.IDs?.Length ?? 0) > 0) { LoadFromBlob(); return; }
+
+            _keys.Clear();
+            _cells.Clear();
+            _langs.Clear();
+            _langs.Add(LocalizationSettings.DefaultLanguage);
+            _defaultLang = LocalizationSettings.DefaultLanguage;
+            _sourceFile = null;
+        }
+
+        private void LoadFromBlob()
+        {
+            var ids = LocalizationManager.IDs;
+            var langs = LocalizationManager.Langs;
+            var texts = LocalizationManager.Texts;
+            _keys.Clear();
+            _cells.Clear();
+            _langs.Clear();
+            _keys.AddRange(ids);
+            _langs.AddRange(langs);
+            for (var k = 0; k < ids.Length; k++)
+            {
+                var row = new Dictionary<string, string>();
+                for (var l = 0; l < langs.Length; l++)
+                    row[langs[l]] = texts != null && l < texts.Length && k < texts[l].Length
+                        ? texts[l][k] ?? string.Empty : string.Empty;
+                _cells[ids[k]] = row;
+            }
+            _defaultLang = LocalizationSettings.DefaultLanguage;
+            _sourceFile = null;
+        }
+
+        private void LoadFromExcel(string path)
+        {
+            LocalizedExcelReader.ParseExcelFile(path, out var keys, out var langs, out var cells);
+            _keys.Clear(); _keys.AddRange(keys);
+            _langs.Clear(); _langs.AddRange(langs);
+            _cells.Clear();
+            foreach (var kv in cells) _cells[kv.Key] = kv.Value;
+            _sourceFile = path;
+            _defaultLang = LocalizationSettings.DefaultLanguage;
+        }
 
         private void OnGUI()
         {
-            EditorGUILayout.LabelField("Localization Tables", EditorStyles.boldLabel);
-            _filter = EditorGUILayout.TextField("Filter", _filter);
+            _deferred.Clear();
+            EditorGUILayout.LabelField("Localization Editor", EditorStyles.boldLabel);
 
+            // —— 工具栏 ——
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Import Excel")) LocalizedExcelReader.ImportAll();
-            if (GUILayout.Button("Reload")) Load();
-            if (GUILayout.Button("Export CSV")) Export();
+            if (GUILayout.Button("+ Key")) _deferred.Add(AddKey);
+            if (GUILayout.Button("从 Excel 加载")) _deferred.Add(LoadExcelDialog);
+            if (GUILayout.Button("保存到 Excel")) _deferred.Add(Save);
+            if (GUILayout.Button("导入并刷新 Blob")) LocalizedExcelReader.ImportAll();
+            if (GUILayout.Button("Reload")) LocalizationManager.Reload(Path.GetFullPath(LocalizationSettings.OutputFolder));
+            if (GUILayout.Button("导出 CSV")) ExportCsv();
             EditorGUILayout.EndHorizontal();
 
-            var ids = LocalizationManager.IDs;
-            var langs = LocalizationManager.Langs;
-            if (ids.Length == 0 || langs.Length == 0)
+            EditorGUILayout.BeginHorizontal();
+            _filter = EditorGUILayout.TextField("筛选", _filter);
+            if (_langs.Count > 0)
             {
-                EditorGUILayout.HelpBox("No localization data loaded. Run Import Excel first.", MessageType.Info);
+                EditorGUILayout.LabelField("默认语言", GUILayout.Width(60));
+                var dlIndex = Mathf.Max(0, _langs.IndexOf(_defaultLang));
+                var newDl = EditorGUILayout.Popup(dlIndex, _langs.ToArray(), GUILayout.Width(120));
+                if (newDl != dlIndex && newDl < _langs.Count) _defaultLang = _langs[newDl];
+            }
+            EditorGUILayout.LabelField(_sourceFile == null ? "源：未保存" : "源：" + _sourceFile,
+                GUILayout.Width(320));
+            EditorGUILayout.EndHorizontal();
+
+            if (_langs.Count == 0)
+            {
+                EditorGUILayout.HelpBox("还没有语言列。点「+ Key」或「从 Excel 加载」开始；空白工程默认带一列默认语言。",
+                    MessageType.Info);
+                ExecuteDeferred();
                 return;
             }
 
-            EnsureStyles();
+            DrawStats();
+            DrawGrid();
+            ExecuteDeferred();
+        }
 
-            var texts = LocalizationManager.Texts;
-            var excelNames = LocalizationManager.ExcelNames;
-            var idExcelIndexes = LocalizationManager.IDExcelNameIndexs;
+        private void ExecuteDeferred()
+        {
+            foreach (var action in _deferred) action();
+            _deferred.Clear();
+        }
 
-            // 过滤后的 key 下标：匹配 key 或来源表名，大小写不敏感。
-            _rows.Clear();
-            for (int key = 0; key < ids.Length; key++)
+        private void DrawStats()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(_keys.Count == 0 ? "0 keys" : $"{_keys.Count} keys");
+            sb.Append($" · {_langs.Count} languages ({string.Join(" / ", _langs)})");
+            sb.Append(" · 缺失:");
+            foreach (var l in _langs)
             {
-                if (!string.IsNullOrEmpty(_filter)
-                    && ids[key].IndexOf(_filter, System.StringComparison.OrdinalIgnoreCase) < 0
-                    && SourceOf(key, excelNames, idExcelIndexes).IndexOf(_filter, System.StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
-                _rows.Add(key);
+                var missing = 0;
+                foreach (var k in _keys)
+                    if (!_cells.TryGetValue(k, out var row) || string.IsNullOrEmpty(row.TryGetValue(l, out var v) ? v : string.Empty))
+                        missing++;
+                sb.Append($" {l} {missing}");
             }
+            EditorGUILayout.LabelField(sb.ToString(), EditorStyles.miniLabel);
+        }
 
-            // 语言列宽 = max(等分余量, 保底宽)；保底宽生效时内容宽超窗，整体横向滚动。
-            float langWidth = Mathf.Max(MinLangColWidth,
-                (position.width - ViewPadding - KeyColWidth - SourceColWidth - ScrollBarAllowance) / langs.Length);
+        private void DrawGrid()
+        {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-            DrawStatsLine(ids, langs, texts);
-
-            // 表头画在滚动区外：列名与已填计数不随行滚动；语言列数由 Langs 派生，帧间恒定。
+            // 表头
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Key", _headerStyle, GUILayout.Width(KeyColWidth));
-            EditorGUILayout.LabelField("Source", _headerStyle, GUILayout.Width(SourceColWidth));
-            for (int lang = 0; lang < langs.Length; lang++)
+            EditorGUILayout.LabelField("Key", EditorStyles.boldLabel, GUILayout.Width(KeyColWidth));
+            for (var i = 0; i < _langs.Count; i++)
             {
-                int filled = CountFilled(ids, texts, lang);
-                EditorGUILayout.LabelField($"{langs[lang]}  {filled}/{ids.Length}",
-                    filled < ids.Length ? _headerWarnStyle : _headerStyle, GUILayout.Width(langWidth));
+                var idx = i; // 按迭代捕获，避免闭包共享循环变量
+                EditorGUILayout.BeginHorizontal(GUILayout.Width(LangColWidth));
+                EditorGUILayout.LabelField(_langs[i], EditorStyles.boldLabel);
+                if (GUILayout.Button("×", GUILayout.Width(DelColWidth)))
+                    _deferred.Add(() => DelLang(idx));
+                EditorGUILayout.EndHorizontal();
             }
-            GUILayout.Space(ScrollBarAllowance);
+            EditorGUILayout.LabelField("", GUILayout.Width(DelColWidth));
             EditorGUILayout.EndHorizontal();
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            foreach (var key in _rows)
+            // 行
+            for (var ri = 0; ri < _keys.Count; ri++)
             {
+                var k = _keys[ri];
+                if (!string.IsNullOrEmpty(_filter) &&
+                    k.IndexOf(_filter, System.StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
                 EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField(new GUIContent(ids[key], ids[key]), GUILayout.Width(KeyColWidth));
-                EditorGUILayout.LabelField(SourceOf(key, excelNames, idExcelIndexes), GUILayout.Width(SourceColWidth));
-                for (int lang = 0; lang < langs.Length; lang++)
+                var editedKey = EditorGUILayout.TextField(k, GUILayout.Width(KeyColWidth));
+                if (!string.Equals(editedKey, k, System.StringComparison.Ordinal))
+                    _deferred.Add(() => RenameKey(k, editedKey));
+
+                if (!_cells.TryGetValue(k, out var row))
                 {
-                    var row = lang < texts.Length ? texts[lang] : null;
-                    var text = row != null && key < row.Length ? row[key] : null;
-                    if (string.IsNullOrEmpty(text))
-                        EditorGUILayout.LabelField("—", _missingStyle, GUILayout.Width(langWidth));
-                    else
-                        EditorGUILayout.LabelField(new GUIContent(text, text), GUILayout.Width(langWidth));
+                    row = new Dictionary<string, string>();
+                    _cells[k] = row;
+                }
+                for (var li = 0; li < _langs.Count; li++)
+                {
+                    var lang = _langs[li];
+                    if (!row.TryGetValue(lang, out var val)) { val = string.Empty; row[lang] = val; }
+                    var missing = string.IsNullOrEmpty(val);
+                    var prev = GUI.backgroundColor;
+                    GUI.backgroundColor = missing ? new Color(0.85f, 0.62f, 0.28f, 0.22f) : Color.white;
+                    var newVal = EditorGUILayout.TextField(val, GUILayout.Width(LangColWidth));
+                    GUI.backgroundColor = prev;
+                    if (!string.Equals(newVal, val, System.StringComparison.Ordinal))
+                        row[lang] = newVal;
+                }
+
+                if (GUILayout.Button("×", GUILayout.Width(DelColWidth)))
+                {
+                    var r = ri; // 按迭代捕获
+                    _deferred.Add(() => DelKey(r));
                 }
                 EditorGUILayout.EndHorizontal();
             }
+
             EditorGUILayout.EndScrollView();
         }
 
-        /// <summary>统计行：key 数（过滤时显示 显示/总数）、语言清单、每种语言缺译条数。</summary>
-        private void DrawStatsLine(string[] ids, string[] langs, string[][] texts)
+        // —— 数据操作（在 _deferred 中执行，避免在 OnGUI 布局阶段改集合） ——
+
+        private void AddKey()
         {
-            var sb = new System.Text.StringBuilder();
-            sb.Append(_rows.Count == ids.Length ? $"{ids.Length} keys" : $"showing {_rows.Count} / {ids.Length} keys");
-            sb.Append($" · {langs.Length} languages ({string.Join(" / ", langs)})");
-            sb.Append(" · missing:");
-            for (int lang = 0; lang < langs.Length; lang++)
-            {
-                int missing = ids.Length - CountFilled(ids, texts, lang);
-                sb.Append(lang == 0 ? $" {langs[lang]} {missing}" : $" · {langs[lang]} {missing}");
-            }
-            EditorGUILayout.LabelField(sb.ToString(), _dimStyle);
+            var n = 1; string k;
+            do { k = "new_key_" + n++; } while (_cells.ContainsKey(k));
+            _keys.Add(k);
+            var row = new Dictionary<string, string>();
+            foreach (var l in _langs) row[l] = string.Empty;
+            _cells[k] = row;
         }
 
-        private static int CountFilled(string[] ids, string[][] texts, int langIndex)
+        private void RenameKey(string oldKey, string candidate)
         {
-            var row = langIndex < texts.Length ? texts[langIndex] : null;
-            if (row == null) return 0;
-            int filled = 0;
-            int n = Mathf.Min(ids.Length, row.Length);
-            for (int key = 0; key < n; key++)
-                if (!string.IsNullOrEmpty(row[key])) filled++;
-            return filled;
+            var newKey = (candidate ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(newKey) || newKey == oldKey) return;
+            if (_cells.ContainsKey(newKey)) { Debug.LogWarning($"[Localization] Key 重复，已忽略：{newKey}"); return; }
+            var idx = _keys.IndexOf(oldKey);
+            if (idx < 0) return;
+            _keys[idx] = newKey;
+            var row = _cells[oldKey];
+            _cells.Remove(oldKey);
+            _cells[newKey] = row;
         }
 
-        private static string SourceOf(int keyIndex, string[] excelNames, int[] idExcelIndexes)
+        private void DelKey(int index)
         {
-            if (excelNames == null || idExcelIndexes == null || keyIndex < 0 || keyIndex >= idExcelIndexes.Length)
-                return string.Empty;
-            var excelIndex = idExcelIndexes[keyIndex];
-            return excelIndex >= 0 && excelIndex < excelNames.Length ? excelNames[excelIndex] : string.Empty;
+            if (index < 0 || index >= _keys.Count) return;
+            var k = _keys[index];
+            _keys.RemoveAt(index);
+            _cells.Remove(k);
         }
 
-        private void EnsureStyles()
+        private void DelLang(int index)
         {
-            _headerBg ??= SolidTex(new Color(58f / 255f, 58f / 255f, 58f / 255f));
-            _missingBg ??= SolidTex(new Color(201f / 255f, 138f / 255f, 43f / 255f, 0.16f));
-
-            if (_headerStyle == null)
-            {
-                _headerStyle = new GUIStyle(EditorStyles.boldLabel);
-                _headerStyle.normal.background = _headerBg;
-                _headerStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
-            }
-            if (_headerWarnStyle == null)
-            {
-                _headerWarnStyle = new GUIStyle(_headerStyle);
-                _headerWarnStyle.normal.textColor = new Color(0.85f, 0.62f, 0.28f);
-            }
-            if (_missingStyle == null)
-            {
-                _missingStyle = new GUIStyle(EditorStyles.label);
-                _missingStyle.normal.background = _missingBg;
-                _missingStyle.normal.textColor = new Color(0.85f, 0.62f, 0.28f);
-            }
-            if (_dimStyle == null)
-            {
-                _dimStyle = new GUIStyle(EditorStyles.label);
-                _dimStyle.normal.textColor = new Color(0.6f, 0.6f, 0.6f);
-            }
+            if (index < 0 || index >= _langs.Count) return;
+            var l = _langs[index];
+            _langs.RemoveAt(index);
+            foreach (var row in _cells.Values) row.Remove(l);
+            if (_defaultLang == l) _defaultLang = _langs.Count > 0 ? _langs[0] : LocaleUtil.DefaultCode;
         }
 
-        private static Texture2D SolidTex(Color color)
+        private void Save()
         {
-            var tex = new Texture2D(2, 2);
-            var pixels = new Color[4];
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = color;
-            tex.SetPixels(pixels);
-            tex.Apply();
-            return tex;
-        }
-
-        private void Load()
-        {
-            var folder = Path.GetFullPath(LocalizationSettings.OutputFolder);
-            if (!Directory.Exists(folder))
-            {
-                Debug.LogWarning($"Localization folder not found: {folder}. Run Import Excel first.");
-                return;
-            }
-
-            LocalizationManager.Reload(folder);
-
-            var langCount = LocalizationManager.Langs == null ? 0 : LocalizationManager.Langs.Length;
-            var idCount = LocalizationManager.IDs == null ? 0 : LocalizationManager.IDs.Length;
-            Debug.Log($"Localization loaded: {idCount} keys, {langCount} languages from {folder}");
-        }
-
-        private void Export()
-        {
-            if (LocalizationManager.IDs == null) return;
-            var path = EditorUtility.SaveFilePanel("Export CSV", "", "localization.csv", "csv");
+            var path = EditorUtility.SaveFilePanel("保存本地化 Excel",
+                LocalizationSettings.ExcelFolder, "Localization", "xlsx");
             if (string.IsNullOrEmpty(path)) return;
 
-            var lines = new List<string>();
-            var ids = LocalizationManager.IDs;
-            var langs = LocalizationManager.Langs;
-            var texts = LocalizationManager.Texts ?? System.Array.Empty<string[]>();
+            LocalizationSettings.DefaultLanguage = _defaultLang;
+            LocalizedExcelReader.WriteWorkbook(path, _keys, _langs, ToReadOnly());
+            _sourceFile = path;
+            LocalizedExcelReader.ImportAll();
+            ShowNotification(new GUIContent("已保存并导入：" + Path.GetFileName(path)));
+        }
 
-            var header = new List<string> { "key" };
-            foreach (var lang in langs) header.Add(lang);
-            lines.Add(string.Join("\t", header));
+        private void LoadExcelDialog()
+        {
+            var path = EditorUtility.OpenFilePanel("打开本地化 Excel",
+                LocalizationSettings.ExcelFolder, "xlsx,xls");
+            if (string.IsNullOrEmpty(path)) return;
+            LoadFromExcel(path);
+        }
 
-            for (int key = 0; key < ids.Length; key++)
+        private IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ToReadOnly()
+        {
+            var map = new Dictionary<string, IReadOnlyDictionary<string, string>>();
+            foreach (var kv in _cells) map[kv.Key] = kv.Value;
+            return map;
+        }
+
+        private void ExportCsv()
+        {
+            var path = EditorUtility.SaveFilePanel("导出 CSV", "", "localization", "csv");
+            if (string.IsNullOrEmpty(path)) return;
+            var lines = new List<string> { "key\t" + string.Join("\t", _langs) };
+            foreach (var k in _keys)
             {
-                var row = new List<string> { ids[key] };
-                for (int lang = 0; lang < langs.Length; lang++)
-                {
-                    row.Add(lang < texts.Length && key < texts[lang].Length ? texts[lang][key] ?? "" : "");
-                }
-                lines.Add(string.Join("\t", row));
+                _cells.TryGetValue(k, out var row);
+                var vals = new List<string> { k };
+                foreach (var l in _langs)
+                    vals.Add(row != null && row.TryGetValue(l, out var v) ? v ?? string.Empty : string.Empty);
+                lines.Add(string.Join("\t", vals));
             }
-
             File.WriteAllLines(path, lines.ToArray());
-            Debug.Log("Exported " + ids.Length + " rows to " + path);
+            Debug.Log($"[Localization] 导出 {_keys.Count} 行 → {path}");
         }
     }
 }

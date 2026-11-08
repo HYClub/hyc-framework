@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -564,7 +564,9 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine("{");
             sb.AppendLine(isFrameworkTemplate
                 ? $"    [CfgAsset(\"{Escape(template.displayName)}\", 0, Hide = true)]"
-                : $"    [CfgAsset(\"{Escape(template.displayName)}\", 0)]");
+                : (template.unique
+                    ? $"    [CfgAsset(\"{Escape(template.displayName)}\", 0, unique: true)]"
+                    : $"    [CfgAsset(\"{Escape(template.displayName)}\", 0)]"));
             sb.AppendLine($"    {declaration}");
             sb.AppendLine("    {");
             sb.Append(fieldLines);
@@ -964,7 +966,7 @@ namespace HYC.Framework.Config.Editor
                     var unityType = UnityTypeName(field.type);
                     if (unityType != null)
                     {
-                        baseName = unityType;
+                        baseName = "UnityEngine." + unityType;
                         needsUnity = true;
                         break;
                     }
@@ -984,7 +986,7 @@ namespace HYC.Framework.Config.Editor
                             return null;
                         if (IsGeneratedConfigClassName(shortName))
                         {
-                            baseName = shortName;
+                            baseName = ConfigDataSettings.Namespace + "." + shortName;
                             // 与枚举分支同一处理：侧类型（{ns}.Client/Server）靠这个 using 短名引用配置类。
                             usings.Add(ConfigDataSettings.Namespace);
                         }
@@ -996,7 +998,7 @@ namespace HYC.Framework.Config.Editor
                                 return null;
                             if (!string.IsNullOrEmpty(t.Namespace))
                                 usings.Add(t.Namespace);
-                            baseName = t.Name;
+                            baseName = string.IsNullOrEmpty(t.Namespace) ? t.Name : t.Namespace + "." + t.Name;
                         }
                         break;
                     }
@@ -1006,7 +1008,7 @@ namespace HYC.Framework.Config.Editor
                         var e = ConfigEnumCodeGen.FindEnum(field.enumRefClassName);
                         if (e == null)
                             return null;
-                        baseName = e.className;
+                        baseName = ConfigDataSettings.EnumNamespace + "." + e.className;
                         usings.Add(ConfigDataSettings.EnumNamespace);
                         break;
                     }
@@ -1037,7 +1039,7 @@ namespace HYC.Framework.Config.Editor
             if (field.isList)
             {
                 needsCollections = true;
-                return $"List<{baseName}>";
+                return $"System.Collections.Generic.List<{baseName}>";
             }
             return baseName;
         }
@@ -1968,32 +1970,16 @@ namespace HYC.Framework.Config.Editor
         /// Creates a new empty template asset under <paramref name="folder"/> and returns it.
         /// <para>folder 为空（或不是有效文件夹）时自动归置到「配置模板」类型文件夹
         /// （根目录/配置模板，没有则创建，见 <see cref="ConfigAssetLayout"/>）。</para>
+        /// <para>实现收口到 <see cref="ConfigAssetFactory.CreateTemplate"/>（模板创建唯一入口，
+        /// 自动挂 ConfigBase 基类模板）；本方法保留旧签名供数据树 / 窗口调用。</para>
         /// </summary>
         public static ConfigTemplate CreateTemplateAsset(string folder = null)
         {
-            ConfigDataSettings.EnsureRootFolder();
-            if (string.IsNullOrEmpty(folder) || !AssetDatabase.IsValidFolder(folder))
-                folder = ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigTemplate)) ?? ConfigDataSettings.RootFolder;
-
-            // 文件名用 displayName（净化后），保证对象选择器里可区分
-            var name = DisplayNameToAssetName("分类/新配置");
-            var path = folder + "/" + name + ".asset";
-            var index = 1;
-            while (File.Exists(path))
-            {
-                path = $"{folder}/{name} {index}.asset";
-                index++;
-            }
-
-            var tpl = ScriptableObject.CreateInstance<ConfigTemplate>();
-            tpl.displayName = "分类/新配置";
-            tpl.className = "NewConfig";
-            // 默认基类 = ConfigBase（框架级，保证所有配置带 ID/GUID）
-            tpl.baseTemplate = GetConfigBaseTemplate();
-            AssetDatabase.CreateAsset(tpl, path);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            return tpl;
+            // 兼容旧语义：显式传入但无效的 folder 回退自动归置（工厂对显式 folder 会直接创建）
+            var effective = string.IsNullOrEmpty(folder) || !AssetDatabase.IsValidFolder(folder)
+                ? null
+                : folder;
+            return ConfigAssetFactory.CreateTemplate("分类/新配置", "NewConfig", effective);
         }
 
         /// <summary>All saveable template assets under the config data root, sorted by class name。</summary>

@@ -4,8 +4,11 @@
     "references": [
         "HYC.Framework.Runtime",
         "Unity.Entities",
+        "Unity.Scenes.Editor",
         "Unity.InputSystem",
         "Unity.Collections",
+        "UnityEngine.UIElements",
+        "UnityEditor.UIElements",
         "UnityEditor.UI",
         "UnityEditor.Timeline",
         "Unity.Addressables",

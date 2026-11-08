@@ -34,10 +34,41 @@ namespace HYC.Framework.Config.Editor
 
         private Action<string> mOnPick;
         private string mFilter = "";
+        private string mCurrentKey = "";
+        private string mSelectedLang = "cn";
+        private string mCategory = "__all__";
         private Vector2 mScroll;
-        private static GUIStyle mGroupStyle;
-        private static GUIStyle mRowStyle;
-        private static GUIStyle mHintStyle;
+        private Vector2 mCatScroll;
+
+        // 缓存：进入窗口时一次性反射取 key + 各语言译文，避免逐帧反射
+        private sealed class Entry
+        {
+            public string key;
+            public string cn;
+            public string en;
+            public string category;
+        }
+        private sealed class Category
+        {
+            public string id;
+            public string label;
+            public int count;
+        }
+        private List<Entry> mEntries;
+        private List<Category> mCategories;
+
+        private static GUIStyle mSearchStyle;
+        private static GUIStyle mKeyStyle;
+        private static GUIStyle mValStyle;
+        // 顶部「当前」信息行专用：小标签 / key 值（蓝） / 译文值（正文色）
+        private static GUIStyle mBarLblStyle;
+        private static GUIStyle mBarKeyStyle;
+        private static GUIStyle mBarValStyle;
+        private static readonly Color SelBg = new Color(0.16f, 0.36f, 0.56f);
+        private const float WIN_W = 640f;
+        private const float WIN_H = 480f;
+        private const float CAT_W = 170f;
+        private const float KEY_W = 250f;
 
         /// <summary>
         /// 折叠多级选择菜单：key 按 "/" 转 "\" 分层；多个来源 Excel 时先出文件层，
@@ -82,102 +113,305 @@ namespace HYC.Framework.Config.Editor
 
         private static void OpenSearch(Rect anchor, string current, Action<string> onPick)
         {
+            // 宿主窗口必须在 ShowUtility 之前抓：ShowUtility 之后 focusedWindow 会变成新窗自身，
+            // 若那时再读 position 做"居中"，就是以自身为基准算出负偏移，窗口被顶到屏幕左上角、
+            // 标题栏跑到屏幕外 → 无法拖动。先抓宿主（优先鼠标所在窗口），再建窗。
+            var host = EditorWindow.mouseOverWindow ?? EditorWindow.focusedWindow;
+            var h = host != null && host.position.width > 1f && host.position.height > 1f
+                ? host.position
+                : new Rect(0f, 0f, 1200f, 800f);
+
             var window = CreateInstance<LocKeyPickerWindow>();
             window.mOnPick = onPick;
-            window.mFilter = current ?? "";
-            window.titleContent = new GUIContent("搜索 key");
-            window.ShowAsDropDown(anchor, new Vector2(Mathf.Max(anchor.width, 360), 340));
+            window.mFilter = "";
+            window.mCurrentKey = current ?? "";
+            window.mSelectedLang = CurrentLang();
+            window.titleContent = new GUIContent("多语言 Key 选择");
+            window.minSize = new Vector2(420f, 300f);
+
+            // 居中于宿主，并夹进屏幕内：x/y 不允许为负（否则标题栏出屏、拖不动），
+            // 右侧/底部也不让越界，保证任何宿主尺寸下整窗都在可视区、标题栏始终可点。
+            const float titleBarMargin = 36f;
+            var x = Mathf.Clamp(h.x + (h.width - WIN_W) * 0.5f, 0f, Mathf.Max(0f, h.x + h.width - WIN_W));
+            var y = Mathf.Clamp(h.y + (h.height - WIN_H) * 0.5f, titleBarMargin, Mathf.Max(titleBarMargin, h.y + h.height - WIN_H));
+            var pos = new Rect(x, y, WIN_W, WIN_H);
+
+            window.position = pos;
+            window.ShowUtility();
+            // 个别 Unity 版本 ShowUtility 会重置尺寸/位置，Show 之后按同一坐标再钉一次
+            window.position = pos;
+            window.Repaint();
+        }
+
+        private static string CurrentLang()
+        {
+            var l = LocAccess.GetSelectedLanguage();
+            return l == "en" ? "en" : "cn";   // 仅 cn/en 两档
         }
 
         private void OnEnable()
         {
-            mGroupStyle = new GUIStyle(EditorStyles.boldLabel) { padding = new RectOffset(6, 6, 3, 1) };
-            mRowStyle = new GUIStyle(EditorStyles.label) { padding = new RectOffset(12, 6, 2, 2) };
-            mHintStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
+            mSearchStyle = GUI.skin.FindStyle("ToolbarSearchTextField") ?? EditorStyles.toolbarTextField;
+            mKeyStyle = new GUIStyle(EditorStyles.label) { padding = new RectOffset(8, 6, 3, 3), alignment = TextAnchor.MiddleLeft };
+            mKeyStyle.normal.textColor = new Color(0.62f, 0.78f, 0.95f);
+            mValStyle = new GUIStyle(EditorStyles.label) { padding = new RectOffset(8, 6, 3, 3), alignment = TextAnchor.MiddleLeft };
+
+            mBarLblStyle = new GUIStyle(EditorStyles.miniLabel)
+            { alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 0) };
+            mBarLblStyle.normal.textColor = EditorGUIUtility.isProSkin ? new Color(0.55f, 0.55f, 0.55f) : new Color(0.35f, 0.35f, 0.35f);
+
+            mBarValStyle = new GUIStyle(EditorStyles.label)
+            { alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 0) };
+            mBarValStyle.normal.textColor = EditorGUIUtility.isProSkin ? new Color(0.83f, 0.83f, 0.83f) : new Color(0.12f, 0.12f, 0.12f);
+
+            mBarKeyStyle = new GUIStyle(mBarValStyle);
+            mBarKeyStyle.normal.textColor = EditorGUIUtility.isProSkin ? new Color(0.50f, 0.72f, 0.92f) : new Color(0.10f, 0.33f, 0.60f);
+
+            BuildCache();
+        }
+
+        private void BuildCache()
+        {
+            mEntries = new List<Entry>();
+            mCategories = new List<Category>();
+            var keys = LocAccess.GetKeys();
+            if (keys.Length == 0) return;
+
+            var catCount = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var k in keys)
+            {
+                if (string.IsNullOrEmpty(k)) continue;
+                var entry = new Entry
+                {
+                    key = k,
+                    cn = LocAccess.GetTextByLang(k, "cn"),
+                    en = LocAccess.GetTextByLang(k, "en"),
+                    category = CategoryOf(k),
+                };
+                mEntries.Add(entry);
+                catCount.TryGetValue(entry.category, out var c);
+                catCount[entry.category] = c + 1;
+            }
+
+            mCategories.Add(new Category { id = "__all__", label = "全部", count = keys.Length });
+            foreach (var kv in catCount)
+                mCategories.Add(new Category { id = kv.Key, label = kv.Key, count = kv.Value });
+            // "__all__" 字典序最前，保持其在首位
+            mCategories.Sort((a, b) => string.CompareOrdinal(a.id, b.id));
+        }
+
+        /// <summary>分类：ui.xxx → 前两段；其余 → 第一段（如 char）。</summary>
+        private static string CategoryOf(string key)
+        {
+            var p = key.Split('.');
+            if (p.Length >= 2 && p[0] == "ui")
+                return p[0] + "." + p[1];
+            return p[0];
         }
 
         private void OnGUI()
         {
-            var filter = EditorGUILayout.TextField("", mFilter, GUI.skin.FindStyle("ToolbarSearchTextField"));
-            if (filter != mFilter)
-                mFilter = filter;
-
-            var keys = LocAccess.GetKeys();
-            if (keys.Length == 0)
+            if (mEntries == null || mEntries.Count == 0)
             {
                 EditorGUILayout.HelpBox("没有加载本地化数据。请先在 loc 插件执行导入（HYC Framework/Localization/Import Excel）。", MessageType.Info);
-                if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
-                {
-                    Close();
-                    Event.current.Use();
-                }
+                if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape) { Close(); Event.current.Use(); }
                 return;
             }
 
-            mScroll = EditorGUILayout.BeginScrollView(mScroll);
-            DrawGrouped(filter);
-            EditorGUILayout.EndScrollView();
+            DrawCurrentBar();   // 头部「当前 key │ CN │ EN」信息行（固定不滚）
+            DrawToolbar();
+            EditorGUILayout.BeginHorizontal();
+            DrawCategories();
+            DrawKeyList();
+            EditorGUILayout.EndHorizontal();
+            DrawFooter();
 
-            if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+            if (Event.current.type == EventType.KeyDown)
             {
-                Close();
-                Event.current.Use();
+                if (Event.current.keyCode == KeyCode.Escape) { Close(); Event.current.Use(); }
+                else if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter) { Confirm(); Event.current.Use(); }
             }
         }
 
-        private void DrawGrouped(string filter)
+        private void DrawToolbar()
         {
-            var keys = LocAccess.GetKeys();
-            var excelNames = LocAccess.GetExcelNames();
-            var excelIndexes = LocAccess.GetExcelIndexes();
-            // 仅当有多个来源 Excel 且索引对齐时按文件分组；否则平铺（无"未知来源"）
-            var multiExcel = excelNames.Length > 1 && excelIndexes.Length == keys.Length;
-            var needle = filter.Trim().ToLowerInvariant();
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            var filter = EditorGUILayout.TextField(mFilter, mSearchStyle, GUILayout.ExpandWidth(true));
+            if (filter != mFilter) mFilter = filter;
 
-            var groups = new Dictionary<string, List<string>>();
-            for (var i = 0; i < keys.Length; i++)
+            var old = GUI.backgroundColor;
+            GUI.backgroundColor = mSelectedLang == "cn" ? SelBg : Color.white;
+            if (GUILayout.Button("CN", EditorStyles.toolbarButton, GUILayout.Width(38))) mSelectedLang = "cn";
+            GUI.backgroundColor = mSelectedLang == "en" ? SelBg : Color.white;
+            if (GUILayout.Button("EN", EditorStyles.toolbarButton, GUILayout.Width(38))) mSelectedLang = "en";
+            GUI.backgroundColor = old;
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawCategories()
+        {
+            EditorGUILayout.BeginVertical(GUILayout.Width(CAT_W));
+            GUILayout.Label("CATEGORIES  (" + mEntries.Count + ")", EditorStyles.miniLabel);
+            mCatScroll = EditorGUILayout.BeginScrollView(mCatScroll);
+            foreach (var cat in mCategories)
             {
-                var key = keys[i];
-                if (needle.Length > 0 && key.ToLowerInvariant().IndexOf(needle, StringComparison.Ordinal) < 0)
-                    continue;
+                var old = GUI.backgroundColor;
+                GUI.backgroundColor = mCategory == cat.id ? SelBg : Color.white;
+                if (GUILayout.Button(cat.label + "  (" + cat.count + ")", EditorStyles.toolbarButton, GUILayout.ExpandWidth(true)))
+                    mCategory = cat.id;
+                GUI.backgroundColor = old;
+            }
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
 
-                var group = multiExcel && excelIndexes[i] >= 0 && excelIndexes[i] < excelNames.Length
-                    ? excelNames[excelIndexes[i]]
-                    : null;
-                if (group == null)
-                {
-                    // 无分组：平铺显示原始 key（搜索场景看完整 key）
-                    if (GUILayout.Button(key, mRowStyle))
-                    {
-                        mOnPick?.Invoke(key);
-                        Close();
-                    }
-                    continue;
-                }
+        private void DrawKeyList()
+        {
+            mScroll = EditorGUILayout.BeginScrollView(mScroll);
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.Label("KEY", EditorStyles.miniLabel, GUILayout.Width(KEY_W));
+            GUILayout.Label("VALUE (" + mSelectedLang.ToUpperInvariant() + ")", EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+            EditorGUILayout.EndHorizontal();
 
-                if (!groups.TryGetValue(group, out var list))
+            var needle = mFilter.Trim();
+            var shown = 0;
+            foreach (var e in mEntries)
+            {
+                if (mCategory != "__all__" && e.category != mCategory) continue;
+                if (!Match(e, needle)) continue;
+                shown++;
+
+                var old = GUI.backgroundColor;
+                GUI.backgroundColor = e.key == mCurrentKey ? SelBg : Color.white;
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button(e.key, mKeyStyle, GUILayout.Width(KEY_W)))
                 {
-                    list = new List<string>();
-                    groups.Add(group, list);
+                    mCurrentKey = e.key;
+                    if (Event.current.clickCount == 2) Confirm();
                 }
-                list.Add(key);
+                var val = mSelectedLang == "cn" ? e.cn : e.en;
+                if (GUILayout.Button(string.IsNullOrEmpty(val) ? "—" : val, mValStyle, GUILayout.ExpandWidth(true)))
+                {
+                    mCurrentKey = e.key;
+                    if (Event.current.clickCount == 2) Confirm();
+                }
+                EditorGUILayout.EndHorizontal();
+                GUI.backgroundColor = old;
             }
 
-            foreach (var g in groups)
-            {
-                EditorGUILayout.LabelField(g.Key, mGroupStyle);
-                foreach (var key in g.Value)
-                {
-                    if (GUILayout.Button(key, mRowStyle))
-                    {
-                        mOnPick?.Invoke(key);
-                        Close();
-                    }
-                }
-            }
+            if (shown == 0)
+                EditorGUILayout.LabelField("无匹配的 key。", EditorStyles.miniLabel);
+            EditorGUILayout.EndScrollView();
+        }
 
-            if (groups.Count == 0)
-                EditorGUILayout.LabelField("没有匹配的 key。", mHintStyle);
+        /// <summary>模糊：key 或 值（cn/en 任一）包含即命中。</summary>
+        private bool Match(Entry e, string needle)
+        {
+            if (needle.Length == 0) return true;
+            if (e.key.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if ((e.cn ?? "").IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if ((e.en ?? "").IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        private void Confirm()
+        {
+            if (string.IsNullOrEmpty(mCurrentKey)) return;
+            mOnPick?.Invoke(mCurrentKey);
+            Close();
+        }
+
+        /// <summary>
+        /// 顶部「当前」信息行：一行多列（当前 key │ CN │ EN），固定显示、不随列表滚动。
+        /// 未选中显示「—」；文本超宽自动省略号，悬停显示全文。
+        /// </summary>
+        private void DrawCurrentBar()
+        {
+            var e = string.IsNullOrEmpty(mCurrentKey) ? null : mEntries?.Find(x => x.key == mCurrentKey);
+            var keyText = string.IsNullOrEmpty(mCurrentKey) ? "—" : mCurrentKey;
+            var cnText = e != null && !string.IsNullOrEmpty(e.cn) ? e.cn : "—";
+            var enText = e != null && !string.IsNullOrEmpty(e.en) ? e.en : "—";
+
+            var bar = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight + 10f);
+            var pro = EditorGUIUtility.isProSkin;
+            EditorGUI.DrawRect(bar, pro ? new Color(0.20f, 0.20f, 0.20f) : new Color(0.82f, 0.82f, 0.82f));
+            EditorGUI.DrawRect(new Rect(bar.x, bar.yMax - 1f, bar.width, 1f),
+                pro ? new Color(0.11f, 0.11f, 0.11f) : new Color(0.62f, 0.62f, 0.62f));
+
+            const float pad = 10f;
+            const float sepW = 13f;
+            var x = bar.x + pad;
+            var total = Mathf.Max(0f, bar.xMax - pad - x);
+            var content = Mathf.Max(0f, total - sepW * 2f);
+            var wKey = content * 0.40f;
+            var wCn = content * 0.30f;
+            var wEn = content * 0.30f;
+
+            DrawBarSeg(bar, ref x, wKey, "当前", keyText, mBarKeyStyle);
+            DrawBarSep(bar, x); x += sepW;
+            DrawBarSeg(bar, ref x, wCn, "CN", cnText, mBarValStyle);
+            DrawBarSep(bar, x); x += sepW;
+            DrawBarSeg(bar, ref x, wEn, "EN", enText, mBarValStyle);
+        }
+
+        /// <summary>画「标签 + 值」一个分段；值超宽按像素省略号截断，悬停 tooltip 显示全文。</summary>
+        private static void DrawBarSeg(Rect bar, ref float x, float segW, string label, string value, GUIStyle valueStyle)
+        {
+            var h = bar.height;
+            var lblW = mBarLblStyle.CalcSize(new GUIContent(label)).x;
+            GUI.Label(new Rect(x, bar.y, lblW, h), label, mBarLblStyle);
+
+            var vx = x + lblW + 6f;
+            var vw = segW - lblW - 6f;
+            if (vw > 0f)
+                GUI.Label(new Rect(vx, bar.y, vw, h),
+                    new GUIContent(Ellipsize(value, valueStyle, vw), value), valueStyle);
+
+            x += segW;
+        }
+
+        private static void DrawBarSep(Rect bar, float x)
+        {
+            var pro = EditorGUIUtility.isProSkin;
+            EditorGUI.DrawRect(new Rect(x + 6f, bar.y + 5f, 1f, bar.height - 10f),
+                pro ? new Color(0.30f, 0.30f, 0.30f) : new Color(0.66f, 0.66f, 0.66f));
+        }
+
+        /// <summary>
+        /// 按像素宽度截断并补「…」。Unity 的 TextClipping 在 2022.3 只暴露 Clip/Overflow，
+        /// 没有 Ellipsis，故自己用 CalcSize 二分求最长可容纳前缀。
+        /// </summary>
+        private static string Ellipsize(string s, GUIStyle style, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(s) || maxWidth <= 0f) return s ?? "";
+            if (style.CalcSize(new GUIContent(s)).x <= maxWidth) return s;
+
+            const string ell = "…";
+            var ellW = style.CalcSize(new GUIContent(ell)).x;
+            if (maxWidth <= ellW) return ell;
+
+            var budget = maxWidth - ellW;
+            var lo = 0;
+            var hi = s.Length;
+            while (lo < hi)
+            {
+                var mid = (lo + hi + 1) / 2;
+                if (style.CalcSize(new GUIContent(s.Substring(0, mid))).x <= budget) lo = mid;
+                else hi = mid - 1;
+            }
+            return s.Substring(0, lo) + ell;
+        }
+
+        private void DrawFooter()
+        {
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("清除", EditorStyles.toolbarButton, GUILayout.Width(56))) mCurrentKey = "";
+            var old = GUI.backgroundColor;
+            GUI.backgroundColor = SelBg;
+            if (GUILayout.Button("选择", EditorStyles.toolbarButton, GUILayout.Width(64))) Confirm();
+            GUI.backgroundColor = old;
+            EditorGUILayout.EndHorizontal();
         }
     }
 

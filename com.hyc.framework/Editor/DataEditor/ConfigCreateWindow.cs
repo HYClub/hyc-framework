@@ -98,10 +98,8 @@ namespace HYC.Framework.Config.Editor
 
             foreach (var type in types)
             {
-                // 自身直接标注的特性优先；无自身特性（纯继承）时才回退继承链
+                // 只读本体直接标注：生成器给每个生成类无条件写一条 [CfgAsset]，故本体必定有
                 var attr = type.GetCustomAttributes(typeof(CfgAssetAttribute), false)
-                        .OfType<CfgAssetAttribute>().FirstOrDefault()
-                    ?? type.GetCustomAttributes(typeof(CfgAssetAttribute), true)
                         .OfType<CfgAssetAttribute>().FirstOrDefault();
                 if (attr == null)
                     continue;

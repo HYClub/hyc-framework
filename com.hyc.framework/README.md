@@ -5,7 +5,7 @@
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-3.0.0-orange)
+![Version](https://img.shields.io/badge/Version-2.1.0-orange)
 
 ---
 
@@ -469,14 +469,14 @@ Unity 里打开 **Window → General → Test Runner → EditMode** 即可。
 
 ## 📚 文档导航
 
-完整文档在包的 `Documentation~/`（40 篇，全部基于源码实测撰写）：
+完整文档在包的 `Documentation~/`（41 篇，全部基于源码实测撰写）：
 
 - **要动手做事 → [`Documentation~/02-操作手册-按任务.md`](Documentation~/02-操作手册-按任务.md)**
   —— 新增配置表、选字段类型与导出模式、写枚举、跑行为树、加 UI 窗口的**分步操作**，
   另含基类一览、导出模式决策表、改完要重跑什么、菜单路径速查。
 - 机制说明按模块分篇：`00` 架构 · `01` 上手 · `10~14` 配置 / 枚举 / 场景内容物 · `20~22` 多语言 ·
   `30~32` UI · `40~41` 输入与输入组件化 · `50~51` 过场 · `52~56` 存档/天赋/属性/音频/红点 ·
-  `57~59` Cinemachine（装配 / 接缝与双世界设计 / 使用指南）· `60~61` 引导 / 同步 · `70` 消息 ·
+  `57~59` Cinemachine（装配 / 接缝与双世界设计 / 使用指南）· `60~62` 引导 / 同步 / 瓦片地图 · `70` 消息 ·
   `80~84` 行为树 · `90~91` 编辑器工具链 / 设置窗口 · `95` CI 与本地验证 · `99` Blob 约定 · `100` 文件与类索引。
 - **游戏接入索引 → [`Documentation~/200-游戏接入清单.md`](Documentation~/200-游戏接入清单.md)**
   —— 所有宿主会直接调用的游戏相关子系统 + 用法文档状态 +「AI 扫到可拷进项目」约定。

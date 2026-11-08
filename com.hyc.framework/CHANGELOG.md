@@ -6,6 +6,330 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-08
+
+### 新增：ECS 内容导出编辑器 + 给 AI / CI 的 Unity CLI 入口
+
+按编辑器窗口 mockup 落地首个版本，模块位于 `Editor/ContentExport/`（13 个 `.cs`），
+解决「ECS 构建产物只导一部分 / 想看到 Added·Removed·Changed / 分阶段热更新发布」三件事。
+
+- **catalog 合并**：官方 `PublishContent` 每次只产出本次构建目录的全量快照、不合并上一版。
+  本模块用镜像 struct 读出上一版 full catalog，按 `RemoteContentId.Hash` 覆盖 / 新增 / 保留 / 真删，
+  重建 `ContentSets[].Ids` 下标，再写新 full catalog，**最后**才切 `catalogs.bin`。
+  内容 hash 文件（`hash[0]hash[1]/hash`）只追加不覆盖，旧文件保留供在线客户端与回滚。
+- **镜像 + 自检**：`ContentExportMirror.g.cs` Copy 官方 internal `RemoteContentCatalogData` 的 3 个纯数据 struct；
+  导出前用反射字段树 + `UnsafeUtility.GetFieldOffset/SizeOf` 做布局指纹比对。
+  自检**不设独立菜单**，只在 HYC Settings 的 `Content Export/Mirror Layout` 只读显示，
+  不一致时只有「提示 → 确定 → 按当前 Entities 版本重写镜像」一条路径；
+  因需 Unity 重编译，本次导出会明确终止并提示重跑。
+- **入口**：菜单 `HYC Framework/Tools/ECS Content Export`（pri 103）；
+  HYC Settings 新增 `Content Export/General` 8 个可持久化字段。窗口为 9 页签纯 IMGUI：
+  顶部 `GUILayout.Toolbar` 切页、操作按钮放在各自页内（不设全局动作条），
+  Groups 页为 `TreeView` 左树 + `GUIDrawer.SlideRect` 可拖分栏 + 右侧详情，
+  统一用 Unity 默认 `EditorStyles`，不自创配色。
+- **AI / CI 入口**：新增 `ContentExportCLI`（`-executeMethod` 可用的 10 个无参命令），
+  通过 `cli-request.json` 传参、`last-report.json` 回传结构化结果，
+  AI 判定成败不解析 Console。命令含 `Help / VerifyLayout / WriteStatus / ExportAll /
+  ExportSelected / ExportGroup / ExportEntry / DryRunDiff / SwitchPointer / Rollback`；
+  另有窗口直连用的 `ExportAllNow / ExportSelectedNow / DryRunDiffNow` 与
+  `ExportGroupById / ExportEntryById / SwitchPointerToPath / RollbackTo`——**不读请求文件**，
+  避免工程里残留的 CI `cli-request.json` 覆盖窗口内的 HYC Settings。
+- **文档**：新增 `Documentation~/92-ECS内容导出与AI调用指南.md`；同步 README 篇数 44→45、
+  索引 347/595→360/639、`MenuLayout.md`、90 号菜单表、02 号操作手册、`AGENTS.md §8`。
+- `Editor/HYC.Framework.Editor.asmdef` 补 `Unity.Scenes.Editor` 引用（`PublishContent` 所在程序集）。
+
+### 修复：模板继承模板后 `ConfigAssetFactory` 创建抛 `AmbiguousMatchException`
+
+`ConfigAssetFactory.IsUniqueType` 原用单数 `Attribute.GetCustomAttribute(type, typeof(CfgAssetAttribute), true)`。
+`[CfgAsset]` 声明为 `AllowMultiple = true` + `Inherited = true`，而代码生成器给每个生成类无条件写一条特性
+⇒ 「模板 B 的 `baseTemplate` 指向模板 A」时，`BeltConfig` 的继承链上有 2 条（自身 1 + 继承自 `EntityProto` 1），
+单数版要求恰好 1 条，**在反射读取阶段**（`inherit: true` 的参数上）直接抛 `AmbiguousMatchException`，
+与 `Unique` 是 true 还是 false 无关。`Create` 与 `CreateMany` 两条路径都受此影响，
+即「多级模板继承」这一文档内场景的工厂创建完全不可用（单层之所以不暴露，是因为链底 `ConfigBase`
+由框架预编译提供、本身未标注 `[CfgAsset]`，链长恒为 1）。
+
+现改为只读**本体直接标注**的特性（`GetCustomAttributes(..., inherit: false)`），并用数组版而非单数版，
+保证任何情况下都不再抛。生成器保证每个生成类本体恰好一条，语义与原意等价。
+
+同时把框架内读 `[CfgAsset]` 的其余 6 处统一为同一条规则（**只认本体**），此前它们用 `inherit: true`，
+在派生类上会连基类那条一起收进来，靠 .NET「派生优先」的返回顺序侥幸取对：
+
+- `ConfigTypeDisplay.GetShortName`（类型的短显示名）
+- `ConfigDataTree.SearchName`（树节点搜索名）
+- `ConfigDataTree.GetCfgItems`（拼 `FindAssets("t:Xxx")` 过滤串，顺带消掉派生类被收集两次）
+- `ConfigDataTree.CloneAsset`（复制前判 `Unique`，**与 `ConfigAssetFactory.IsUniqueType` 是同一判定，两份必须同语义**）
+- `TalentConfigPicker.Refresh`（天赋编辑器「配置引用」选择器的类型枚举）
+- `ConfigCreateWindow.InitializeCategoryData`（创建器分类，并删掉「无本体特性时回退继承链」的死分支）
+
+依据：配置类一律由模板生成、生成器对每个生成类无条件写一条 `[CfgAsset]`（`ConfigTemplateCodeGen`
+中 `CfgAsset(` 仅出现在该特性行本身的三个分支），框架内 3 个非生成类型（`AudioCatalogAsset` /
+`ConfigEnumDefinition` / `ConfigTemplate`）也都各自在类型本体标注 ⇒ 本体必定有，继承链兜底无用。
+
+### 修复：HYC Settings 注册表跳过静态类导致设置项不显示
+
+`HYCSettingsRegistry.Build()` 原用 `type.IsAbstract` 一刀切跳过类型，而 C# 静态类编译后是
+`abstract sealed` —— 注册表文档承诺收集「静态字段 / 无参 void 方法」，实现却把所有静态宿主排除。
+现改为只跳过「抽象且非 sealed」的真正可继承抽象类。修复后 `ContentExportSettings` 的
+静态字段与只读布局状态方法才会出现在 HYC Settings 里。
+
+### 修复：类型定义资产的 Inspector 不再显示字段编辑 UI（字段设计收归窗口）
+
+**根因**：11-06 拍板的「字段必须在窗口内设计，不推给原生 Inspector」被误读成「不要用 Unity 默认绘制」。
+实现时把 `SceneContentTypeDefEditor` 内嵌进 `SceneContentWindow` 后，仍让 `.asset` 的原生 Inspector
+通过同一个 `[CustomEditor]` 取用该编辑器，导致整套字段编辑 UI 出现在资产 Inspector 里
+（文档甚至写成「两处等价」）。
+
+- `SceneContentTypeDefEditor` 新增 `IsEmbedded`：`OnInspectorGUI` 在资产 Inspector 上下文直接返回，
+  主体不画任何编辑控件；`OnHeaderGUI` 保持干净的资产名头部（仍无 Unity 默认「?」）。
+- `SceneContentWindow` 两处 `Editor.CreateEditor` 统一走 `CreateEmbeddedEditor()` 并置 `IsEmbedded = true`，
+  窗口右侧仍完整显示 显示名 / 类名 / 字段列表 / 保存·生成代码·校验。
+- 文档 14 §3.1 / §3.2 删掉「两处等价」，改为「字段设计只在窗口内，资产 Inspector 不显示编辑内容」。
+- **无生成代码改动、无 Breaking**，不需要重新生成类型代码；纯 IMGUI 行为调整。
+
+### 新增：SceneContent 业务 key 映射清单（补齐运行期身份断层）
+
+**问题**：Blob 以资产 GUID 命名，但 `AssetDatabase` 只在编辑器可用、程序化重建 prefab 还会换 GUID；
+关卡加载器运行期只有业务身份（配置 id / Addressables 地址 / 资产名），框架却要求「由加载器持有 GUID」
+又不提供任何机制 —— Demo 甚至要人工把 GUID 抄进 Inspector，与「无手填 id」自相矛盾。
+
+- 新增 `Runtime/SceneContent/SceneContentManifest.cs`（`SceneContentManifest` + `SceneContentManifestEntry`）。
+  导出期维护 `StreamingAssets/SceneContent/index.json`：`{ version, entries: [{ key, guid, assetPath }] }`。
+- `SceneContentExporter.Export(Object, string alias = null)`：可选参数，**源码兼容旧调用**。
+  key 优先级「显式 alias > Addressables 地址 > 资产名」；`ExportAll()` 自动推断。
+  每次导出成功后 **upsert** 清单（同 key 后写覆盖 ⇒ 关卡重建换 GUID 后重新导出即自愈；
+  不同 key 指向同一 guid 允许共存）；不同资产撞同一 key 打 Warning 提示改用显式 alias。
+- `SceneContentLoader.LoadByKey(string key, ISceneContentSpawner[, side])`：走 `StreamingAssets.ReadText`
+  读清单 → 查 key 换 guid → 复用 `Load`。清单缺失 / 为空 / 解析失败 / key 未命中各有独立 Error，
+  未命中会**列出全部可用 key**。`Load(guid,…)` 保留为底层通道。
+- **不动 Blob**：`SceneContentBlob.BlobVersion` 仍为 3、`LevelGuid` 字段与 WriteSide 往返自校验不变
+  ⇒ **存量已导出 blob 零重导**。清单结构版本独立用 `SceneContentManifest.ManifestVersion`（当前 1）。
+- **WebGL / Android 无需额外接线**：构建期 `StreamingAssetsManifestBuilder` 递归枚举 StreamingAssets
+  （排除 `aa/` / `.meta`）把 `index.json` 写进 `hyc_streaming_manifest.txt`，
+  随 `FrameworkBootstrap.InitializeAsync` 的 `PreloadAsync()` 预取；读它走 `StreamingAssets.ReadText`。
+- 顺带订正 `ISceneContentSpawner.cs` XML 注释里残留的 `Load(int, …)` 旧签名。
+- 样例：`HYCSimpleSceneContentDemo` 改演示 `LoadByKey`、去掉 Inspector 手填 GUID，`AI-NOTES.md` 同步。
+  SnowBros 接入：`LevelLoadSystem` 删除 `LevelSceneContentGuid` 硬编码字典，改用 `LevelConfig.MapAddress`
+  调 `LoadByKey`；`SnowBrosLevelSetup` 导出时显式传 `LEVEL_ADDRESS` 作 alias。
+
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 破坏性：场景内容物改为资产 GUID 绑定（移除 A 来源与 `SceneContentAuthoring`）
+
+**关卡身份从「手填 `levelId` + 描述器组件」改为「关卡资产 `.meta` 的 GUID」**，彻底去掉 `SceneContentAuthoring` 组件与 A 来源（显式实例条目）：
+- 导出器直接对**关卡 Prefab / Scene 资产**调用（`SceneContentExporter.Export(Object)`），用 `AssetDatabase.AssetPathToGUID` 取 GUID 命名 Blob（`StreamingAssets/SceneContent/<guid>.blob` 与 `…/server/<guid>.blob`）；运行时从关卡加载器持有该 GUID。
+- 原因：Unity 运行期无 `gameObject → 资产 GUID` 的 API，组件零手动、不用关卡名、无手填 id 三者只能由加载器持有 GUID 同时满足。
+- `SceneContentLoader.Load(int levelId, …)` 改为 **`Load(string guid, spawner[, side])`**（`LoadBytes(byte[], guid, spawner)` 同步改签名）；**无 `[Obsolete]` 重载**，调用方需一次性迁移（SnowBros `LevelLoadSystem` 已加 `LevelSceneContentGuid` 映射 + `ResolveSceneContentGuid`）。
+- 删除 6 个文件：`SceneContentAuthoring.cs(+.meta)`、`SceneContentAuthoringInspector.cs(+.meta)`、`SceneContentCapturer.cs(+.meta)`、`SceneContentInstance.cs(+.meta)`、`SceneContentPreviewer.cs(+.meta)`、`SceneContentEditorGUI.cs(+.meta)`；原嵌套的 `SceneContentEntryData` 迁出为独立文件 `Runtime/SceneContent/SceneContentEntryData.cs`（保留为 B 源传输结构）。
+- Blob 结构：`SceneContentBlob.LevelId`（`int`）→ `LevelGuid`（`BlobArray<byte>` 存 UTF-8 GUID）；`BlobVersion` 2 → 3。导出器写后做 TryRead 往返自校验（比对 Blob 内 `LevelGuid` 与资产 GUID）。
+- `ExternalAssetFilter` 类型黑名单移除 `SceneContentAuthoring`（改由 `SceneContentTypeDef` 承接）；导出入口由「关卡根挂组件」改为「Project 选中 Prefab/Scene 资产」（`SceneContentWindow.ExportSelectedMenu` / 菜单 `Export Blob (Selected)`）。
+
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+> 本节描述的是 GUID 绑定落地时的中间状态；其中的 SnowBros `LevelSceneContentGuid` 硬编码字典
+> 与「待回填 GUID」问题，已由上一节「业务 key 映射清单」根治（改用 `LoadByKey`，无需任何 GUID 回填）。
+
+### 调整：生成组件 Inspector 简化（内定参数不可编辑 + 去掉定位按钮 + 现代布局）
+
+**`SceneContentMarkerBaseEditor`** 改为「只读信息 + 跳回类型设计」的轻量面板：
+- 派生内定参数（localPos / worldPos / path / localEuler）按 `BuiltInParameterNames` 在可编辑区**跳过**，只在下方只读区块出现一次，**不再被当成可编辑字段重复画出**。
+- 去掉「定位定义资产」「定位生成脚本」两个按钮，只保留单一主操作「**在 Scene Content 编辑器中打开**」（`SceneContentWindow.OpenAndSelect`，回到窗口并选中该类型定义）。
+- 布局整理：头部信息卡（组件名 + 生成提示 + 分隔线）+ 单一强调按钮 + 轻量元信息（类型定义名 / 内容 id，仅异常时弹警告）；`内定参数` 区块默认折叠，降低视觉拥挤。
+- 用户每实例字段（如 `Type: Player`）仍可在原生区填写（消费 `[ReadOnly]` / `[CfgVisibleWhen]`）——目前仅此一处能填每实例值；若日后要「全部只读、编辑收归窗口」，需先在窗口加逐实例编辑面板。
+
+**边界**：窗口类型行的右键菜单（加到 GO / 定位生成脚本 / 重新生成）未动，仅清理组件 Inspector 内联按钮。
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 调整：类型定义资产对齐数据配置（创建即按显示名命名 + Inspector 头部去「?」）
+
+**资产改名（对齐数据配置 `ConfigTemplateEditor.SyncTemplateAssetName`）**：新增 `SceneContentTypeCodeGen.SyncTypeAssetName(def)`，
+保存 / 生成代码 / 创建资产时把 `.asset` 文件名同步成（净化的）显示名，用 `AssetDatabase.MoveAsset` 搬家、**保留 GUID、不破坏引用**，
+冲突自动加序号；已是目标名则不动。创建统一收口到工厂 `SceneContentFactory.CreateType`，创建即同步，不再生成固定的 `NewSceneContent.asset`。
+净化规则：`/`、`\` → `-`，其余文件系统非法字符 → `_`，空结果回落 `未命名`（与 `ConfigTemplateCodeGen.DisplayNameToAssetName` 同语义）。
+- **⚠️ 存量资产**：已有的 `NewSceneContent.asset` 不会自动改名，回到 Unity 对该资产点一次「保存」或「生成代码」即触发同步。
+
+**Inspector 头部**：`SceneContentTypeDefEditor` 重写 `OnHeaderGUI`，只画资产图标 + 只读资产名，
+**不画 Unity 默认头部的「?」帮助图标**（资产名由上述同步逻辑管理，不在头部手改，避免与显示名脱节）。
+
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 新增：场景内容类型定义工厂类 `SceneContentFactory`（AI / 程序化创建唯一入口）
+
+对齐数据配置的 `ConfigAssetFactory` 与行为树的 `BTAssetFactory`：场景内容类型定义资产的创建**统一收口到工厂**，
+禁止散落 `ScriptableObject.CreateInstance<SceneContentTypeDef>()` + 手填 className / 手拼路径落盘。
+
+- `SceneContentFactory.CreateType(displayName, className, targetFolder)`：归置默认文件夹（`SceneContentTypeCodeGen.DefaultTypeFolder`）→ 临时名 `NewSceneContent.asset` 创建 → `NormalizeIdentifiers` 清理不可见字符 → `SyncTypeAssetName` 按显示名改名 → 保存 / Refresh；`className` 为 null 时回落 `NewSceneContent` + 序号，`targetFolder` 为 null 时落到默认文件夹。
+- `SceneContentFactory.CreateTypeMany(prefix, count, targetFolder)`：批量创建（显示名 = prefix + 序号）。
+- 私有 `EnsureFolder` 从生成器迁入工厂，生成器不再持有「资产创建」职责；`SceneContentWindow` 两处创建入口（菜单 `NewTypeAssetMenu` / 窗口 `NewType`）已改调工厂。
+- 类型定义**不参与发号服**（无 ID/GUID，本质是代码模板 / 生成源），故工厂不派发 ID。
+
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 调整：设计树按显示名「/」拆分类别层级（对齐数据配置资源树）
+
+`SceneContentWindow.RefreshDesignTree` 重写：左树不再按「生成状态」分 `已生成 / 未生成` 两组，
+改为**按类型定义显示名里的「/」拆成分类层级**——`场景内容/出生点` → `场景内容`（组）→ `出生点`（叶子），
+没有分类段的归入「（无分类）」组；**未生成代码的叶子末尾加「 (未生成)」标**（沿用数据配置 `ConfigDataTree` 的标法）。
+类型定义即「类型资源」，组织方式与 `ConfigDataTree` 一致。删除不再使用的 `TypeNode` 辅助方法
+（叶子改为内联构造，需带分类名与「未生成」标）。
+
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 新增：Scene Content 字段对齐 Config Editor（只读 + 关联参数显隐规则）
+
+**字段定义**（`SceneContentFieldDef`）新增两项，与配置模板字段完全同构：
+- `readOnly`：组件 Inspector 中禁用该字段输入，仅影响展示、不影响导出。
+- `visibility: List<ConfigVisibilityCondition>`：关联参数（AND）。目标字段只能是同类型内的 bool / enum 标量字段（不含自身与列表字段）；bool 条件给勾选值，enum 条件给多值 MaskField。**复用** `ConfigVisibilityCondition`，不另造结构。
+
+**编辑器**：`SceneContentTypeDefEditor` 字段行加第 5 行 Foldout「只读 / 关联参数（显隐规则）」。展开后是只读勾选 + 条件列表（目标字段下拉 / 值控件 / ×）+「+ 添加条件」；行高由 `elementHeightCallback` 按条件条数动态计算，与绘制共用同一份展开索引集合（`HashSet<int>`，允许同时展开多行）和条件数量。无效条件以「（已失效）」占位保留并给黄字提示，不静默丢弃。
+
+**生成器**：新增 `AppendFieldRules`，把规则发射成字段特性 `[ReadOnly]` 与 `[CfgVisibleWhen("字段", true/false)]` / `[CfgVisibleWhen("字段", "值1", "值2")]`；生成文件补 `using HYC.Framework.Config;`。无效条件（目标丢失 / 是列表 / 指向自身 / 类型不符 / enum 值列表为空）不发射，求值时视为满足、字段保持显示 —— 与 `ConfigTemplateCodeGen` 同一套语义。
+
+**统一 Inspector**：`SceneContentMarkerBaseEditor` 从 `DrawDefaultInspector()` 改为逐字段自绘，反射读 `[CfgVisibleWhen]`（AND 求值）/ `[ReadOnly]` 决定跳过 / 禁用字段。规则随生成物走，不依赖定义资产在运行期存在。
+
+**⚠️ Breaking**：改了生成代码 ⇒ 已生成的 `<类名>.cs` 必须点「生成全部代码」重新生成。
+**边界**：本次只对齐「只读 + 显隐规则」；检查规则（非空 / 非 0 / 范围）、取成员、资源类型提示属于配置导出专用，未搬。
+⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 重构：生成组件改用公共基类 + 统一 CustomEditor（Inspector 专属面板）
+
+**结构（Unity 惯用做法）**：新增 `Runtime/SceneContent/SceneContentMarkerBase.cs`（抽象 `MonoBehaviour`，
+提供 `PreviewLevelRoot`）；生成器吐出的类从 `: MonoBehaviour, ...` 改为
+`: SceneContentMarkerBase, ISceneContentMarker, ISceneContentMarkerPayload`；
+`Editor/SceneContent/SceneContentMarkerBaseEditor.cs`（原 `SceneContentMarkerInspector.cs` 重命名，
+`.meta` 保 GUID）用 `[CustomEditor(typeof(SceneContentMarkerBase), true)]` 一次性接管全部派生类，
+先 `DrawDefaultInspector()` 画用户可配字段，再追加专属面板。**撤掉** `finishedDefaultHeaderGUI`
+全局回调那套绕路实现 —— 它虽零侵入，但不是 Unity 惯用做法，且按钮画在 header 回调里没有官方先例。
+官方同类范式：Timeline `MarkerInspector` / Cinemachine `CinemachineComponentBaseEditor`
+（Unity PackageCache 里 `[CustomEditor(typeof(X), true)]` 共 43 处）。
+
+**面板**：身份条（生成类提示 + 类型定义名 + 内容 id）；三个直达按钮（`打开类型设计并选中`
+→ 新增 `SceneContentWindow.OpenAndSelect(def)`、`定位定义资产`、`定位生成脚本`）；
+`设计字段（N）`（字段名 / 类型 / 客户端·服务端导出方式，`None` 标「不导出（隐藏）」）；
+`隐藏参数（内定）`（`BuiltInParameterNames` 4 个 key + 只读当前值）；可折叠的 payload 预览。
+定义按内容 id 反查并缓存；id 对不上但类名对得上时给「生成代码与定义不同步」警告。
+`BuiltInParameterNames` 提为公共唯一真源，`ReservedMemberNames` 改为引用它。
+
+**⚠️ Breaking**：改的是生成代码，**已生成的 `<类名>.cs` 必须点「生成全部代码」重新生成**，否则仍是旧的
+`: MonoBehaviour`，不会用上统一 Inspector。⚠️ **尚未进 Unity 编译 / 运行验证**。
+
+### 修复：Scene Content 类名 / 字段名含零宽字符时误报「不是合法的 C# 标识符」
+
+**现象**：类型定义资产的 `className` 从聊天 / 文档复制粘贴后末尾带进 `U+200C`（零宽不连字），Unity 文本框与报错里都看不见，但 `char.IsLetterOrDigit` 判 false ⇒ 生成失败并提示「类名「UnitBirthPoint」不是合法的 C# 标识符」，看上去像校验器误判。
+
+**修复**：`SceneContentTypeCodeGen.NormalizeIdentifiers(def)`（新增公共方法、幂等）在生成 / 保存 / 校验前统一清掉类名与字段名里的不可见字符（`U+200B`~`U+200D`、`U+FEFF`、`U+2060`、`U+00A0`、`U+00AD` 及控制字符）并 Trim，有改动则标脏。`WriteFile` 防御性调用一次，覆盖窗口「生成全部代码」与程序化入口；编辑器三个按钮（保存 / 生成代码 / 校验）也各自调用并 `SerializedObject.Update()` 同步 UI。`Validate` 的报错改用 `VisibleIdentifier` 把隐字符显形成 `\uXXXX`，并追加「含不可见字符，点保存或生成代码会自动清理」的可操作提示；字段名同样处理。**不动** `ConfigTemplateCodeGen.IsValidIdentifier`（配置模板 / 枚举 / UI 多处复用，改它影响面过大）。
+
+**⚠️ 注意**：`ContentTypeId` 是 `className` 的 FNV-1a 哈希，清掉零宽字符后 id 会变。尚未生成代码 / 导出数据的定义无影响；若已有按旧 id 导出的数据，需重新导出。
+
+### 变更：Scene Content 窗口重构为「类型设计 / 内容总览」双页签 + 内定参数自动导出
+
+**窗口定位纠正**：`SceneContentWindow` 原先是「选一个 `SceneContentAuthoring` + 内嵌其 Inspector」的启动台，不是编辑器。现改为两个内层页签：**类型设计** = 左侧类型列表（标注已生成 / 未生成）+ 右侧内嵌 `SceneContentTypeDefEditor`，**字段就在窗口内设计**，动作含新建类型 / 刷新 / 保存 / 生成代码 / 校验；**内容总览（只读）** = 点「刷新」自动扫描工程内全部场景与单独 Prefab，左树按 `场景 / 单独 Prefab → 场景或资源 → 挂内容脚本的 GO` 组织，右侧显示用户填写值、内定参数、客户端 payload 预览（直接调 `ToPayloadJson`）与「在 Project 中定位」——**只发现、不改写**，不修改任何定义资产。未打开的场景临时 Additive 加载、扫完即关。
+
+**内定参数**：`SceneContentTypeCodeGen` 在生成的 `ToPayloadJson` 里、用户字段之前恒写 `localPos`（`transform.localPosition`）、`worldPos`（`transform.position`）、`path`（`SceneContentRefPath.GetPath(levelRoot, transform)`）、`localEuler`（`transform.localEulerAngles`），三者为 `[x,y,z]` 数组、`path` 为字符串。用户不填、不在类型定义字段列表里、客户端 / 服务端两侧都有；`levelRoot` 由 `SceneContentAuthoring.GetMarkerEntries` 传入关卡根。四个名字加入 `ReservedMemberNames`（连同校验文案），用户字段撞名会被生成期拦下，避免产出重复 JSON key。`SceneContentJsonWriter` 的 `Key`/`BeginArray`/`Value(float/string)` 已源码实证，导出自校验只验版本 / levelId / 条数，不受 payload key 增加影响。
+
+**⚠️ Breaking / 删除**：`SceneContentTypeDef.scanPrefab` 字段、`SceneContentPrefabScanner.BuildFieldDefs`（及 `MapField`）、`SceneContentTypeDefEditor` 的关卡扫描 UI / `Scan` / `ReverseFillFields` 一并移除——「扫描 prefab / 反填字段」是给旧手工组件做迁移用的，新功能从零设计、没有旧组件要迁移。`SceneContentPrefabScanner.Scan` 保留为**只读发现**，供内容总览复用。若宿主自行调用了被删的公共成员需改走 `Scan`。**改了生成器 ⇒ 已生成的 `<类名>.cs` 必须点「生成全部类型代码」重新生成**才带上内定参数。文档：14 号 §3.1/§3.2/§3.3/§3.4/§3.6/§五 同步；索引文件计数不变（未增删文件：Runtime/SceneContent 10、Editor/SceneContent 12）。⚠️ **尚未进 Unity 编译验证**。
+
+### 变更：Scene Content 字段类型下拉对齐 Config Editor + 抽公共菜单
+
+**公共菜单 `ConfigFieldTypeMenu`（`Editor/DataEditor/`，含 `.meta`）**：把 `ConfigTemplateEditor.DrawTypeField` 里那份最全的类型菜单抽成可复用数据源 + 构建器——`TypeMenuPaths` 分类路径、`EnumRefItems()`（`ConfigEnumCodeGen.LoadAllEnums()`）、`CfgRefItems()`（`TypeCache.GetTypesWithAttribute<CfgAssetAttribute>()` + `ConfigTypeDisplay`）、`GetLabel()`、`BuildMenu()`。菜单项按「值类型 / Unity 数学 / Unity 对象 / 框架 / 多语言」分类，外加「引用/配置引用」「引用/枚举引用」两段动态项；`BuildMenu` 接受 `Func<ConfigFieldType, string> unsupportedReason`，返回非 null 的项用 `AddDisabledItem` **留在菜单里置灰**并附原因，不删项、不另造一套。loc 包未安装时多语言项由公共层统一置灰。公共类不碰 `SerializedProperty`、不建写字段逻辑——各编辑器自己决定选中后的行为；`ConfigTemplateEditor` 有用户暂存改动，本轮**未改**，后续可一行切过去。
+
+**Scene Content 接入**：`SceneContentTypeDefEditor` 字段行的「类型」从原生 enum `PropertyField` 换成 `DropdownButton` + `GenericMenu`；选中「引用/枚举引用/…」自动写 `enumRefClassName`、选中「引用/配置引用/…」自动写 `refTypeFullName`，不再手填类名；类型变化时复位两侧导出设置（客户端 GameObject→`HierarchyPath`、其余→`Direct`；服务端 `None`）。第 4 行改成只读的引用说明（控件集合每帧恒定）。
+
+**⚠️ Breaking（资产序列化）**：删除独立的 `enum SceneContentFieldType`，`SceneContentFieldDef.type` 改为 `ConfigFieldType`（配置模板那份最全清单），新增 `refTypeFullName`。早期手工建过的类型定义资产需重新选一次字段类型；本功能为新建，包内无存量资产。**生成器**：`SupportedTypes` 是「可生成」白名单唯一真源（32 项），编辑器置灰与 `Validate` 兜底都读它；值类型扩展到 `Long/Short/Byte/UInt/Double/Decimal/Char`，Unity 数学结构写成**固定分量顺序的 JSON 数字数组**，`Enum`/`Reference`/`BehaviourTree`/`Addressable`/`AudioEvent`/`LocalizedKey` 落成标量；`SceneContentJsonWriter` 补 `Value(long/double/decimal)` 重载。不支持的 14 项（资源类引用、`Gradient`/`AnimationCurve`、动画片段 / 控制器）在菜单置灰、生成期校验拦截。框架能力项生成的是普通标量字段，没有配置面板那套选择器。**改了生成器 ⇒ 已生成的 `<类名>.cs` 必须重新生成**。文档：14 号 §3.2 / §五 同步。⚠️ **尚未进 Unity 编译验证**。
+
+### 变更：Scene Content 组件挂载入口（Add Component 分组 + 拖拽 / ＋ / 右键）
+
+**Add Component 组别**：生成器吐的 `[AddComponentMenu]` 从 `HYC/SceneContent/<类名>` 改为
+`HYC/Scene Content/<类名>`。Unity 原生 Add Component 下拉里**本来就有这个分组**（会把全部已生成类型列出来，
+点一下即挂组件），本轮只是把组名对齐成「Scene Content」。⚠️ 改的是生成代码：
+**已生成的 `<类名>.cs` 必须重新生成**，否则旧组件仍留在旧组别里。
+
+**窗口三条快捷路径**（`SceneContentWindow → 类型设计` 的类型行）：拖行到 Hierarchy / Inspector 时
+窗口把该类型**自动映射成生成的 `MonoScript`** 再拖出去（`DragAndDrop.objectReferences`，Unity 内建加组件；
+拖的不是 `SceneContentTypeDef` 资产）；行内 ＋ 用 `Undo.AddComponent` 给选中 GO（可多选）加组件；
+右键 `GenericMenu` 提供「加到选中 GO / 定位生成脚本 / 重新生成此类型代码」。加完组件把「内容总览」
+标记为过期，切到该页签时自动重扫一次。
+
+**公共解析器 `SceneContentComponentResolver`（新文件 + `.meta`）**：`ResolveScript()` 反查
+`{OutputDir}/<类名>.cs` → `MonoImporter.GetScript()`，`Resolve()` → `MonoScript.GetClass()`，
+`FailureHint()` 给出「还没生成代码 / 还没编译完」的中文原因。拖拽 / ＋ / 右键三处共用，
+未编译一律置灰或拒绝；选中 Prefab 资产本体时提示先进 Prefab 编辑模式。Unity 2022.3.35f1c1 XML
+已实证 `MonoScript.GetClass`、`MonoImporter.GetScript`、`DragAndDrop.StartDrag(string)`、
+`Undo.AddComponent(GameObject, Type)`、`EditorGUILayout.BeginHorizontal()` 返回 Rect、
+`GenericMenu.ShowAsContext` 均存在。
+
+**边界**：Unity 内建的 Inspector 右键菜单不开放注入自定义项，所以「列出全部类型」走的是
+Add Component 分组（原生），窗口右键是**类型行上的操作菜单**——两者不是同一件事。
+文档：14 号 §3.4 重写 / §3.6 / §五；索引 345→346 文件、592→593 类型、`Editor/SceneContent/` 12→13。
+⚠️ **尚未进 Unity 编译验证**。
+
+### 变更：生成组件 Inspector 只读内定参数 + Hierarchy 右键动态类型列表
+
+**生成组件 Inspector 补只读展示**（新文件 `SceneContentMarkerInspector.cs` + `.meta`）：订阅
+`UnityEditor.Editor.finishedDefaultHeaderGUI`，按 `ISceneContentMarker` 过滤，在组件标题下画出
+只读（`EditorGUI.DisabledScope`）的 `localPos` / `worldPos` / `path` / `localEuler` 与内容 id，
+并直接调 `ToPayloadJson` 出**客户端 payload 预览**。不用 CustomEditor：生成组件类名各异且落在
+宿主程序集，逐类生成 Editor 会多出一堆文件；`[CustomEditor(typeof(MonoBehaviour), true)]`
+又会接管全工程 MonoBehaviour。header 回调**零侵入、不改生成代码、不需要重新生成**。
+Inspector 里拿不到 `SceneContentAuthoring` 的关卡根，预览按 `transform.root` 算；真正导出时
+`levelRoot` 仍由 `SceneContentAuthoring.GetMarkerEntries` 传入。
+
+**Hierarchy 右键 / 顶部 GameObject 菜单动态类型列表**（新文件 `SceneContentHierarchyMenu.cs` + `.meta`）：
+`[MenuItem("GameObject/Scene Content/Add Component...", false, 20)]` 是静态特性，工程里动态生成的
+类型没法注册成静态子项，所以点开时用 `GenericMenu` **现场列出全部 `SceneContentTypeDef`**：
+已编译的可点，未生成 / 未编译的置灰并附原因，首项标明当前目标。有选中 GO 就给全部选中 GO
+加组件；Hierarchy 空白处右键（无选中 GO）则新建一个以类型显示名命名的 GO 并挂载，整步可撤销
+（`Undo.RegisterCreatedObjectUndo`）。`Scene Content Window` 工具栏「给 GO 加组件」按钮调出的是
+**同一份** `SceneContentHierarchyMenu.BuildMenu()`，两条入口共用 `SceneContentComponentResolver`
+的判定，不各写一套。
+
+**边界**：Unity 内建 Inspector 右键菜单不开放注入自定义项，「列出全部类型」仍以
+`[AddComponentMenu("HYC/Scene Content/<类名>")]` 的原生分组为准；本菜单是另一条入口。
+⚠️ `GenericMenu.ShowAsContext()` 从 `[MenuItem]` 回调弹出依赖 Unity 菜单命令的 GUI 事件上下文，
+静态校验覆盖不到；若实测不弹出，用工具栏按钮那条入口（在真实 GUI 事件里，确定可用），
+或后续改为自建弹窗。**Unity 编译 / 运行未验证**。
+
+文档：14 号 §3.4 补两条路径与 Inspector 只读展示；`MenuLayout.md` 新增
+「GameObject/ 下的场景内容挂载入口」小节（该坐标系不参与三档 priority）；
+索引 346→348 文件、593→595 类型、`Editor/SceneContent/` 13→15；README 索引行同步。
+
+### 变更：Scene Content Window 窗口骨架照抄 ConfigDataWindow（左侧 Unity TreeView）
+
+**首版自造轻量分组树（Foldout + 自绘隔行底色），左侧大片空白、与配置窗口不一致，已推倒重做。**
+现在 `OnGUI` **照抄** `ConfigDataWindow` 的绝对 Rect 坐标系（工具条 `0..22`、搜索栏 `22..48`、
+左树 `48..底`、右侧内容区占满剩余），左栏换成真正的 `UnityEditor.IMGUI.Controls.TreeView`：
+
+- **新文件 `Editor/SceneContent/SceneContentTreeView.cs`**（+ `.meta`）：`SceneContentTreeNode`（`payload`
+  由窗口解释）+ `SceneContentTreeView : TreeView`。行样式**照抄 `ConfigDataTree`**：
+  `showAlternatingRowBackgrounds = true` ⇒ **隔行深浅底色铺满整块 rect，连没有数据的空行也铺**；
+  `rowHeight = EditorGUIUtility.singleLineHeight + 6`；`AssetDatabase.GetCachedIcon` / `Folder Icon`
+  行图标；`LabelStyle` 垂直居中；`GetContentIndent + 16` 缩进；`ExpandAll()` 默认展开。
+  行内 ＋ 的画法照抄官方 Input System 包 `InputActionTreeView.RowGUI`（`GUI.Button` + `GUIStyle.none`）。
+- **两个 TreeView 实例**：设计页按「已生成 / 未生成」分组，总览页按 `场景 / Prefab → 资源 → GO` 分组；
+  共用一个 `SearchField`，搜索直接走 `TreeView.searchString`（不再手写过滤）。
+- **交互全部保留**：`SelectionChanged` 选中、`ContextClickedItem` 右键、`CanStartDrag` +
+  `SetupDragAndDrop` 拖出 `MonoScript`、行内 ＋ 给选中 GO 加组件。
+- **右侧空态照抄 `ConfigDataContainer.DrawCenteredHint`**（`BeginVertical + FlexibleSpace + wordWrap`）。
+- **分界线照抄**：竖线 + 搜索栏下 / 工具条下横线，`GUIDrawer.SlideRect` 可拖动调宽。
+
+**功能不变**：双页签、窗口内设计字段、内容总览只读扫描与 payload 预览、顶部一行工具条。
+API 实证（2022.3.35f1c1 安装目录 XML）：`TreeView.showAlternatingRowBackgrounds` / `rowHeight` /
+`ExpandAll` / `SetExpanded` / `FindItem` / `SetSelection` / `GetContentIndent` /
+`SetupDepthsFromParentsAndChildren`、`CanStartDrag(CanStartDragArgs)`、
+`SetupDragAndDrop(SetupDragAndDropArgs)`、`ContextClickedItem(int)`、`SelectionChanged(IList<int>)`、
+`TreeViewItem.AddChild` 全部存在；行内按钮用法由官方 `com.unity.inputsystem` 的
+`InputActionTreeView.RowGUI` 实证。⚠️ **Unity 编译 / 运行未验证**（沙箱禁编译），需进 Unity 编译确认。
+索引：348→349 文件、595→597 类型、`Editor/SceneContent/` 15→16。
+
+### 新增
+
+- **`ConfigAssetFactory.CreateTemplate`（模板创建收口）**：新增 `CreateTemplate(displayName, className, folder)` 作为 `ConfigTemplate` 资产创建的唯一入口——folder 为空时自动归置到 `根目录/配置模板/`，文件名由 displayName 净化而来、冲突自动加序号，自动挂框架级 ConfigBase 基类模板。模板是无 `ID`/`GUID` 的框架基础设施资产（不参与发号服），此前对模板调 `Create`/`CreateMany` 会因派发 ID 失败而整体回滚（无法创建）；同时把两处绕开工厂的散落创建（`ConfigTemplateCodeGen.CreateTemplateAsset` 的 `CreateInstance` + 手拼路径、`ConfigExcelImporter.ExecuteNewTemplate` 模式①建模板）收口改调工厂，`CreateTemplateAsset` 保留旧签名内部委托。
+
+- **数据配置窗口支持纳入外部资产（虚拟文件夹「外部配置」）**：从 Project 窗口把资产拖到左侧树的**空白区**（拖到真实目录行仍是原来的移动行为），松手后弹确认框列出资产名，确认即在树底部虚拟文件夹「外部配置」下登记一条**引用**——资产本体不移动、不复制、不改名。该文件夹有独立配色，选中时右栏显示用法说明；右键成员可「移除（只删引用）」「定位资源」「在 Inspector 中打开」。只收单个主资产，文件夹与预制体 / 脚本 / 代码等黑名单类型会被拒绝，并给出具体原因。
+- **外部配置：`.inputactions` 只给跳转按钮**（`InputActionsAssetEditor`，约 130 行）：右栏显示资产名 / 路径 + 居中的「在官方编辑器中打开」，点了进 Input System 自己的窗口。
+  - 三个候选都评估过：**嵌官方编辑窗口**（动作表 / 绑定编辑 UI）—— 做不到，`EditorWindow` 39 个公开成员没有 Embed / Attach / Reparent / Host，`docked` 只是只读状态，官方窗口是 `internal`，`rootVisualElement` 是 UITK VisualElement 而本窗口是 IMGUI；**嵌原生 Inspector** —— 能嵌但不是编辑界面，且导入器那套会带进 Asset Post Processors 等无关控件；**自建编辑界面** —— 与官方重复演进、包一升级就腐化（实现过一版 714 行，已移除）。
+  - 术语定死：**「官方编辑器」= 独立的编辑窗口（嵌不进来）**；**「原生 Inspector」= Project 选中资产时的属性面板（能嵌，但不是编辑界面）**。需求说「把官方编辑器放进来」时指的永远是前者。
+- **配置模板支持「唯一」（Single）**：`ConfigTemplate` 新增 `unique` 字段，模板 Inspector 在「基类模板」下方提供勾选框（默认不勾）。勾选后生成 `[CfgAsset("...", 0, unique: true)]`，即既有的 `CfgAssetAttribute.Unique` 语义（创建器不再提供二次创建、`ConfigAssetFactory.Create` 拒绝重复、`CreateMany` 不支持批量）。此前该能力只能靠手写特性获得，模板产出一律 Multiple。
+
+
 ### ⚠️ Breaking（3.0.0 升级必读）
 
 本版含**删除公共类型与语义反转**，按 SemVer 升为 3.0.0。逐条对照迁移：
@@ -26,6 +350,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **地图编辑器：命名值层（多网格）+ 道具占地 + 规则排序（`Runtime/Map/*` + `Editor/Map/*`，62 号文档同步）**：把「一格一个字节」这条约束真正用起来——此前它只能表达「这格是什么材质」，于是「能不能踩」被迫寄生在地形材质上，地形种类一旦为通行服务而膨胀，「浅水可走 / 深水不可走」这类需求就再也表达不了。三块改动：
+  - **命名值层**：`MapTileSet.extraGrids`（`MapGridDef` = 一层名字 + 一张值表 `List<MapMaterial>`）定义「有哪些层、每层有哪些值」；`MapAsset.extraGrids`（`MapGridLayer` = 一份 `byte[]`）存数据本体；`MapAutoRuleSet.sourceGrid` 决定「这一层的规则看哪份数据」。规则本身**不知道「网格」这个概念**——它只是拿一个 `CellAt` 委托求值，所以同一条规则写法作用在地形层还是通行层，只取决于传进去哪一层的 reader。**多个规则集读同一层**（`sourceGrid` 相同）是常规用法：一个网格铺好几层视觉（河流压在草地上）。**第 0 层是特例字段而不是数组第 0 项**：`materials` / `MapAsset.cells` 是初版就有的序列化字段，挪进列表会让已配好的资产数据作废，故第 0 层保留原名、其余层走 `extraGrids`，对外只有一套 `GridXxx(int grid, …)` 访问器（`GridName` / `ValuesOf` / `ValueCount` / `ValueOf` / `CellValueOf` / `IndexOfKey` / `IsWalkableIn` / `WalkableGrid`），用起来没有特例感。（本条修正上面地图条目里「只存一层『每格是哪种材质』」的说法：地图是 **N 层**，每层都是 `width × height` 字节。）
+  - **通行层独立**：`MapTileSet.walkableGridIndex` 指定哪一层负责通行判断（默认 0 = 地形层自己的 `walkable`）。指到独立通行层后，地形层的 `walkable` 不再参与判断。编辑器调色板对「不是通行层」的值行画一个**橙色小点**——勾了不生效必须看得见，否则就是「明明勾了怎么还能走过去」这种最难查的误判。`MapView.IsWalkable` 改走 `tileSet.WalkableGrid`。
+  - **道具占地（footprint）**：`MapPropDef.width / height`（锚点**左下角**）+ `prefab`（框架**不自动实例化**，生成时机/生命周期/对象池都跟玩法强相关）。占地不可重叠：`SetProp` 放新的之前先删掉重叠的旧道具；`GetPropIndexAt` 改**覆盖式**命中（点到 3×3 树的任意一格都能整个删掉）；新增 `PropSize` / `PropBounds` / `CanPlaceProp`。画布按整块矩形画 + 锚点那格加深色，笔刷预览在放不下的位置变红（不等点下去才发现没反应）。`MapValidator` 改为按占地矩形两两查重叠。
+  - **规则排序**：`MapAutoRules.SortBySpecificity(List<MapAutoRule>)` —— 按「约束位数」降序重排，两个入口「按特化度排序」（组内）/「排序本层」（该层所有组各排一遍，**不动组顺序**——组顺序是「一套过渡压另一套」的语义，打乱它会破坏「先铺过渡再铺底色」）。**用插入排序而不是 `List.Sort`**：后者不稳定，同分规则的相对顺序会随机器变，那等于「同一份配置在不同机器上画面可能不同」。
+  - **Blob v2（⚠️ 不兼容 v1）**：`BlobVersion` 1 → 2，新增 `GridCount`、`Cells` 从「单层」改成**扁平多层**（第 g 层占 `[g·W·H, (g+1)·W·H)`）。旧 `.blob` **读不出来**（直接报版本不符），升级后每张地图都要重导一次——这是有意的：让旧文件读失败，比让它被当成 v2 解析出一张乱七八糟的图好得多。指纹同时扩到覆盖**所有层名 + 所有值 key**（层级或值顺序一变，旧地图索引就整体错位，只能靠它拦住）。`MapBlobLoader.Validate` 加 `GridCount ≥ 1`、`cells.Length == GridCount·W·H`、层数一致、**逐层**值越界。
+  - **编辑器**：调色板顶部「编辑网格」下拉（切层即作废矩形预览——不同层的格子值含义不同，混着看会误判）；右侧新增「网格」区（改层名 / 加层 / 删层定义 / 定通行层）——**加层同时改瓦片集与地图资产**，**删层只删定义、不删数据**（数据只增不减，误删定义还能改回来），并把指向被删层的 `sourceGrid` 与 `walkableGridIndex` 夹回第 0 层（否则会留下「读第 3 层而只有 2 层」这种只在运行时才炸的悬空引用）；值的增删**只允许追加与删末尾**（值下标直接写进 Blob，中间插入会让后面所有值整体平移，旧地图静默错位成一张「看着正常但全错」的图）。光标信息改成**逐层报值**（哪层是什么 + 只有通行层标可走/阻挡）+ 逐层报 `Evaluate` 结果（带「读哪层」）；画布渲染分三遍：第 0 层值底色 → 当前编辑层半透明色标 → 各层瓦片。
+  - 自检：`Runtime/Map`（8 文件）与 `Editor/Map`（7 文件）过 `hyc_verify.py` 三项全 0；索引 100 号 338 文件 / **572 → 574 类型**（新增 `MapGridDef` / `MapGridLayer`）。
+  - ⚠️ **尚未进 Unity 编译验证**。宿主侧需重跑 `Tools/Tests/Update Public API Snapshot`（累计删除 `MapAutoTile` / `MapWetness` / `MapTerrainDef`，新增 `MapGridDef` / `MapGridLayer`）。
+
+- **瓦片地图系统 `HYC.Framework.Map`（规则式自动拼接 + Blob 导出 + 装载器 prefab，新文档 `Documentation~/62-地图编辑器.md`）**：解决 tilemap 手摆的两个死结——「边缘对不上」（干沙挨着水该变湿沙）与「数据在场景里」。核心取舍：**地图只存一层「每格是哪种材质」**，铺哪张瓦片由**规则**在加载时算，所以 512×512 地图在磁盘上是 256KB 出头，且**换美术、改规则、加图层都不用重导地图**。
+  - **模型 = 规则，不是固定 16/47 查表**（与 LDtk Auto-Layer Rule 同构）：`MapAutoRule` = 一个 **3×3 邻域图案 → 一到多张候选瓦片**；`MapAutoRules.Evaluate` 是**唯一求值器**，编辑器画布与运行期 `MapView` 走同一条路径 ⇒ 不存在「编辑器里看着对、跑起来不对」。图案行优先、y 向上（上排 0-2 / 中排 3-5 / 下排 6-8，`Center=4`），每格取值 = 格子值（`-1` 通配 / `0` 必须为空 / `n` 必须材质 `n-1`）。相比固定表，它多出的是「邻居是谁」这一维：三种材质挤在同一格角上也能各写一条规则解决，而 47-blob 结构上做不到（它每一位只记「同类 / 不同类」）。
+  - **A + B = C 过渡瓦片**：过渡图 C 是**与 A、B 同尺寸的一整格**（不是半格窄条）。编辑器带**过渡向导**：选材质 A / B、填 16 张过渡图（位序 `N=1 / E=2 / S=4 / W=8`），一键生成 16 条互斥规则（中心固定 A、四条边按位填 A 或 B），组插在组列表最前（过渡优先于底色规则）。这 16 张就是 Tiled Wang 集 / LDtk Rules Wizard 产出同一套。需要内凹角修正时在 16 条之后补几条带对角约束的规则即可，不必去找整套 47 张图。
+  - **多层读同一份数据**（pure auto-layer）：一格数据只能属于一种材质，但视觉常要叠——最典型是「河流是画在草地上的地上物」。两个规则集读同一网格，底层对「河」这格铺草、上层对同一格铺水面；数据一份、材质一种，视觉是叠的。`ruleSets` 的**列表顺序就是图层顺序**（index 0 在最下），`MapView.Layers[i]` 恒对应 `ruleSets[i]`（空层也建）。
+  - **规则组可整组启停 + 规则可带概率**（照 LDtk 抄的两处）：`MapAutoRuleGroup.active` 一键关掉整组，调某套过渡时画布上就只剩这一套；`MapAutoRule.chance` 小于 1 时按**格坐标散列**判定，不是 `Random`（同一格每次加载、每台机器、每次回放结论一致；用随机数抖会在联机/回放里表现为「两边花纹不一样」）。种子取自图案内容而非规则下标，调换顺序不会让整张地图花纹重排。候选多张瓦片同理按坐标散列稳定挑一张。
+  - **可行走写在材质上、派生不入档**：`MapMaterial.walkable`（河流/岩浆关掉，草地/花草打开），`MapView.IsWalkable(x,y)` 对地图外 / 空格 / 未加载一律 false（地图边界不该被走出去）。碰撞只由**勾了「生成碰撞」的那一个**规则集生成，且**只给不可走的格子**挂 `TilemapCollider2D`——多层都开会给同一格叠出多个碰撞体。同一张 Sprite 要「一处挡一处不挡」必须造两份 `Tile`，因为 `Tile.colliderType` 是**资产属性**不是实例属性。
+  - **数据模型**：`MapTileSet`（材质表 `materials` + 扁平瓦片池 `tiles` + 规则集 `ruleSets` + 道具类型 `props`）→ `MapAsset`（`[PreferBinarySerialization]`，宽高 + `byte[]` 网格 + 道具落点）→ `MapBlob`（只存材质索引 + 道具 id，附**材质 key** 的 FNV-1a 指纹）→ `MapView`（读 Blob 建 `Grid` + 每规则集一层 `Tilemap`）。**三个列表刻意分开**：材质是玩法语义（存档/寻路/伤害只认它），瓦片是表现；一旦让材质自己持有一套固定槽位瓦片，就退回「一种材质只能有一种长相」。指纹只覆盖材质 key，**瓦片与规则不进指纹**——换美术不该逼着重导地图。材质下标 +1 偏移是刻意的：0 留给「空」。
+  - **编辑器 `HYC Framework/Map/Map Editor`(74) + `Export Blob (Selected)`(75) / `Export All Blobs`(76) / `Export Prefab (Selected)`(77) / `Validate Maps`(78)**：画笔 / 擦除 / 填充 / 矩形 / 道具五工具，笔刷 1–9，缩放 0.35–3×，网格开关，**「只看层」**（调规则时只渲染当前层）。左侧材质调色板（每行带 `walkable` 勾选，可直接改）+ 道具；右侧地图设置 / 瓦片池 / 规则集 / 规则组 / 规则列表 / **3×3 图案编辑器**（左键下一档、右键上一档，值循环「通配 → 空 → 各材质」）/ 选中规则的候选瓦片横条 + `chance` + `breakOnMatch` / 过渡向导 / 导出。**光标信息逐层报出 `Evaluate` 结果**（「层2 水面：瓦片 7」或「不铺」），规则没配好时这是唯一能定位到具体一层的地方。画布**先铺材质底色再叠各层瓦片**，于是「瓦片没配图」（露底色）与「规则没命中」（露更深空底色）是两种不同视觉。**矩形拖动期间只写内存副本**（规则求值全部读副本，画布已是最终效果），松手才提交，拖出画布或 Esc 放弃；一笔一次撤销（不是一格一次）；拖动用 Bresenham 插值补格（材质笔刷与道具摆放共用同一份实现）；道具稀疏、一格一个。
+  - **导出**：`Assets/StreamingAssets/Map/<mapId>.blob`，导出后读回自校验（尺寸 / mapId / 格子数 / 道具数 / 指纹），任一不符直接报错而不是静默产坏文件；prefab 产出的是**装载器**（`MapView` + mapId + 瓦片集），不把几万格烘成 Tilemap——否则每张瓦片都要建 Tile 资产、地图一改就得重建。
+  - 命名空间刻意不叫 `HYC.Framework.Tilemap`（会遮蔽 `UnityEngine.Tilemaps.Tilemap` → CS0118/CS0234）。文档：62 号重写为规则模型（原理 / 操作 / 过渡怎么配 / 可行走 / 排错 / 刻意不做的事）；索引 100 号补 `Runtime/Map/`、`Editor/Map/` 两组；`MenuLayout.md` 补 `Map/` 74–78 与 Assets/Create 入口。
 - **分屏相机可各转各的视角，且「视角不同也能并拢」(`CinemachineSeamFraming.SetOrbit` / `CinemachineDualView.SetOrbit` + 样例右键转视角)**：双人分屏里两个角色看不同角度是常态，原来没有任何入口 —— 框架把 `Follow` 换成锚点后 `FollowOffset` 无人可写，宿主自己去写又会在合屏时被覆盖。现在跟随偏移由 `CinemachineSeamFraming` 统一持有（`m_OrbitA/B`）：分屏时**各写各的环绕角**，合屏时**两侧混合成同一个方向与长度** —— 方向取两侧单位向量的平均（两侧大致反向时退回 A 的方向，避免「正上方俯视」这种退化视角），长度取「两侧原长度的较大者」与「装得下两人的最小长度」的较大者（只放大不缩小，FOV 不碰）。锚点相同 + 偏移相同 ⇒ 两台相机位姿完全一致，所以**两侧视角本来就不一样，点合屏照样能并拢**。偏移改为**每帧整份写死**（不读上一帧的 `FollowOffset`），`blend` 回到 0 时天然就是原值 —— 顺带干掉上一版 `m_DistanceApplied` 的插值残留补丁。样例 ① 增：右键按住拖动转鼠标所在那一侧的视角（左右转圈、上下抬压，IMGUI `Event.current` + `e.Use()` 吃掉事件避免 Game 视图弹右键菜单）、合屏后两侧一起转、面板「两侧视角复位」。文档同步：59 号 §2.1（API 表）/ §3.8（新增「右键转视角」小节）/ §6.2 / 验收清单；58 号 §4.7（并拢要点 3/4/5 重写）；样例 `README.md` / `AI-NOTES.md`。
 
 - **工具栏「仅场景运行」按钮（`Editor/PlaySceneToolbarButton.cs` + `Runtime/BootstrapGate.cs`，`60-引导与世界-Bootstrap.md` 新增「仅场景运行（调试用：跳过引导）」）**：调试单场景时不想拉起整套框架引导。在主工具栏 play 控件右侧注入 `▶ Scene` 按钮（tooltip `Play Scene Only (skip framework bootstrap)`）：点击置 `SessionState["HYC.Framework.PlaySceneOnly"]` + `BootstrapGate.ShouldSkip` 并进入 Play；`FrameworkBootstrap.Initialize` / `FrameworkModeBootstrap.Initialize` 顶部查该闸门，为真即 `return false` ⇒ Entities 自动建默认世界，只跑当前场景、跳过引导。宿主**零改动**——只要把框架 `Initialize` 返回值透传给 Entities（`return new FrameworkBootstrap().Initialize(name);`）；完全自定义的宿主 bootstrap 想用可自己加一行 `if (HYC.Framework.Runtime.BootstrapGate.ShouldSkip) return false;`。已知待验证：跳过引导后默认世界会自带创建框架里未标 `[DisableAutoCreation]` 的 system（如 `FrameworkCleanupSystem`），若 `UpdateGroup_Root` 非 player-loop 根组可能刷 warning；样例 Demo 系统均为 `[DisableAutoCreation]` 不受影响。

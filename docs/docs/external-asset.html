@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外部资产 ·「外部配置」· HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本 —— 抢先体验必须到 <a href="https://github.com/HYClub/hyc-framework/discussions/1" target="_blank" rel="noopener">Discussions</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>外部资产 ·「外部配置」</h1>
+    <p class="lead">把<b>不是 HYC 生成的 Unity 资产</b>（<code>.inputactions</code>、音频、贴图、材质…）挂进数据配置窗口统一管理。</p>
+    <p class="subtitle">做法是配置树底部的一个「外部配置」<b>虚拟文件夹</b>——只登记引用，文件本体留在原位置。</p>
+
+    <h2>先搞清楚：它是虚拟的</h2>
+    <p>「虚拟」不是说效果打折，而是<b>它不是一个磁盘目录</b>，只是一组 GUID 引用：</p>
+    <table>
+      <thead><tr><th>项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>位置</td><td>配置树<b>最底部</b>，恒定显示（即便一条都没有，好让人知道能往哪拖）</td></tr>
+        <tr><td>外观</td><td>标签是独立青色（只有它染色，子节点保持默认色）</td></tr>
+        <tr><td>数据</td><td><code>HYCSettings.IncludedAssetGuids</code>，随工程提交、跨会话持久化</td></tr>
+        <tr><td><b>本体不动</b></td><td>成员的资产文件<b>不会被移动或复制</b>，仍留在原路径</td></tr>
+      </tbody>
+    </table>
+
+    <h3>由「引用语义」推导出的三条约束</h3>
+    <table>
+      <thead><tr><th>约束</th><th>兜底机制</th></tr></thead>
+      <tbody>
+        <tr><td>不可重命名（改名＝改真资产）</td><td><code>CanRename</code> 只认文件夹 / 文件节点</td></tr>
+        <tr><td>不可往外拖（无路径可搬）</td><td><code>CanStartDrag</code> 只认文件夹 / 文件节点</td></tr>
+        <tr><td>Delete 键不会误删真资产</td><td>树<b>没有</b>接 <code>KeyCode.Delete</code>，命令行由指令入口处理</td></tr>
+      </tbody>
+    </table>
+    <p>另外，选中它时点「新建配置」不会拿到空路径——<code>GetTargetFolder()</code> 遇到非文件夹/文件会回落到配置根目录。</p>
+
+    <h2>唯一入口：拖到树的空白区</h2>
+    <p>从 <b>Project 窗口</b> 把资产拖到<b>左侧树的空白区</b>（不能压在任何节点行上）松手即可。</p>
+<pre><code class="language-text">拖入 → [过滤 + 分类] → 弹确认 → 登记 GUID → 重建树
+                                        → 自动展开「外部配置」→ 选中并滚动到新项</code></pre>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>必须落在空白区</b>：压在具体节点行上时本控件返回 <code>None</code>（不处理），保持原有的「配置资产移动」语义。这是有意的设计，不是漏了——压在真实文件夹上就该是搬家。</div>
+    </div>
+
+    <h3>被拒绝会说明原因</h3>
+    <table>
+      <thead><tr><th>情况</th><th>文案要点</th></tr></thead>
+      <tbody>
+        <tr><td>拖了文件夹</td><td>「外部配置」只登记单个资产</td></tr>
+        <tr><td>扩展名黑名单（代码 / 着色器 / UI 资源 / 程序集定义 / 预制体）</td><td>不支持该文件类型</td></tr>
+        <tr><td>主类型黑名单（框架自产资产）</td><td>它本就应该显示在配置树里</td></tr>
+        <tr><td>混合拖放（外部 + 内部配置资产）</td><td>一次只能处理一种</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><b>确认弹窗慢一拍是正常的</b>：弹窗与写库都经 <code>EditorApplication.delayCall</code> 推出拖拽事务——拖拽回调里做 IO / 弹模态窗不稳。<br><b>混合拖放整批拒绝</b>，不会「只收能收的」：两种语义互斥。</div>
+    </div>
+
+    <h2>谁能进来：过滤器</h2>
+    <p><code>ExternalAssetFilter</code> 不持有状态，只有三个判断方法；扩展名与类型黑名单：</p>
+    <table>
+      <thead><tr><th>黑名单</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td>扩展名</td><td><code>.cs</code> <code>.js</code> <code>.ts</code> <code>.shader</code> <code>.compute</code> <code>.cginc</code> <code>.hlsl</code> <code>.uss</code> <code>.uxml</code> <code>.asmdef</code> <code>.asmref</code> <code>.prefab</code></td></tr>
+        <tr><td>类型</td><td><code>ConfigBase</code> 系、<code>ConfigTemplate</code>、<code>ConfigEnumDefinition</code>、<code>BTTreeAsset</code>、<code>InputComponentMapping</code>、<code>HYCSettings</code>、<code>SceneContentAuthoring</code></td></tr>
+      </tbody>
+    </table>
+    <p>过滤器的三个方法，以及<b>注册表</b>（<code>AddIncludedAssetGuid</code> / <code>RemoveIncludedAssetGuid</code> / <code>ClearIncludedAssets</code> / <code>IsIncluded</code>，写操作自带落盘）见框架文档。</p>
+
+    <h2>日常操作</h2>
+    <table>
+      <thead><tr><th>操作</th><th>做法</th></tr></thead>
+      <tbody>
+        <tr><td>加入</td><td>Project 窗口拖到树空白区 → 确认</td></tr>
+        <tr><td>编辑</td><td>选中成员 ⇒ 右栏嵌该资产的<b>原生 Inspector</b>（<code>.inputactions</code> 例外，见下）</td></tr>
+        <tr><td>定位</td><td>右键「定位资源」（Project 窗口 Ping）</td></tr>
+        <tr><td>移除</td><td>右键「从外部配置移除（<b>不删除资产</b>）」——只删注册表条目</td></tr>
+        <tr><td>清空</td><td>右键文件夹「清空外部配置（仅移除引用）」——有二次确认</td></tr>
+      </tbody>
+    </table>
+
+    <h2>右栏：原生 Inspector，只有一处例外</h2>
+<pre><code class="language-text">选中外部资产节点
+   ├─ .inputactions  → InputActionsAssetEditor（占位 + 「在官方编辑器中打开」按钮）
+   └─ 其余            → UnityAssetEditor（整体嵌入原生 Inspector）</code></pre>
+    <p><b>为什么 <code>.inputactions</code> 不做自建界面</b>——三条源码级事实：</p>
+    <ol>
+      <li><b>原生 Inspector 天生空白</b>：Input System 的 <code>InputActionAssetEditor</code> 刻意留空（注释原文 “Editing happens in a dedicated window.”），<code>OnInspectorGUI()</code> 是空实现 ⇒ 嵌入没得看。</li>
+      <li><b>官方窗口拿不到句柄</b>：它的两个编辑窗口都是 <code>internal</code>，<code>InternalsVisibleTo</code> 只列自家测试程序集。</li>
+      <li><b>没有「把 EditorWindow 挂进另一个面板」的公开 API</b>：<code>docked</code> 只是只读状态；而本窗口是 IMGUI，UI Toolkit 的 <code>VisualElement</code> 无法在其中渲染。</li>
+    </ol>
+    <p>所以定下口径：<b>这类「编辑能力只在官方独立窗口」的资产，右栏一律做跳板</b>，不重复实现官方功能（否则包一升级就腐化）。判断方法只有一步——看它有没有非空的 <code>CustomEditor</code>；是空的就必须专开跳板类。</p>
+
+    <h2>坑</h2>
+    <ul>
+      <li><b>引用 ≠ 导出</b>：Ctrl+S 会把有修改的外部资产一并落盘，但真正带出去要靠导出流程遍历注册表。</li>
+      <li><b>资产被删会留幽灵项</b>（GUID 解析不到路径），安装时跳过，需手动右键移除清理。</li>
+      <li><b><code>prefab</code> 在黑名单里</b>：预制体走专门的场景/预设流程，不进数据配置树。</li>
+      <li><b>移除类文案必须写明「不删除资产」</b>，否则极易被误读成删文件。</li>
+    </ul>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">完整版（节点 ID 分段、<code>Link</code> 光标语义、<code>delayCall</code> 缘由、<code>UnityAssetEditor</code> 的销毁约束）见框架 <code>Documentation~/15-外部资产集成.md</code>。</div>
+    </div>
+  </div></main>
+  </div></main>
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

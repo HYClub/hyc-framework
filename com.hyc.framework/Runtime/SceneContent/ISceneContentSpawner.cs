@@ -5,7 +5,8 @@ namespace HYC.Framework.SceneContent
 {
     /// <summary>
     /// 运行期生成实例的注入点。框架只负责读 Blob + 解析，具体生成 GameObject 还是 Entity
-    /// 由游戏实现本接口并传入 <see cref="SceneContentLoader.Load(int, ISceneContentSpawner)"/>。
+    /// 由游戏实现本接口并传入 <c>SceneContentLoader.LoadByKey</c>（按业务 key）
+    /// 或 <c>SceneContentLoader.Load</c>（按资产 GUID）。
     /// <para>
     /// <paramref name="payload"/> 为该条目的自定义参数（UTF8 JSON 字节），由游戏按
     /// <paramref name="contentTypeId"/> 自行反序列化——框架只负责原样搬运。

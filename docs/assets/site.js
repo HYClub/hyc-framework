@@ -60,6 +60,8 @@ const NAV = [
       { href: "tools.html", label: "编辑器工具链" },
       { href: "settings.html", label: "项目设置" },
       { href: "blob.html", label: "Blob 与数据约定" },
+      { href: "map.html", label: "瓦片地图 Map" },
+      { href: "external-asset.html", label: "外部资产 ·「外部配置」" },
     ],
   },
   {

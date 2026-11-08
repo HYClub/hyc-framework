@@ -101,7 +101,14 @@ namespace HYC.Framework.IO
                 Debug.LogError($"[{nameof(StreamingAssets)}] 未预加载：{key}（检查构建清单是否包含该文件，或 PreloadAsync 是否在读取前 await 完成）");
                 return null;
             }
-            return File.ReadAllBytes(Path.Combine(Application.streamingAssetsPath, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            var full = Path.Combine(Application.streamingAssetsPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            // 缺失不是异常：目录/文件不存在时返回 null，由上层按「没有这个产物」降级
+            // （音频总览 / 配置 blob / 本地化 / 地图 / BT 的调用方都已按 null 处理）。
+            // 此前直接 File.ReadAllBytes 会抛 FileNotFoundException / DirectoryNotFoundException，
+            // 让「未导出时只警告」的约定失效，Play 时一片红。
+            if (!File.Exists(full))
+                return null;
+            return File.ReadAllBytes(full);
         }
 
         /// <summary>等价于 <see cref="ReadBytes"/> + UTF8 解码；空内容返回 null。</summary>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>瓦片地图 Map · HYC Framework</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/vendor/github-dark.min.css">
+</head>
+<body>
+<header class="site-header">
+  <button class="hamburger" id="hamburger" aria-label="菜单">☰</button>
+  <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework <small>使用文档</small></a>
+  <div class="header-search">
+    <span class="search-ic">⌕</span>
+    <input id="searchInput" type="search" placeholder="搜索文档…" autocomplete="off" spellcheck="false" aria-label="搜索文档">
+    <kbd>/</kbd>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="version-badge">v3.0.0 · Unity 2022.3</span>
+  <a class="icon-btn" href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub 仓库"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  <button class="icon-btn search-toggle" id="searchToggle" title="搜索" aria-label="搜索">⌕</button>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">☾</button>
+</header>
+
+<div class="site-notice">
+  <span class="notice-ic">◆</span>
+  <span class="notice-text"><b>持续开发中</b> · 当前为非稳定版本 —— 抢先体验必须到 <a href="https://github.com/HYClub/hyc-framework/discussions/1" target="_blank" rel="noopener">Discussions</a> 联系作者</span>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"><nav id="nav"></nav></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <main class="main"><div class="content">
+    <h1>瓦片地图 Map</h1>
+    <p class="lead">地图只存<b>每格是什么值</b>，铺哪张瓦片由<b>规则在加载时</b>算出来。换美术、改规则都不用重导地图。</p>
+    <p class="subtitle">一张 512×512 的地图在磁盘上是 256KB 出头（每层），支持多层值、自动边缘、可行走查询。</p>
+
+    <h2>五个对象，一条链路</h2>
+<pre><code class="language-text">MapTileSet（瓦片集）
+   ├─ materials + extraGrids   值层：第 0 层地形（沙/水/草），其后是通行/区域/密度…
+   ├─ tiles                    瓦片池：扁平的一堆 Sprite，只被规则按下标引用
+   └─ ruleSets                 规则集：一层 Tilemap 一套规则，各自声明读哪一层值
+        │  被引用
+        ▼
+MapAsset（地图资产：N 层 width × height 字节网格 + 道具落点）    ← 编辑器里改的是它
+        │  导出
+        ▼
+MapBlob（StreamingAssets/Map/&lt;mapId&gt;.blob）                  ← 只存各层值 + 指纹
+        │  加载
+        ▼
+MapView（MonoBehaviour：读 Blob → 按规则集建层 → 逐格求值铺瓦片）</code></pre>
+
+    <table>
+      <thead><tr><th>对象</th><th>类型</th><th>建在哪</th><th>谁改它</th></tr></thead>
+      <tbody>
+        <tr><td>瓦片集</td><td><code>MapTileSet</code> (SO)</td><td><code>Assets/Create/HYC Framework/Map/Tile Set</code></td><td>美术/策划一次性配好，所有地图共用</td></tr>
+        <tr><td>地图</td><td><code>MapAsset</code> (SO)</td><td><code>Assets/Create/HYC Framework/Map/Map</code></td><td>编辑器窗口里画</td></tr>
+        <tr><td>Blob</td><td>二进制</td><td>菜单 <code>Export Blob</code></td><td>代码生成，<b>不要手改</b></td></tr>
+        <tr><td>装载器</td><td><code>MapView</code> (MonoBehaviour)</td><td>菜单 <code>Export Prefab</code> 产出 prefab</td><td>拖进场景即可</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>三块内容不要混</b>：值层是玩法语义（存档、寻路、伤害都只认它），瓦片是表现，规则是两者之间的连接。一旦让值自己固定持有一组瓦片，就退回「一种材质只能有一种长相」——想让「沙地贴水边变湿沙」只得再开一种材质，地图数据跟着膨胀。</div>
+    </div>
+
+    <h2>自动边缘：A + B = C</h2>
+    <p>排序贴法把「干沙旁边是水 → 湿沙」这类关系交给规则表达，而不是手工逐格换瓦片。配过渡关系请用编辑器里的<b>过渡向导</b>，别手写 16 条——向导一次把两侧对称方向的组合铺满。</p>
+    <p>之所以不用 47 张 / 256 张全邻接表：那会把美术资源的数量放大一个数量级，且规则与<b>具体瓦片</b>绑死；这里只记录「哪两个值相邻、产出哪个过渡瓦片」，数据量与组合数无关。</p>
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body"><b>多层</b>：河流压在草地上，是靠「渲染层」顺序叠出来的，值层仍然只有一层地形。<b>多网格</b>：地形是一层，通行、区域、密度各自再开一层，每层都是 <code>width × height</code> 个字节。</div>
+    </div>
+
+    <h2>可行走</h2>
+    <p>河流挡路、花草能踩这类语义，由瓦片集上单独声明的<b>通行值层</b>（<code>WalkableGrid</code>）承载，与地形层解耦。查询走 <code>MapView.IsWalkable(x, y)</code>：地图外 / 空格 / 未加载一律返回 <code>false</code>。</p>
+
+    <h2>怎么画（编辑器约束）</h2>
+    <ul>
+      <li><b>值只能往后加、只能删末尾</b>：中间插入或删除一个值会让所有既有索引平移，旧地图会变成一张错位却「看起来正常」的乱图。</li>
+      <li>道具通过 <b>footprint</b> 声明占地，不再是单点。</li>
+      <li><b>拖动预览期间不写数据</b>：只在松开时落一次，避免一次拖拽产出一堆撤销点。</li>
+      <li><b>画布永远是运行期的样子</b>：所见即所得，不用另开预览。</li>
+    </ul>
+
+    <h2>规则怎么写</h2>
+    <ul>
+      <li><b>3×3 图案编辑器</b>：直接在 3×3 网格里按「中心是 X、四周是 Y」的方式画期望图案。</li>
+      <li><b>优先级与兜底</b>：多条规则同时命中时按优先级取一条，务必留一个兜底规则。</li>
+      <li><b>命中概率</b>：同一值可以配多个候选瓦片并按权重随机，避免重复感。</li>
+      <li><b>瓦片池与「去空槽」</b>：瓦片是扁平池，按下标引用；清理空槽时注意不要错位。</li>
+    </ul>
+
+    <h2>导出与运行期加载</h2>
+    <p>菜单 <code>HYC Framework/Map/Export Blob</code> 导出到 <code>Assets/StreamingAssets/Map/&lt;mapId&gt;.blob</code>；菜单 <code>HYC Framework/Map/Export Prefab</code> 产出装载器 prefab。<b>铺哪张瓦片、规则怎么配一律不进 Blob</b>，所以换美术、改规则、加规则层都不用重导地图。</p>
+    <div class="callout warn">
+      <span class="ic">⚠</span>
+      <div class="body"><b>Blob v2 与 v1 不兼容</b>：<code>BlobVersion</code> 从 1 升到 2（加了 <code>GridCount</code>、<code>Cells</code> 改扁平多层）。旧版本导出的 <code>.blob</code> <b>读不出来</b>，会直接报版本不符；升级后每张地图都要重导一次。这是有意的——让旧文件读失败，比被当成 v2 解析出一张乱图要好得多。</div>
+    </div>
+
+<pre><code class="language-csharp">// 场景里的 MapView 会按 loadOnStart 自动读 blob 并建层；想手动控制：
+mapView.Load(mapId);   // 读 blob + 校验指纹 + 建层，返回是否成功
+mapView.Load();        // 用组件上序列化的 mapId
+
+// 自己管 blob 时（比如走 Addressables）：
+if (MapBlobLoader.TryLoad(mapId, out var blob))
+{
+    if (!MapBlobLoader.Validate(blob, tileSet, out string error))
+        Debug.LogError(error);   // 多半是材质表被改过，指纹不符
+}</code></pre>
+
+    <h2>查询接口</h2>
+<pre><code class="language-csharp">byte cell  = mapView.GetCell(x, y);     // 0 = 空，n = 第 0 层的值 n-1
+byte pass  = mapView.GetCell(1, x, y);  // 第 1 层（通行层）同格的值
+var  mat   = mapView.MaterialAt(x, y);  // 第 0 层的值定义（可能为 null）
+var  val   = mapView.ValueAt(1, x, y);  // 任意层的值定义
+bool walk  = mapView.IsWalkable(x, y);  // 读 tileSet.WalkableGrid
+bool ready = mapView.IsLoaded;</code></pre>
+
+    <h2>刻意不做的事</h2>
+    <table>
+      <thead><tr><th>不做</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td><b>运行时算边缘</b></td><td>边缘是<b>加载时</b>算一次，不是每帧算，所以不占运行开销</td></tr>
+        <tr><td><b>湿沙 / 湿润扩散子系统</b></td><td>「湿沙」不是算法，就是沙与水这对材质之间的过渡瓦片；做成距离场等于把美术问题变成模拟问题</td></tr>
+        <tr><td><b>把地图烘成静态 Tilemap</b></td><td>烘进去要给每张瓦片建 Tile 资产，地图一改就得重建，且两张只差几格的地图会各存一份完整副本</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">完整版（含自动边缘的完整配法、多层/多网格细节、指纹机制与排错清单）见框架 <code>Documentation~/62-地图编辑器.md</code>。</div>
+    </div>
+  </div></main>
+  <aside class="toc" id="toc"></aside>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../index.html"><span class="logo">HY</span> HYC Framework</a>
+      <p>数据驱动的 Unity 框架：配置 / 本地化 / 行为树在编辑期烘焙为不可变 Blob，UI 即 ECS System，一套代码跨端。</p>
+      <p class="footer-meta">v3.0.0 · Unity 2022.3 · Entities 1.0.16 · MIT License</p>
+    </div>
+    <nav class="footer-col">
+      <div class="footer-title">文档</div>
+      <a href="index.html">框架总览</a>
+      <a href="architecture.html">架构与数据流</a>
+      <a href="ops.html">操作手册</a>
+      <a href="samples.html">示例集 HYCSimple</a>
+      <a href="config.html">配置系统</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">仓库</div>
+      <a href="https://github.com/HYClub/hyc-framework" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/HYClub/hyc-framework/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/package.json" target="_blank" rel="noopener">package.json</a>
+      <a href="https://github.com/HYClub/hyc-framework/tree/main/com.hyc.framework/Documentation~" target="_blank" rel="noopener">Documentation~</a>
+    </nav>
+    <nav class="footer-col">
+      <div class="footer-title">相关技术</div>
+      <a href="https://docs.unity3d.com/packages/com.unity.entities@1.0/manual/index.html" target="_blank" rel="noopener">Unity Entities</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.burst@1.8/manual/index.html" target="_blank" rel="noopener">Burst</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.collections@2.1/manual/index.html" target="_blank" rel="noopener">Collections</a>
+      <a href="https://docs.unity3d.com/Packages/com.unity.mathematics@1.2/manual/index.html" target="_blank" rel="noopener">Mathematics</a>
+      <a href="https://docs.unity3d.com/Manual/UIToolkits.html" target="_blank" rel="noopener">Unity UI Toolkit</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>© <span id="year"></span> HYClub · HYC Framework 使用文档 · 基于源码实测撰写 · MIT License</span>
+    <span><a href="https://github.com/HYClub/hyc-framework/blob/main/com.hyc.framework/LICENSE" target="_blank" rel="noopener">License</a></span>
+  </div>
+</footer>
+<button class="back-top" id="backTop" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="../assets/vendor/highlight.min.js"></script>
+<script src="../assets/vendor/csharp.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

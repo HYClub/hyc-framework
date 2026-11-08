@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -191,10 +191,15 @@ namespace HYC.Framework.Config.Editor
 
             var types = CollectConfigTypes(ConfigDataSettings.RootFolder);
             var exported = 0;
+            var failed = new List<string>();
             BuildErrorWindow.BeginExportOperation();
             foreach (var t in types)
+            {
                 if (ExportAll(t, client, server))
                     exported++;
+                else
+                    failed.Add(t.Name);
+            }
 
             // 零检查项时按设置给一次「未发现问题」确认（逐类型导出会命中标记，不会弹 N 个框）
             BuildErrorWindow.EndExportOperation("全量清理后全量导出",
@@ -202,6 +207,13 @@ namespace HYC.Framework.Config.Editor
 
             AssetDatabase.Refresh();
             Debug.Log($"[Config] 全量清理后全量导出完成：{exported} 类配置 -> 客户端[{ConfigDataSettings.ClientExportDir}] 服务器[{ConfigDataSettings.ServerExportDir}]");
+
+            // 被跳过的类型必须响亮：曾经因为一个类型生成不完整（旧命名空间残留）被静默跳过，
+            // 运行期才发现缺 blob。这里报成 Error 并给出排查方向。
+            if (failed.Count > 0)
+            {
+                Debug.LogError($"[Config] {failed.Count} 类配置没有产出（已跳过）：{string.Join(", ", failed)}。常见原因：生成代码不完整（旧命名空间残留 / 编译报错）/ 模板缺客户端导出字段。运行期加载这些表的 blob 会读到空表。");
+            }
             return exported;
         }
 

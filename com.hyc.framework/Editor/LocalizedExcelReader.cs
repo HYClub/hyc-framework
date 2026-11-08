@@ -193,6 +193,117 @@ namespace HYC.Framework.Loc.Editor
             return errors;
         }
 
+        /// <summary>
+        /// Parses a single Excel file (every sheet) into an editable table,
+        /// merging rows by key. Used by the localization editor to load an
+        /// existing workbook for round-trip editing. Header normalization uses
+        /// <see cref="LocaleUtil.NormalizeLangHeader"/> so it matches import.
+        /// </summary>
+        public static void ParseExcelFile(string path, out List<string> keys, out List<string> langs,
+            out Dictionary<string, Dictionary<string, string>> cells)
+        {
+            keys = new List<string>();
+            langs = new List<string>();
+            cells = new Dictionary<string, Dictionary<string, string>>();
+            var langOrder = new List<string>();
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            IWorkbook workbook = path.ToLowerInvariant().EndsWith(".xls")
+                ? (IWorkbook)new HSSFWorkbook(stream)
+                : new XSSFWorkbook(stream);
+
+            // Pass A: collect the global language order from every sheet header.
+            for (var s = 0; s < workbook.NumberOfSheets; s++)
+            {
+                var sheet = workbook.GetSheetAt(s);
+                var titleRow = sheet.GetRow(sheet.FirstRowNum);
+                if (titleRow == null) continue;
+                for (var j = titleRow.FirstCellNum; j <= titleRow.LastCellNum; j++)
+                {
+                    var header = GetCellText(titleRow.GetCell(j));
+                    if (string.IsNullOrWhiteSpace(header)) continue;
+                    var norm = LocaleUtil.NormalizeLangHeader(header);
+                    if (norm == IdColumn) continue;
+                    if (!langOrder.Contains(norm)) langOrder.Add(norm);
+                }
+            }
+            langs = langOrder;
+
+            // Pass B: read data rows, merging by key across sheets.
+            for (var s = 0; s < workbook.NumberOfSheets; s++)
+            {
+                var sheet = workbook.GetSheetAt(s);
+                var titleRow = sheet.GetRow(sheet.FirstRowNum);
+                if (titleRow == null) continue;
+                var sheetTitles = new Dictionary<string, int>();
+                for (var j = titleRow.FirstCellNum; j <= titleRow.LastCellNum; j++)
+                {
+                    var header = GetCellText(titleRow.GetCell(j));
+                    if (string.IsNullOrWhiteSpace(header)) continue;
+                    var norm = LocaleUtil.NormalizeLangHeader(header);
+                    if (!sheetTitles.ContainsKey(norm)) sheetTitles[norm] = j;
+                }
+                if (!sheetTitles.ContainsKey(IdColumn)) continue;
+
+                for (var r = sheet.FirstRowNum + 1; r <= sheet.LastRowNum; r++)
+                {
+                    var row = sheet.GetRow(r);
+                    if (row == null) continue;
+                    var id = GetCellText(row.GetCell(sheetTitles[IdColumn]));
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    if (!cells.TryGetValue(id, out var rowMap))
+                    {
+                        rowMap = new Dictionary<string, string>();
+                        cells[id] = rowMap;
+                        keys.Add(id);
+                        foreach (var l in langs) rowMap[l] = string.Empty;
+                    }
+                    foreach (var kv in sheetTitles)
+                    {
+                        if (kv.Key == IdColumn) continue;
+                        var val = GetCellText(row.GetCell(kv.Value));
+                        if (string.IsNullOrEmpty(rowMap[kv.Key]))
+                            rowMap[kv.Key] = val;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Writes an editable table back to an Excel workbook (single sheet
+        /// "Localization"), the reverse of <see cref="ParseExcelFile"/>. Used by
+        /// the localization editor's "Save" so authors can start without any
+        /// Excel file and have one generated automatically.
+        /// </summary>
+        public static void WriteWorkbook(string path, IReadOnlyList<string> keys, IReadOnlyList<string> langs,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> cells)
+        {
+            IWorkbook workbook = path.ToLowerInvariant().EndsWith(".xls")
+                ? (IWorkbook)new HSSFWorkbook()
+                : new XSSFWorkbook();
+            var sheet = workbook.CreateSheet("Localization");
+
+            var header = sheet.CreateRow(0);
+            header.CreateCell(0).SetCellValue(IdColumn);
+            for (var i = 0; i < langs.Count; i++)
+                header.CreateCell(i + 1).SetCellValue(langs[i]);
+
+            for (var r = 0; r < keys.Count; r++)
+            {
+                var row = sheet.CreateRow(r + 1);
+                row.CreateCell(0).SetCellValue(keys[r]);
+                cells.TryGetValue(keys[r], out var rowMap);
+                for (var i = 0; i < langs.Count; i++)
+                {
+                    var v = rowMap != null && rowMap.TryGetValue(langs[i], out var val) ? val : string.Empty;
+                    row.CreateCell(i + 1).SetCellValue(v ?? string.Empty);
+                }
+            }
+
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+            workbook.Write(fs);
+        }
+
         /// <summary>Reads a cell as display text (numbers, booleans and cached
         /// formula results included) via NPOI DataFormatter.</summary>
         private static string GetCellText(ICell cell)

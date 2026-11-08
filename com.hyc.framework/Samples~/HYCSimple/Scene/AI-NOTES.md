@@ -101,18 +101,22 @@
 本目录另含场景内容物系统的最小闭环演示：
 
 - `HYCSimpleSpawnPoint` —— **标记组件（B 来源）**：实现 `HYC.Framework.SceneContent.ISceneContentMarker`，
-  挂在关卡 prefab 上即被 `SceneContentAuthoring` 自动发现，导出时写进 Blob。
+  挂在关卡 prefab / scene 上即被导出器在资产上自动发现，导出时写进 Blob。
 - `HYCSimpleSceneContentSpawner` —— **运行期生成注入点**：实现 `ISceneContentSpawner`，按 `contentTypeId`
   决定生成什么（示例只打日志，真实项目生成 prefab/entity）。
 - `HYCSimpleSceneContentDemo` —— 把「加载 Blob」演示进场景（运行期只做加载）。
 - `Editor/DemoResolver.cs` —— **编辑器期解析器**：按 prefab 名派生 id，`[InitializeOnLoadMethod]` 自注册。
 
 ### 接入要点
-- 关卡 prefab 挂 `SceneContentAuthoring`（`levelId` 须与导出文件名、运行期 `Load(levelId, …)` 一致）。
+- Blob 文件名 = 关卡 Prefab / Scene 资产 .meta 的 **GUID**（`StreamingAssets/SceneContent/<guid>.blob`）；
+  但**运行期不要用 GUID**：AssetDatabase 只在编辑器可用，且重建 prefab 会换 GUID。
+  导出器会把「业务 key → GUID」登记进 `SceneContent/index.json`（key = 显式 alias > Addressables 地址 > 资产名）。
 - 编辑器导出前，游戏须注册 prefab→id 解析器（`SceneContentResolvers.Register`，一次性，编辑器期）。
   🔴 **解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它**——这是编译期硬约束，
   `#if UNITY_EDITOR` 包在运行时 asmdef 里照样 CS0234。所以解析器必须放**样例自己的 Editor asmdef**
   （本例 `Scene/Editor/HYCSimple.Scene.Editor.asmdef`），由编辑器期自注册；Demo 的 Start 只做运行期 Load。
   另外：挂了 `SceneContentMarker` 的 prefab 走框架内置兜底解析，**无需注册**即可导出。
-- 运行期在**场景加载完成**后调 `SceneContentLoader.Load(levelId, spawner)` 即可生成全部内容。
+- 运行期在**关卡加载完成**后，由关卡加载器把业务 key 交给 `SceneContentLoader.LoadByKey(key, spawner)` 即可生成全部内容。
+  查不到 key 时框架会报错并列出清单里所有可用 key。仅当确实手里已有资产 GUID 时才调 `Load(guid, spawner)`。
+  WebGL / Android 上 `index.json` 由构建期 `hyc_streaming_manifest.txt` 自动收录，随 `FrameworkBootstrap.InitializeAsync` 预取，无需额外接线。
 - 真实项目 `DemoResolver` 的 `name.GetHashCode()` 仅示例，应接配置表 / 常量映射保证跨会话稳定。

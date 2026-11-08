@@ -106,14 +106,14 @@ namespace HYC.Framework.Talent.Editor
                 {
                     if (t == null) continue;
                     if (!typeof(ScriptableObject).IsAssignableFrom(t)) continue;
-                    if (!t.GetCustomAttributes(typeof(CfgAssetAttribute), true).Any()) continue;
+                    if (!t.GetCustomAttributes(typeof(CfgAssetAttribute), false).Any()) continue;
                     cfgTypes.Add(t);
                 }
             }
 
             foreach (var t in cfgTypes)
             {
-                var attr = (CfgAssetAttribute)t.GetCustomAttributes(typeof(CfgAssetAttribute), true)[0];
+                var attr = (CfgAssetAttribute)t.GetCustomAttributes(typeof(CfgAssetAttribute), false)[0];
                 string catName = string.IsNullOrEmpty(attr.Name) ? t.Name : attr.Name;
 
                 foreach (var g in AssetDatabase.FindAssets("t:" + t.Name))

@@ -102,6 +102,30 @@ namespace HYC.Framework.SceneContent
             PostValue();
         }
 
+        /// <summary>写 64 位整型（配置引用 id / 行为树 id / long）。</summary>
+        public void Value(long value)
+        {
+            PreValue();
+            _sb.Append(value.ToString(CultureInfo.InvariantCulture));
+            PostValue();
+        }
+
+        /// <summary>写双精度值（round-trip 精度，不受区域设置影响）。</summary>
+        public void Value(double value)
+        {
+            PreValue();
+            _sb.Append(value.ToString("R", CultureInfo.InvariantCulture));
+            PostValue();
+        }
+
+        /// <summary>写高精度十进制值（不受区域设置影响）。</summary>
+        public void Value(decimal value)
+        {
+            PreValue();
+            _sb.Append(value.ToString(CultureInfo.InvariantCulture));
+            PostValue();
+        }
+
         /// <summary>取紧凑 JSON 文本。</summary>
         public override string ToString() => _sb.ToString();
 

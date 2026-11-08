@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -244,6 +244,19 @@ namespace HYC.Framework.Config.Editor
             GUI.backgroundColor = baseOldBg;
             GUI.contentColor = baseOldContent;
 
+            // 唯一（Single）：勾选后该类型全工程只能有一份。与其它字段同高、单行。
+
+            var uniqueProp = mTarget.FindProperty("unique");
+
+            if (uniqueProp != null)
+
+            {
+
+                EditorGUILayout.PropertyField(uniqueProp, new GUIContent("唯一",
+
+                    "勾选 = 全工程只能存在一份（Single）；不勾 = 可建多份（Multiple，默认）。"));
+
+            }
             EditorGUIUtility.labelWidth = oldLabelWidth;
 
             EditorGUILayout.EndVertical();
@@ -1836,10 +1849,18 @@ namespace HYC.Framework.Config.Editor
                 return;
             }
 
+            // 单模板生成也要清理「命名空间 root 切换后残留」的旧生成文件：
+            // 否则旧命名空间里的同类还在，别的模板引用它时按当前 root 写 using，编译期即 CS0246。
+            int staleCleaned = ConfigTemplateCodeGen.CleanStaleNamespaceFiles(true);
+            if (staleCleaned > 0)
+            {
+                AssetDatabase.Refresh();
+            }
+
             // WriteFile 内部为记录 lastGeneratedClassName 会 SetDirty，这里补一次落盘，
             // 使生成后资产不留未保存标记（标题的 * 会消失）。
             if (SaveInternal(showNotification: false))
-                mWindow?.ShowNotification(new GUIContent($"已保存并生成 {tpl.className}.cs"));
+                mWindow?.ShowNotification(new GUIContent(staleCleaned > 0 ? $"已生成 {tpl.className}.cs（清理旧命名空间残留 {staleCleaned} 个）" : $"已保存并生成 {tpl.className}.cs"));
             else
                 mWindow?.ShowNotification(new GUIContent($"已生成 {tpl.className}.cs（模板落盘失败，请手动保存）"));
         }

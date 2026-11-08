@@ -19,7 +19,7 @@ namespace HYC.Framework.SceneContent
         /// <summary>
         /// 产出本组件的 payload JSON 文本。
         /// </summary>
-        /// <param name="levelRoot">关卡根（<see cref="SceneContentAuthoring"/> 所在 GO），用于把 GO 引用算成相对层级路径。</param>
+        /// <param name="levelRoot">关卡根（Prefab 根或 Scene 内承载标记的根 GO），用于把 GO 引用算成相对层级路径。</param>
         /// <param name="side">导出侧：决定哪些字段进这份 payload、GO 引用用哪种表示。</param>
         /// <returns>紧凑 JSON 文本；无字段可写时返回空对象 <c>{}</c>。</returns>
         string ToPayloadJson(GameObject levelRoot, SceneContentSide side);

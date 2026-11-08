@@ -117,10 +117,47 @@ LocalizationManager.onLanguageChanged += OnLangChanged;</code></pre>
       <tbody>
         <tr><td><code>HYC Framework / Localization / Import / Excel (Import & Build Blob)</code></td><td>导入全部 Excel 并写 Blob、Reload</td></tr>
         <tr><td><code>HYC Framework / Localization / Settings / Localization Settings</code></td><td>配 Excel 目录 / 输出目录 / 默认语言 / 敏感词文件</td></tr>
-        <tr><td><code>HYC Framework / Localization / Editors / Key Browser</code></td><td>浏览表、按 key 过滤、看每语言文本、导出 CSV</td></tr>
+        <tr><td><code>HYC Framework / Localization / Editors / Localization Editor</code></td><td>可视化编辑本地化表（key 与语言列、填译文）、保存到 Excel、导入并刷新 Blob、导出 CSV</td></tr>
         <tr><td><code>HYC Framework / Localization / Editors / Sensitive Words</code></td><td>敏感词过滤测试台</td></tr>
       </tbody>
     </table>
+
+    <h2>程序化建表（LocalizedFactory）</h2>
+    <p>给 <b>AI 代理 / 脚本 / 工具</b>用的入口：不开编辑器也能加语言列、加 key、填译文，然后写回 <code>.xlsx</code> 并自动导入刷新 Blob。它就是<b>本地化表的 ConfigAssetFactory</b>。</p>
+    <table>
+      <thead><tr><th>场景</th><th>用哪个</th></tr></thead>
+      <tbody>
+        <tr><td>人工在编辑器里逐条填</td><td><code>LocaleWindow</code>（本地化编辑器）</td></tr>
+        <tr><td>AI / 脚本批量生成、补译、合并草稿</td><td><b><code>LocalizedFactory</code> + <code>LocalizationTableBuilder</code></b></td></tr>
+        <tr><td>已有 <code>.xlsx</code> 想增量改</td><td><code>LocalizedFactory.Load(path)</code> → 改 → <code>SaveAndImport</code></td></tr>
+      </tbody>
+    </table>
+
+    <p><code>LocalizationTableBuilder</code> 是流式建表器，所有修改方法都 <code>return this</code>，可链式调用：</p>
+    <table>
+      <thead><tr><th>方法</th><th>作用</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td><code>AddLanguage(code)</code></td><td>加语言列</td><td>幂等；经 <code>NormalizeLangHeader</code> 归一</td></tr>
+        <tr><td><code>AddKey(key)</code></td><td>加 key 行</td><td>幂等</td></tr>
+        <tr><td><code>Set(key, lang, text)</code></td><td>填某个 key 的某种语言</td><td>自动补建 key 与语言列</td></tr>
+        <tr><td><code>SetMany(key, dict)</code></td><td>一次填一个 key 的多语言</td><td>内部遍历 <code>Set</code></td></tr>
+        <tr><td><code>Save(path)</code></td><td>只写 <code>.xlsx</code></td><td>单 sheet <code>Localization</code></td></tr>
+        <tr><td><code>SaveAndImport(path)</code></td><td>写盘 + 自动刷新 Blob</td><td><b>最常用</b></td></tr>
+      </tbody>
+    </table>
+
+<pre><code class="language-csharp">using HYC.Framework.Loc.Editor;
+
+LocalizedFactory.Create()
+    .AddLanguage("en").AddLanguage("cn").AddLanguage("jp")
+    .Set("ui.start", "en", "Start")
+    .Set("ui.start", "cn", "开始")
+    .SaveAndImport("Assets/Localization/Localization.xlsx");</code></pre>
+
+    <div class="callout note">
+      <span class="ic">◈</span>
+      <div class="body">语言列名会被<b>归一</b>：传 <code>中文</code> / <code>English</code> 会存成 <code>cn</code> / <code>en</code>，与读取端规则一致。builder 对应<b>一个</b> <code>.xlsx</code>，而 <code>ImportAll()</code> 会合并目录下<b>所有</b> <code>.xlsx</code>——同名 key 会冲突，建议该目录只放这一张表。另提供一步到位写法 <code>LocalizedFactory.WriteExcel(...)</code>；完整 4 种用法见 <code>Documentation~/23-本地化工厂-LocalizedFactory.md</code>。</div>
+    </div>
 
     <h2>常见坑</h2>
     <ul>

@@ -1,7 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Reflection;
-using HYC.Framework.Config.Editor;
 using UnityEngine;
 
 namespace HYC.Framework.SceneContent.Editor
@@ -18,7 +15,7 @@ namespace HYC.Framework.SceneContent.Editor
         /// <summary>组件声明的内容类型 id。</summary>
         public int ContentTypeId;
 
-        /// <summary>该组件是否就属于当前正在编辑的类型定义。</summary>
+        /// <summary>组件 id 是否等于调用方传入的 targetContentTypeId（全局总览传 -1 时恒为 false）。</summary>
         public bool MatchesTarget;
 
         /// <summary>组件在关卡里的层级路径（相对扫描根）。</summary>
@@ -26,13 +23,12 @@ namespace HYC.Framework.SceneContent.Editor
     }
 
     /// <summary>
-    /// 关卡 prefab 的标记组件扫描 + <b>反向填充字段</b>。
+    /// 关卡 prefab / 场景里的标记组件<b>只读发现</b>。
     /// <para>
-    /// 用途：策划把关卡 prefab 拖到 <see cref="SceneContentTypeDef.scanPrefab"/> 上，
-    /// 面板就能列出「这个关卡上挂了哪些场景内容、各是什么类型、几个」，
-    /// 并能从一个已有组件的公开字段<b>反推</b>出字段定义列表——省掉手工一个个加字段。
+    /// 用途：列出「这个关卡 / prefab 上挂了哪些场景内容、各是什么类型、几个、层级路径」。
+    /// 纯只读，不写资产、不反填字段定义（反填功能已移除——新功能没有旧组件要迁移）。
+    /// 内容总览页签与类型设计器共用本扫描。
     /// </para>
-    /// <para>纯编辑器只读逻辑，不写资产；写资产由调用方（类型定义面板）决定。</para>
     /// </summary>
     public static class SceneContentPrefabScanner
     {
@@ -59,82 +55,6 @@ namespace HYC.Framework.SceneContent.Editor
                 });
             }
             return result;
-        }
-
-        /// <summary>
-        /// 从一个组件的公开序列化字段反推出 <see cref="SceneContentFieldDef"/> 列表。
-        /// 无法映射的字段（不支持的类型、非本工程的枚举）会写进 <paramref name="warnings"/>，不静默丢弃。
-        /// </summary>
-        public static List<SceneContentFieldDef> BuildFieldDefs(Component component, out List<string> warnings)
-        {
-            warnings = new List<string>();
-            var defs = new List<SceneContentFieldDef>();
-            if (component == null)
-                return defs;
-
-            var fields = component.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public);
-            foreach (var fi in fields)
-            {
-                var def = MapField(fi, warnings);
-                if (def != null)
-                    defs.Add(def);
-            }
-            return defs;
-        }
-
-        private static SceneContentFieldDef MapField(FieldInfo fi, List<string> warnings)
-        {
-            var t = fi.FieldType;
-            var isList = t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>);
-            if (isList)
-                t = t.GetGenericArguments()[0];
-
-            var def = new SceneContentFieldDef
-            {
-                name = fi.Name,
-                isList = isList,
-                clientExport = new SceneContentFieldExport(SceneContentExportMode.Direct),
-                serverExport = new SceneContentFieldExport(SceneContentExportMode.None),
-            };
-
-            if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte))
-            {
-                def.type = SceneContentFieldType.Int;
-                return def;
-            }
-            if (t == typeof(float) || t == typeof(double))
-            {
-                def.type = SceneContentFieldType.Float;
-                return def;
-            }
-            if (t == typeof(bool))
-            {
-                def.type = SceneContentFieldType.Bool;
-                return def;
-            }
-            if (t == typeof(string))
-            {
-                def.type = SceneContentFieldType.String;
-                return def;
-            }
-            if (t == typeof(GameObject))
-            {
-                def.type = SceneContentFieldType.GameObject;
-                // GO 引用默认导出成层级路径：这是唯一跨会话稳定的表示（见 SceneContentRefPath）
-                def.clientExport = new SceneContentFieldExport(SceneContentExportMode.HierarchyPath);
-                return def;
-            }
-            if (t.IsEnum)
-            {
-                def.type = SceneContentFieldType.Enum;
-                def.enumRefClassName = t.Name;
-                if (ConfigEnumCodeGen.FindEnum(t.Name) == null)
-                    warnings.Add($"字段「{fi.Name}」的枚举 {t.Name} 在数据编辑器里没有对应枚举定义，生成前需先建一个同名枚举");
-                return def;
-            }
-
-            warnings.Add($"字段「{fi.Name}」类型 {t.Name} 暂不支持，已跳过");
-            return null;
         }
     }
 }

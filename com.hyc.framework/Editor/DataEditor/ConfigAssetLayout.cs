@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 
@@ -72,8 +73,9 @@ namespace HYC.Framework.Config.Editor
             var slash = relative.IndexOf('/');
             if (slash <= 0) return false; // 资产直接在根目录下 = 未归置
 
-            var expected = FolderNameFor(AssetDatabase.GetMainAssetTypeAtPath(assetPath));
-            if (expected == null) return false; // 非配置类资产（模板/枚举之外）不归我们管
+            // 回调安全：类型文件夹名一律取缓存（见 sTypeFolderCache 说明），此处不碰 AssetDatabase。
+            // 未命中 → expected 为 null → 下方比较不成立 → 按「未归置」放行。
+            var expected = sTypeFolderCache.TryGetValue(path, out var cached) ? cached : null;
 
             var firstSegment = relative.Substring(0, slash);
             if (!string.Equals(firstSegment, expected, StringComparison.OrdinalIgnoreCase))
@@ -113,6 +115,59 @@ namespace HYC.Framework.Config.Editor
             return $"不建议将「{name}」移出「{typeFolder}」文件夹。\n" +
                    "配置资产按类型文件夹组织（创建时自动归置，没有则自动创建）；" +
                    "文件夹内可自由移动 / 建子文件夹 / 重命名，移出会破坏该结构。";
+        }
+
+        // ---------- 类型文件夹缓存（回调安全） ----------
+
+        /// <summary>
+        /// 资产路径 → 类型文件夹名。
+        /// <para>Unity 官方明确要求：<see cref="AssetModificationProcessor.OnWillMoveAsset"/> 回调内
+        /// <b>不得调用任何 AssetDatabase API</b>（建议只用文件操作 / VCS API）。因此「某条路径属于哪个类型」
+        /// 必须在回调<b>之外</b>先行解析并缓存，回调内只做对本字典的纯查询。</para>
+        /// <para>缓存未命中一律按「未归置」放行：<b>宁可漏拦，也绝不能阻塞 Unity 的改名流程</b>。</para>
+        /// </summary>
+        private static readonly Dictionary<string, string> sTypeFolderCache =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>登记路径所属类型文件夹（调用方已持有类型，无需反查）。</summary>
+        public static void Register(string assetPath, Type assetType)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return;
+            var expected = FolderNameFor(assetType);
+            if (expected == null) return; // 非配置类资产（模板/枚举之外）不归我们管
+            sTypeFolderCache[Normalize(assetPath)] = expected;
+        }
+
+        /// <summary>
+        /// 登记路径所属类型文件夹（内部反查类型）。
+        /// <b>只允许在 AssetModificationProcessor 回调之外调用</b>。
+        /// </summary>
+        public static void Register(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return;
+            // 非 .asset 直接跳过：避免每次导入贴图 / 脚本都白付一次 AssetDatabase 反查的代价
+            if (!assetPath.EndsWith(".asset", StringComparison.OrdinalIgnoreCase)) return;
+            Register(assetPath, AssetDatabase.GetMainAssetTypeAtPath(assetPath));
+        }
+
+        /// <summary>移除登记（资产删除，或改名 / 移动前的旧路径）。</summary>
+        public static void Unregister(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return;
+            sTypeFolderCache.Remove(Normalize(assetPath));
+        }
+
+        /// <summary>
+        /// 冷启动补齐：域重载后静态字典会清空，而 Unity <b>不会</b>重导入未变动的资产
+        /// （即 Import 钩子不再触发），故需在 AssetDatabase 就绪后补扫一次配置根。
+        /// </summary>
+        public static void WarmupTypeFolderCache()
+        {
+            var root = Normalize(ConfigDataSettings.RootFolder);
+            if (string.IsNullOrEmpty(root) || !AssetDatabase.IsValidFolder(root)) return;
+
+            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { root }))
+                Register(AssetDatabase.GUIDToAssetPath(guid));
         }
 
         // ---------- 内部 ----------
@@ -168,7 +223,12 @@ namespace HYC.Framework.Config.Editor
         /// <summary>守护是否已在本次移动中向用户弹窗（供自定义数据树避免重复弹窗）。</summary>
         public static bool GuardPrompted { get; internal set; }
 
-        /// <summary>资产移动 / 重命名前回调。返回 FailedMove = 取消操作并提示；DidMove = 放行。</summary>
+        /// <summary>
+        /// 资产移动 / 重命名前回调。<see cref="AssetMoveResult.FailedMove"/> = 取消该次操作；
+        /// <see cref="AssetMoveResult.DidNotMove"/> = 放行并交回 Unity 执行真实改名。
+        /// <para><b>禁止返回 <see cref="AssetMoveResult.DidMove"/></b>：其官方语义是「本回调已在磁盘上完成移动」，
+        /// 本守护从不自行搬文件，返回它会让 Unity 跳过真实改名，导致 Project 窗口所有改名静默失效。</para>
+        /// </summary>
         static AssetMoveResult OnWillMoveAsset(string oldPath, string newPath)
         {
             GuardPrompted = false;
@@ -178,10 +238,47 @@ namespace HYC.Framework.Config.Editor
                 GuardPrompted = true;
                 // 两按钮：用户可「仍然移动」覆盖建议，或「取消」接受拦截
                 if (EditorUtility.DisplayDialog("不建议移动", block, "仍然移动", "取消"))
-                    return AssetMoveResult.DidMove;
+                    return AssetMoveResult.DidNotMove;
                 return AssetMoveResult.FailedMove;
             }
-            return AssetMoveResult.DidMove;
+
+            // 放行：必须返回 DidNotMove 交回 Unity 执行真实改名（返回 DidMove 会让改名静默失效，见上）
+            return AssetMoveResult.DidNotMove;
+        }
+    }
+
+    /// <summary>
+    /// 维护 <see cref="ConfigAssetLayout"/> 的类型文件夹缓存：导入 / 删除 / 移动时同步登记。
+    /// <para><b>回调层级差异</b>：AssetPostprocessor 的钩子不在 AssetModificationProcessor 内部，
+    /// 因此这里可以安全调用 AssetDatabase API——正是为了让 <see cref="ConfigAssetMoveGuard"/> 在
+    /// 改名回调里<b>不必</b>调用它们而存在。</para>
+    /// </summary>
+    public sealed class ConfigAssetTypeCacheSync : AssetPostprocessor
+    {
+        static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
+        {
+            foreach (var p in imported ?? Array.Empty<string>())
+                ConfigAssetLayout.Register(p);
+            foreach (var p in deleted ?? Array.Empty<string>())
+                ConfigAssetLayout.Unregister(p);
+
+            var moves = moved ?? Array.Empty<string>();
+            var movesFrom = movedFrom ?? Array.Empty<string>();
+            for (var i = 0; i < moves.Length && i < movesFrom.Length; i++)
+            {
+                ConfigAssetLayout.Unregister(movesFrom[i]);
+                ConfigAssetLayout.Register(moves[i]);
+            }
+        }
+    }
+
+    /// <summary>域重载 / 打开工程后补齐类型文件夹缓存（延到 AssetDatabase 就绪再扫）。</summary>
+    [InitializeOnLoad]
+    public static class ConfigAssetTypeCacheWarmup
+    {
+        static ConfigAssetTypeCacheWarmup()
+        {
+            EditorApplication.delayCall += ConfigAssetLayout.WarmupTypeFolderCache;
         }
     }
 }

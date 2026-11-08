@@ -4,6 +4,7 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace HYC.Framework.Config.Editor
 {
@@ -17,6 +18,7 @@ namespace HYC.Framework.Config.Editor
         private int mCurrentId;
         private SerializedObject mAssetSO;
         private ConfigDataEditor mEditor;
+        private FolderConfigEditor mFolderEditor;
 
         private static Dictionary<Type, Type> mEditorMap;
 
@@ -46,59 +48,115 @@ namespace HYC.Framework.Config.Editor
         public void Reload()
         {
             mEditor?.Reload();
+            mFolderEditor?.Reload();
         }
 
         public void OnGUI(Rect rect, ConfigDataWindow window, TreeView tree, ConfigDataTreeNode treeNode)
         {
+            GUILayout.BeginArea(rect);
+
             if (treeNode == null)
             {
-                DrawEmptyHint(rect);
+                DrawCenteredHint("在左侧选择一个配置，或右键目录创建新配置。\n"
+                                 + "也可把外部资产（如 .inputactions）从 Project 窗口拖到左侧树的空白区纳入「外部配置」。");
+                GUILayout.EndArea();
                 return;
             }
 
-            GUILayout.BeginArea(rect);
+            // 虚拟文件夹本身不是真实资产，右栏显示用法说明即可
+            if (treeNode is ConfigDataTreeVirtualFolderNode)
+            {
+                DrawCenteredHint("「外部配置」是一个虚拟文件夹：成员是外部资产的引用，\n"
+                                 + "资产本体不会被移动或复制，仍保留在它原来的位置。\n\n"
+                                 + "加入方式：从 Project 窗口把资产拖到左侧树的空白区，松手后确认即可；\n"
+                                 + "右键成员节点「移除」只删这里的引用，不会删除资产文件。");
+                GUILayout.EndArea();
+                return;
+            }
 
             if (mCurrentId != treeNode.id)
             {
                 mCurrentId = treeNode.id;
 
-                var assetData = treeNode.GetAsset();
-                var assetType = assetData != null ? assetData.GetType() : null;
-
-                var editorType = GetEditor(assetType);
-                if (editorType != null && typeof(ConfigDataEditor).IsAssignableFrom(editorType))
+                if (treeNode is ConfigDataTreeFolderNode)
                 {
-                    if (mEditor != null)
+                    // 文件夹视图：释放资产编辑器，按需创建 FolderConfigEditor
+                    if (mEditor != null) { mEditor.Dispose(); mEditor = null; mAssetSO = null; }
+                    if (mFolderEditor == null)
+                        mFolderEditor = new FolderConfigEditor();
+                    mFolderEditor.Open(window, tree, treeNode, null);
+                }
+                else if (treeNode is ConfigDataTreeExternalNode)
+                {
+                    // 外部资产：整体嵌入原生 Inspector（释放文件夹视图与其他资产编辑器）
+                    if (mFolderEditor != null) { mFolderEditor.Dispose(); mFolderEditor = null; }
+                    if (mEditor != null) { mEditor.Dispose(); mEditor = null; }
+
+                    var assetData = treeNode.GetAsset();
+                    // .inputactions 的原生 Inspector 被 Input System 刻意留空（编辑在独立窗口），
+                    // 直接嵌入会一片空白 ⇒ 走专门的只读结构视图编辑器（InputActionsAssetEditor）。
+                    mEditor = assetData is InputActionAsset
+                        ? (ConfigDataEditor)new InputActionsAssetEditor()
+                        : new UnityAssetEditor();
+
+                    mAssetSO = assetData != null ? new SerializedObject(assetData) : null;
+                    mEditor.Open(window, tree, treeNode, mAssetSO);
+                }
+                else
+                {
+                    if (mFolderEditor != null) { mFolderEditor.Dispose(); mFolderEditor = null; }
+
+                    var assetData = treeNode.GetAsset();
+                    var assetType = assetData != null ? assetData.GetType() : null;
+
+                    var editorType = GetEditor(assetType);
+                    if (editorType != null && typeof(ConfigDataEditor).IsAssignableFrom(editorType))
+                    {
+                        if (mEditor != null) { mEditor.Dispose(); mEditor = null; }
+                        if (mEditor == null)
+                            mEditor = (ConfigDataEditor)Activator.CreateInstance(editorType);
+                        mAssetSO = assetData != null ? new SerializedObject(assetData) : null;
+                        mEditor.Open(window, tree, treeNode, mAssetSO);
+                    }
+                    else if (mEditor != null)
                     {
                         mEditor.Dispose();
                         mEditor = null;
                     }
-
-                    if (mEditor == null)
-                        mEditor = (ConfigDataEditor)Activator.CreateInstance(editorType);
-
-                    mAssetSO = assetData != null ? new SerializedObject(assetData) : null;
-
-                    mEditor.Open(window, tree, treeNode, mAssetSO);
-                }
-                else if (mEditor != null)
-                {
-                    mEditor.Dispose();
-                    mEditor = null;
                 }
             }
 
-            if (mEditor != null && mAssetSO != null)
+            if (treeNode is ConfigDataTreeFolderNode)
+            {
+                if (mFolderEditor != null)
+                    mFolderEditor.OnGUI(rect.width, rect.height);
+            }
+            else if (mEditor != null && mAssetSO != null)
+            {
                 mEditor.OnGUI(rect.width, rect.height);
+            }
 
             GUILayout.EndArea();
         }
 
-        private static void DrawEmptyHint(Rect rect)
+        /// <summary>
+        /// 在右栏正中间（水平 + 垂直都居中）画一段说明文字。
+        /// <para>必须已在 <c>GUILayout.BeginArea(rect)</c> 内调用：用局部坐标布局，否则会二次偏移
+        /// （文字被推到右上或被右边缘裁切）。靠上下各一个 FlexibleSpace 撑出垂直居中，
+        /// 单靠 <c>centeredGreyMiniLabel</c> 只能水平居中、会贴在顶部。</para>
+        /// </summary>
+        private static void DrawCenteredHint(string text)
         {
-            GUI.Label(new Rect(rect.x, rect.y, rect.width, rect.height),
-                "在左侧选择一个配置，或右键目录创建新配置",
-                EditorStyles.centeredGreyMiniLabel);
+            var style = new GUIStyle(EditorStyles.centeredGreyMiniLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = true,
+            };
+            EditorGUILayout.BeginVertical(GUILayout.ExpandHeight(true));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(text, style, GUILayout.ExpandWidth(true));
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndVertical();
         }
 
         private static Type GetEditor(Type assetType)
@@ -130,6 +188,11 @@ namespace HYC.Framework.Config.Editor
             {
                 mEditor.Dispose();
                 mEditor = null;
+            }
+            if (mFolderEditor != null)
+            {
+                mFolderEditor.Dispose();
+                mFolderEditor = null;
             }
             mAssetSO = null;
         }

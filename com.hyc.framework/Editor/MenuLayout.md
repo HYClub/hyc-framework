@@ -3,7 +3,7 @@
 > 本文件是**菜单结构的唯一真源**。改动任何 `[MenuItem("HYC Framework/...")]` 时，
 > 必须同步更新本文件与引用了该路径的文档，否则会留下失效路径。
 >
-> 最后核对：2026-10-20
+> 最后核对：2026-11-07
 
 ---
 
@@ -72,7 +72,7 @@ HYC Framework/
 │   ├── Import/
 │   │   └── Excel (Import & Build Blob)                            pri 30
 │   ├── Editors/
-│   │   ├── Key Browser                                            pri 31
+│   │   ├── Localization Editor                                    pri 31
 │   │   ├── Scan Key Usage                                         pri 32
 │   │   └── Sensitive Words                                        pri 33
 │   └── Settings/
@@ -91,6 +91,12 @@ HYC Framework/
 │   ├── Export All Blobs                                          pri 71
 │   ├── Export Blob (Selected)                                    pri 72
 │   └── New Scene Content Type   新建场景内容类型定义（生成标记组件）  pri 73
+├── Map/               瓦片地图（47-blob 自动拼接 / Blob / 装载器 prefab）
+│   ├── Map Editor            地图编辑器（画布 + 调色板 + 47 瓦片槽）  pri 74
+│   ├── Export Blob (Selected)  导出选中地图 → StreamingAssets/Map/  pri 75
+│   ├── Export All Blobs      全量导出地图 Blob                     pri 76
+│   ├── Export Prefab (Selected) 导出装载器 prefab（运行期读 Blob）   pri 77
+│   └── Validate Maps         体检（尺寸/格子数/mapId 重复/越界）     pri 78
 ├── Cinemachine/       相机装配（虚拟相机 rig：大脑 + 多机位）
 │   ├── Rig Editor      机位编辑器（窗口直改 rig prefab）          pri 80
 │   └── New Rig        新建 rig prefab（默认四机位）               pri 81
@@ -99,7 +105,8 @@ HYC Framework/
 │   ├── Assets/
 │   │   ├── Show Dependents                                        pri 100
 │   │   └── Clean Missing References                               pri 101
-│   └── Red Dot Viewer   红点树只读状态查看（运行时调试用）           pri 102
+│   ├── Red Dot Viewer   红点树只读状态查看（运行时调试用）           pri 102
+│   └── ECS Content Export  ECS 内容导出 / catalog 合并 / 热更新发布    pri 103
 │   ══════════════ ③ 项目级（低频，装一次/改配置）══════════════
 ├── Settings/          框架设置
 │   └── Project Settings                                           pri 200
@@ -107,8 +114,10 @@ HYC Framework/
     └── Import HYCSimple                                           pri 210
 
 > **三档之间的分隔线不是画出来的，是priority 差 ≥ 11 自动生成的**：
-> `Cinemachine(81) → Tools(100)` 差 19、`Tools(102) → Settings(200)` 差 98 ⇒ 恰好两处分隔线。
+> `Cinemachine(81) → Tools(100)` 差 19、`Tools(103) → Settings(200)` 差 97 ⇒ 恰好两处分隔线。
 > 档内相邻差均 ≤ 10 ⇒ 档内不画线。**不要随意改动这些数值**，改前先读本文档第一、二节。
+> （`Map/` 占用 74–78：与 `Scene Content(73)` 差 1、与 `Cinemachine(80)` 差 2，都不画线；
+> 新增子项只能往 79 塞，塞不下就得整体重排 70–81。）
 ```
 
 另有**不在 HYC 树内**的开发者自检菜单（刻意与使用方功能入口分开）：
@@ -129,6 +138,36 @@ Project 窗口右键 ConfigTemplate 资产
 CONTEXT 菜单挂在资产类型上、随右键出现，不属于「HYC Framework/」常驻功能树，
 故不占三档 priority，只在项内显式给 110 避免与 Unity 自带项混排。
 新增/删除 CONTEXT 项同样要更新本文件与对应文档。
+
+### Assets/Create 下的创建入口（不进 HYC 树）
+
+这几个 `[CreateAssetMenu]` 挂在 **Assets/Create** 菜单，与 `HYC Framework/` 功能树是两个坐标系，
+**不参与**三档 priority 核算：
+
+```
+Assets/Create/HYC Framework/
+├── Map/Map             新建地图资产（MapAsset）     见 doc62
+├── Map/Tile Set        新建瓦片集（MapTileSet）      见 doc62
+├── Attributes/Attribute Catalog / Attribute Set
+├── Talent/Talent Tree
+└── Input/Input Component Mapping
+```
+
+### GameObject/ 下的场景内容挂载入口（不进 HYC 树）
+
+Unity 把 `GameObject/` 菜单同时挂到顶部 GameObject 菜单与 Hierarchy 右键，
+与 `HYC Framework/` 功能树是两个坐标系，**不参与**三档 priority 核算：
+
+```
+GameObject/Scene Content/Add Component...    pri 20   见 doc14 §3.4
+```
+
+菜单项只有一个：`[MenuItem]` 是静态特性，没法按工程里**动态生成**的类型注册子项，
+所以点开时用 `GenericMenu` 现场列出全部 `SceneContentTypeDef`（见 `SceneContentHierarchyMenu`）。
+显式给 priority 20 只是为了不与 Unity 自带的 Create 区（0–10 档）混排。
+同一份菜单也由 `Scene Content Window` 工具栏「给 GO 加组件」按钮调出。
+新增/删除该入口同样要更新本文件与 14 号文档。
+
 ### 已知例外：`Samples/` 下的 3 个中文项
 
 `HYC Framework/Samples/` 下的三个示例创建入口**保留中文**
@@ -146,8 +185,13 @@ CONTEXT 菜单挂在资产类型上、随右键出现，不属于「HYC Framewor
 | 档 | 成员 | 使用频率 | 判据 |
 | --- | --- | --- | --- |
 | ① 内容制作 | Config / BT / UI / Input / Localization / Attributes / Talent / Audio / Scene Content / Cinemachine | 每天都在用 | 这些是"做游戏内容"本身的能力 |
-| ② 通用工具 | Tools/Assets | 偶尔用，出问题时才找 | 与具体子系统无关的通用工具 |
+| ② 通用工具 | Tools/Assets、Tools/ECS Content Export | 偶尔用，出问题时才找 | 与具体子系统无关的通用工具 |
 | ③ 项目级 | Settings / Samples | 装一次 / 改配置 | 项目设置与示例导入，都不是日常操作 |
+
+**`ECS Content Export` 为什么放 `Tools/`**：它导出的是整个 ECS content archive，
+横跨 Config / BT / Loc / Scene Content / Map 多个子系统的构建产物，不归属其中任何一个；
+放 `Tools/` 不违反第 2 条原则。占用 pri 103（紧接 `Red Dot Viewer` 102，差 1 不画线），
+到 `Settings(200)` 差 97 仍有分隔线，三档结构不变。
 
 **Settings 与 Samples 为什么不合并**：两者语义不同——`Settings` 是**配置项目**（改配置），
 `Samples/Import HYCSimple` 是**往`Assets/` 写文件的破坏性动作**（每次全量重拷）。

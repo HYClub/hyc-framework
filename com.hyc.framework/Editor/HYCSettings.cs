@@ -110,6 +110,15 @@ namespace HYC.Framework.Editor
         [SerializeField] private List<string> _entryKeys = new List<string>();
         [SerializeField] private List<string> _entryValues = new List<string>();
 
+        // ---------------------------------------------------------------- 数据配置：已纳入的外部资产（GUID 注册表）
+
+        /// <summary>
+        /// 「数据配置」编辑器里「可纳入资产」分组的 GUID 注册表。随工程提交、全团队共享，
+        /// 因此纳入的资产清单不只是本机视图。资产文件被删除后对应项会留在表里（dangling），
+        /// 渲染时跳过、用「移除」或「清空」动作清理。
+        /// </summary>
+        [SerializeField] private List<string> _includedAssetGuids = new List<string>();
+
         // ---------------------------------------------------------------- 实例
 
         private static HYCSettings _instance;
@@ -400,6 +409,51 @@ namespace HYC.Framework.Editor
             }
             Save();
         }
+
+        // ---------------------------------------------------------------- 数据配置：已纳入的外部资产
+
+        /// <summary>当前已纳入「数据配置」编辑器的外部资产 GUID 列表（只读快照；修改请用下方 Add/Remove/Clear）。</summary>
+        public IReadOnlyList<string> IncludedAssetGuids => _includedAssetGuids ?? (IReadOnlyList<string>)new List<string>();
+
+        /// <summary>加入一个外部资产 GUID（去重）。已存在则视为无操作并返回 false。写入立即落盘。</summary>
+        public bool AddIncludedAssetGuid(string guid)
+        {
+            if (string.IsNullOrEmpty(guid))
+                return false;
+            if (_includedAssetGuids == null)
+                _includedAssetGuids = new List<string>();
+            if (_includedAssetGuids.Contains(guid))
+                return false;
+            _includedAssetGuids.Add(guid);
+            Save();
+            return true;
+        }
+
+        /// <summary>从注册表移除一个外部资产 GUID（资产文件被删除时也应调用以清理幽灵项）。写入立即落盘。</summary>
+        public bool RemoveIncludedAssetGuid(string guid)
+        {
+            if (string.IsNullOrEmpty(guid) || _includedAssetGuids == null)
+                return false;
+            if (_includedAssetGuids.Remove(guid))
+            {
+                Save();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>清空全部已纳入外部资产。写入立即落盘。</summary>
+        public void ClearIncludedAssets()
+        {
+            if (_includedAssetGuids == null || _includedAssetGuids.Count == 0)
+                return;
+            _includedAssetGuids.Clear();
+            Save();
+        }
+
+        /// <summary>指定 GUID 是否已在「已纳入」注册表中。</summary>
+        public bool IsIncluded(string guid)
+            => _includedAssetGuids != null && _includedAssetGuids.Contains(guid);
 
         // ---------------------------------------------------------------- 内部工具
 
