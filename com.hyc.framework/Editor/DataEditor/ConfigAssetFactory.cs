@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using HYC.Framework.Config;
 using UnityEditor;
 using UnityEngine;
 
@@ -144,7 +145,8 @@ namespace HYC.Framework.Config.Editor
         /// 创建配置模板资产（<see cref="ConfigTemplate"/>）。模板是框架基础设施、无 ID/GUID
         /// 字段（不参与发号服），故不走 <see cref="Create(Type, string, string)"/> 的派发流程
         /// （对模板调 <c>Create</c>/<c>CreateMany</c> 会因派发失败而整体回滚）。
-        /// 本方法是模板创建的唯一入口，数据树 / 代码生成器 / Excel 导入均经此创建。
+        /// 本方法是模板创建的单模板入口，数据树 / 代码生成器 / Excel 导入均经此创建。
+        /// 一次性建很多模板请走 <see cref="CreateTemplates"/>（只做一次 Save/Refresh，开销更低）。
         /// <para>folder 为空时自动归置到「配置模板」类型文件夹（根目录/配置模板，见
         /// <see cref="ConfigAssetLayout"/>）；显式传入时尊重调用方。</para>
         /// <para>文件名由 displayName 净化而来（与模板改名同步逻辑同源），冲突自动加序号；
@@ -181,6 +183,109 @@ namespace HYC.Framework.Config.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             return tpl;
+        }
+
+        /// <summary>
+        /// 批量创建模板资产（AI / 脚本一次性建很多模板的高性能入口）。
+        /// 与 <see cref="CreateTemplate"/> 行为一致（归置到配置模板文件夹、基类默认 ConfigBase、
+        /// 文件名净化 + 冲突自增），但全程只做 <b>一次</b> <c>SaveAssets</c> + <b>一次</b>
+        /// <c>Refresh</c>（单模板版每个都 Save/Refresh，N 个会放大 N 倍开销）。
+        /// <para>
+        /// 任一条规格失败 → 整体回滚已创建资产（与 <see cref="CreateMany"/> 同策略）。
+        /// 每条规格可带 <see cref="TemplateFieldSpec"/> 直接把字段建好，建完即可走
+        /// <c>ConfigTemplateCodeGen.GenerateTemplates</c> 批量生成代码。
+        /// </para>
+        /// </summary>
+        public static ConfigTemplate[] CreateTemplates(IEnumerable<TemplateSpec> specs)
+        {
+            if (specs == null)
+                throw new ArgumentNullException(nameof(specs));
+
+            var list = new List<TemplateSpec>();
+            foreach (var s in specs)
+                list.Add(s);
+            if (list.Count == 0)
+                return new ConfigTemplate[0];
+
+            var targetFolder = string.IsNullOrEmpty(list[0].folder)
+                ? (ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigTemplate)) ?? ConfigDataSettings.RootFolder)
+                : list[0].folder;
+            EnsureFolder(targetFolder);
+
+            var defaultBase = ConfigTemplateCodeGen.GetConfigBaseTemplate();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var created = new List<ConfigTemplate>(list.Count);
+
+            try
+            {
+                foreach (var spec in list)
+                {
+                    if (spec == null || string.IsNullOrWhiteSpace(spec.displayName))
+                        throw new InvalidOperationException("TemplateSpec.displayName 不能为空。");
+
+                    var assetName = ConfigTemplateCodeGen.DisplayNameToAssetName(spec.displayName);
+                    var path = UniqueTemplatePath(targetFolder, assetName, usedNames);
+
+                    var tpl = ScriptableObject.CreateInstance<ConfigTemplate>();
+                    tpl.displayName = spec.displayName.Trim();
+                    tpl.className = string.IsNullOrWhiteSpace(spec.className) ? "NewConfig" : spec.className.Trim();
+                    tpl.baseTemplate = spec.baseTemplate ?? defaultBase;
+                    tpl.unique = spec.unique;
+                    if (spec.fields != null)
+                    {
+                        foreach (var fs in spec.fields)
+                        {
+                            if (fs == null || string.IsNullOrWhiteSpace(fs.name))
+                                continue;
+                            tpl.fields.Add(new ConfigTemplateField
+                            {
+                                name = fs.name,
+                                description = fs.displayName ?? "",
+                                type = fs.type,
+                                isList = fs.isList,
+                                refTypeFullName = fs.refTypeFullName ?? "",
+                                enumRefClassName = fs.enumRefClassName ?? "",
+                            });
+                        }
+                    }
+
+                    AssetDatabase.CreateAsset(tpl, path);
+                    ConfigAssetLayout.Register(path, typeof(ConfigTemplate));
+                    created.Add(tpl);
+                }
+            }
+            catch
+            {
+                foreach (var a in created)
+                {
+                    var p = AssetDatabase.GetAssetPath(a);
+                    if (!string.IsNullOrEmpty(p))
+                        AssetDatabase.DeleteAsset(p);
+                }
+                throw;
+            }
+
+            // 全部成功：一次性落盘 + 刷新（关键性能点）
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            return created.ToArray();
+        }
+
+        // ---------- 内部 ----------
+
+        /// <summary>在 folder 下求一个不与磁盘及本批次已用名冲突的 .asset 路径（冲突自增后缀）。</summary>
+        private static string UniqueTemplatePath(string folder, string assetName, HashSet<string> usedNames)
+        {
+            for (var suffix = 0; ; suffix++)
+            {
+                var name = suffix == 0 ? assetName : $"{assetName} {suffix}";
+                var path = Path.Combine(folder, name + ".asset");
+                if (!File.Exists(path) && !usedNames.Contains(name))
+                {
+                    usedNames.Add(name);
+                    return path;
+                }
+            }
         }
 
         // ---------- 内部 ----------
@@ -258,5 +363,30 @@ namespace HYC.Framework.Config.Editor
                 s = s.Replace(c.ToString(), "_");
             return string.IsNullOrEmpty(s) ? "Config" : s;
         }
+    }
+
+    /// <summary>
+    /// 批量创建时单个模板的规格。显示名必填；类名 / 文件夹 / 字段等均可选。
+    /// <para>字段用 <see cref="TemplateFieldSpec"/> 描述，建模板时一并写入，省去后续逐条回填。</para>
+    /// </summary>
+    public sealed class TemplateSpec
+    {
+        public string displayName;
+        public string className;
+        public string folder;
+        public bool unique;
+        public ConfigTemplate baseTemplate;
+        public List<TemplateFieldSpec> fields;
+    }
+
+    /// <summary>批量建模板时单个字段的描述（映射到 <c>ConfigTemplateField</c> 的核心字段）。</summary>
+    public sealed class TemplateFieldSpec
+    {
+        public string name;
+        public string displayName;
+        public ConfigFieldType type = ConfigFieldType.String;
+        public bool isList;
+        public string refTypeFullName;
+        public string enumRefClassName;
     }
 }

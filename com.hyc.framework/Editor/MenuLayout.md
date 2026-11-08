@@ -139,6 +139,17 @@ CONTEXT 菜单挂在资产类型上、随右键出现，不属于「HYC Framewor
 故不占三档 priority，只在项内显式给 110 避免与 Unity 自带项混排。
 新增/删除 CONTEXT 项同样要更新本文件与对应文档。
 
+### Project 窗口右键「文件夹」菜单（Assets/，不进 HYC 树）
+
+```
+Project 窗口右键「配置模板」等文件夹
+└── HYC Framework/Config/Create Templates (Batch)...   批量建模板窗口（仅文件夹右键可用，validate 校验选区为文件夹）  pri 100
+```
+
+挂在 `Assets/` 下、随右键文件夹出现，不属于「HYC Framework/」常驻功能树，不参与三档 priority 核算；
+内部打开 `ConfigTemplateBatchCreateWindow`，按行粘贴 `显示名,类名[|字段:类型,...]` 批量建模板，可选一键生成代码
+（底层走 `ConfigAssetFactory.CreateTemplates` + `ConfigTemplateCodeGen.GenerateTemplates`）。
+
 ### Assets/Create 下的创建入口（不进 HYC 树）
 
 这几个 `[CreateAssetMenu]` 挂在 **Assets/Create** 菜单，与 `HYC Framework/` 功能树是两个坐标系，

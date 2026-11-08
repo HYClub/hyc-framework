@@ -1627,7 +1627,29 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>Writes the generated .cs under <see cref="OutputDir"/> and imports it.</summary>
+        /// <summary>
+        /// 生成单个模板的代码（保留原有逐模板语义：写完后立即 Facade 收尾 + 刷新 + 图标应用）。
+        /// 内部复用 <see cref="WriteFileCore"/>；批量请用 <see cref="GenerateTemplates"/>（末尾统一收尾，少 N 倍开销）。
+        /// </summary>
         public static bool WriteFile(ConfigTemplate template, out string error)
+        {
+            if (!WriteFileCore(template, out error))
+                return false;
+            FinalizeGeneration();
+            if (template != null)
+            {
+                ConfigIconApplier.PersistForTemplate(template);
+                ConfigIconApplier.ApplyForTemplate(template);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 只写「本模板」的局部生成文件（主类 / Editor / 两侧 / Check / Export / Blob 三件套），
+        /// <b>不做任何全局收尾</b>（Facade 重写 / Refresh / 旧命名空间清理 / 图标 reimport）。
+        /// 供单模板 <see cref="WriteFile"/> 与批量 <see cref="GenerateTemplates"/> 共用，保证行为一致、零回归。
+        /// </summary>
+        internal static bool WriteFileCore(ConfigTemplate template, out string error)
         {
             // 框架级基类（如 ConfigBase）：主类随框架预编译（HYC.Framework.Config.ConfigBase），
             // 不再往宿主生成任何代码（主类 / Editor / Client / Server / Blob / Check / Export）。
@@ -1674,15 +1696,6 @@ namespace HYC.Framework.Config.Editor
                 DeleteGeneratedFile($"{ConfigDataSettings.OutputDir}/Blob/{template.className}BlobBuilder.cs"); // 旧位置
             }
 
-            // 配置查询门面（{ns}.ConfigManager，静态、无 World 依赖）随每次生成同步
-            WriteFacadeFile();
-
-            AssetDatabase.Refresh();
-
-            // 图标传播：自定义纹理持久化进 .cs.meta；模板 / MonoScript / 存量资产即时应用
-            ConfigIconApplier.PersistForTemplate(template);
-            ConfigIconApplier.ApplyForTemplate(template);
-
             // 记录本次生成类名
             // Package 内资产只读，不能（也不需要）持久化 lastGeneratedClassName
             var templatePath = AssetDatabase.GetAssetPath(template);
@@ -1692,6 +1705,44 @@ namespace HYC.Framework.Config.Editor
                 EditorUtility.SetDirty(template);
             }
             return true;
+        }
+
+        /// <summary>
+        /// 批量生成代码：循环写各模板局部文件（<see cref="WriteFileCore"/>），<b>末尾统一</b>收尾
+        /// （Facade 重写一次 + 旧命名空间清理一次 + 刷新一次）。逐条容错——单条失败不阻断其余。
+        /// <para>性能：N 个模板的开销从「N 次 Refresh + N² 次 Facade 磁盘扫描」降到「1 次 Refresh + 1 次 Facade」。</para>
+        /// </summary>
+        public static (int ok, int failed, string errors) GenerateTemplates(IEnumerable<ConfigTemplate> templates)
+        {
+            int ok = 0, failed = 0;
+            var errors = new StringBuilder();
+            if (templates != null)
+            {
+                foreach (var tpl in templates)
+                {
+                    if (tpl == null)
+                        continue;
+                    if (!WriteFileCore(tpl, out var err))
+                    {
+                        failed++;
+                        errors.AppendLine($"· {tpl.className ?? "(unnamed)"}: {err}");
+                    }
+                    else
+                    {
+                        ok++;
+                    }
+                }
+            }
+            FinalizeGeneration();
+            return (ok, failed, errors.ToString());
+        }
+
+        /// <summary>生成收尾：重写查询门面（扫全模板一次）+ 清理旧命名空间残留 + 刷新一次。单/批共用。</summary>
+        private static void FinalizeGeneration()
+        {
+            WriteFacadeFile();
+            CleanStaleNamespaceFiles(true);
+            AssetDatabase.Refresh();
         }
 
         /// <summary>

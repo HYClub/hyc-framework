@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 新增：配置模板批量创建（`CreateTemplates` / `GenerateTemplates` / 批量窗口）
+
+- **`ConfigAssetFactory.CreateTemplates(IEnumerable<TemplateSpec> specs)`**（新增嵌套类 `TemplateSpec` / `TemplateFieldSpec`）：
+  一次性建 N 个模板，与 `CreateTemplate` 行为一致（自动归置 `配置模板/`、文件名冲突加序号、自动挂 ConfigBase 基类模板、
+  `unique` / `fields` 均可指定），但全程只做**一次** `SaveAssets` + **一次** `Refresh`；
+  任一条规格失败**整体回滚**（删除本批已建资产后 rethrow），不留半批产物。
+- **`ConfigTemplateCodeGen.GenerateTemplates(IEnumerable<ConfigTemplate>)`** 返回 `(ok, failed, errors)`：
+  逐条容错写各模板代码文件，末尾统一 `FinalizeGeneration()`（重写查询门面 + 清理旧命名空间残留 + 一次 `Refresh`）——
+  N 个模板从「N 次 Refresh + N² 次门面磁盘扫描」降到「1 + 1」。单模板 `WriteFile` 语义不变（内部重构出 `WriteFileCore`）。
+- **手动批量窗口 `ConfigTemplateBatchCreateWindow`**：Project 窗口右键模板文件夹 →
+  `Assets/HYC Framework/Config/Create Templates (Batch)...`（pri 100，validate 校验选区为文件夹），
+  按行粘贴 `显示名,类名[|字段:类型,...]` 批量建模板，可选一键生成代码。
+- doc12「程序化创建」小节补批量三入口说明。
+
 ## [2.1.0] - 2026-11-08
 
 ### 新增：ECS 内容导出编辑器 + 给 AI / CI 的 Unity CLI 入口

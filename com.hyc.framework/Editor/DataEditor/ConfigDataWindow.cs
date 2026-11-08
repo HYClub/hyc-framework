@@ -75,7 +75,7 @@ namespace HYC.Framework.Config.Editor
                             skipped++;
                             continue;
                         }
-                        if (ConfigTemplateCodeGen.WriteFile(tpl, out var err))
+                        if (ConfigTemplateCodeGen.WriteFileCore(tpl, out var err))
                             ok++;
                         else
                         {
