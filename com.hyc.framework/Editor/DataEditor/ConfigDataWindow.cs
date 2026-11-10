@@ -22,6 +22,10 @@ namespace HYC.Framework.Config.Editor
         private bool mLastDirtyState;
         private double mLastProbe;
 
+        // projectChanged 防抖：导入/保存爆发时合并多次 Reload 为一次（150ms 静默后才真正重建）
+        private bool mPendingReload;
+        private double mPendingReloadTime;
+
         private static Texture mRootFolderIcon => EditorGUIUtility.IconContent("Folder Icon").image;
 
         // priority=2：Config 档内，Config Window(0) → Validate(1) → 本项，组内差1 ⇒ 不画线。
@@ -175,6 +179,17 @@ namespace HYC.Framework.Config.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 return;
+
+            // 合并 projectChanged 触发的 Reload：距最后一次变更超过 150ms 才真正重建，
+            // 避免导入/保存爆发期间每帧都全量重建左树。
+            if (mPendingReload && EditorApplication.timeSinceStartup - mPendingReloadTime > 0.15)
+            {
+                mPendingReload = false;
+                mTreeView?.Reload();
+                mPropertyView?.Reload();
+                Repaint();
+            }
+
             if (EditorApplication.timeSinceStartup - mLastProbe < 5.0)
                 return;
             mLastProbe = EditorApplication.timeSinceStartup;
@@ -197,8 +212,12 @@ namespace HYC.Framework.Config.Editor
                 Repaint();
                 return;
             }
-            mTreeView?.Reload();
-            Repaint();
+            // 防抖：仅置位，真正的 Reload 在 OnEditorUpdate 静默 150ms 后合并执行
+            if (!mPendingReload)
+            {
+                mPendingReload = true;
+                mPendingReloadTime = EditorApplication.timeSinceStartup;
+            }
         }
 
         private void OnGUI()

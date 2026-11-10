@@ -21,10 +21,23 @@ namespace HYC.Framework.Config.Editor
     {
         public string guid;
 
+        /// <summary>该文件夹的直接子节点是否已构建（懒加载标记）。</summary>
+        public bool childrenBuilt;
+
         public ConfigDataTreeFolderNode(string guid)
         {
             this.guid = guid;
+            // 自始持非空 children：Unity 的 GetVisibleItemsRecursive 对「hasChildren=true 且已展开」
+            // 的节点直接 foreach children，null 会 NRE；空列表则两条路径都安全。
+            children = new List<TreeViewItem>();
         }
+
+        /// <summary>
+        /// 未构建的文件夹恒报可展开：懒加载下直接子节点还没装，若沿用默认判定（children.Count &gt; 0）
+        /// 则初始不画展开三角、点三角也不触发展开（IsExpandable=false 时点击仅改选中）。
+        /// 已构建后回归真实判定——空文件夹自然失去三角。
+        /// </summary>
+        public override bool hasChildren => !childrenBuilt || base.hasChildren;
     }
 
     /// <summary>Config asset file node in the data editor tree.</summary>
@@ -32,6 +45,12 @@ namespace HYC.Framework.Config.Editor
     {
         public string guid;
         public Type type;
+
+        /// <summary>构建期一次性算好的树标签（不含脏标记 *），避免 RowGUI 每帧 Load 资产。</summary>
+        public string cachedBaseLabel;
+
+        /// <summary>构建期缓存的资产引用，用于廉价计算脏标记（避免每帧 LoadAssetAtPath）。</summary>
+        public UnityEngine.Object cachedAsset;
 
         public ConfigDataTreeFileNode(string guid, Type type)
         {
@@ -99,7 +118,14 @@ namespace HYC.Framework.Config.Editor
                 }
                 return "[枚举] " + originalLabel;
             }
-            return $"[{DisplayPrefix}] {originalLabel}";
+                return $"[{DisplayPrefix}] {originalLabel}";
+        }
+
+        /// <summary>构建期一次性计算并缓存 <see cref="cachedBaseLabel"/> 与 <see cref="cachedAsset"/>。</summary>
+        internal void CacheLabel()
+        {
+            cachedAsset = GetAsset();
+            cachedBaseLabel = BuildDisplayLabelCore(displayName);
         }
 
         /// <summary>
@@ -220,7 +246,7 @@ namespace HYC.Framework.Config.Editor
                 return;
             if (item is ConfigDataTreeFileNode f)
             {
-                var asset = f.GetAsset();
+                var asset = f.cachedAsset != null ? f.cachedAsset : f.GetAsset();
                 if (asset != null && EditorUtility.IsDirty(asset))
                 {
                     any = true;
@@ -251,7 +277,11 @@ namespace HYC.Framework.Config.Editor
             subfolders = new List<ConfigDataTreeFolderNode>();
             files = new List<ConfigDataTreeFileNode>();
             var node = FindFolderNodeByGuid(rootItem, folderGuid);
-            if (node == null || node.children == null)
+            if (node == null)
+                return;
+            if (!node.childrenBuilt)
+                BuildChildren(node);
+            if (node.children == null)
                 return;
             foreach (var c in node.children)
             {
@@ -320,6 +350,7 @@ namespace HYC.Framework.Config.Editor
 
         protected override TreeViewItem BuildRoot()
         {
+            var sw = EnableBuildProfiling ? System.Diagnostics.Stopwatch.StartNew() : null;
             mGuid2FolderNode.Clear();
 
             var folder = ConfigDataSettings.RootFolder;
@@ -329,8 +360,19 @@ namespace HYC.Framework.Config.Editor
             var root = new ConfigDataTreeFolderNode(guid) { id = -1, depth = -1 };
             mGuid2FolderNode[guid] = root;
 
-            InstallFolders(root, folder);
-            InstallFiles(root, folder);
+            if (string.IsNullOrEmpty(searchString))
+            {
+                // 懒加载：仅构建根的直接子节点；子文件夹在首次展开时由 BuildChildren 填充
+                InstallOneLevelFolders(root, folder);
+                InstallOneLevelFiles(root, folder);
+                root.childrenBuilt = true;
+            }
+            else
+            {
+                // 搜索态：全量构建，保证未展开分支也能参与匹配
+                InstallFolders(root, folder);
+                InstallFiles(root, folder);
+            }
             // 挂在最底部：真实配置层级之后，避免混进正常配置结构里
             InstallVirtualFolder(root);
 
@@ -344,6 +386,12 @@ namespace HYC.Framework.Config.Editor
             showAlternatingRowBackgrounds = true;
 
             SetupDepthsFromParentsAndChildren(root);
+
+            if (sw != null)
+            {
+                sw.Stop();
+                Debug.Log($"[ConfigDataTree] BuildRoot 耗时 {sw.ElapsedMilliseconds}ms（直接子节点 {root.children?.Count ?? 0}）");
+            }
             return root;
         }
 
@@ -376,6 +424,7 @@ namespace HYC.Framework.Config.Editor
                 mGuid2FolderNode[guid] = node;
 
                 InstallFolders(node, dirUnity);
+                node.childrenBuilt = true;
             }
         }
 
@@ -412,7 +461,86 @@ namespace HYC.Framework.Config.Editor
                         node.icon = tplIcon as Texture2D;
                 }
 
+                node.CacheLabel();
                 folderNode.AddChild(node);
+            }
+        }
+
+        /// <summary>只枚举指定文件夹的<b>直接子目录</b>（一层，不递归），用于懒加载构建。</summary>
+        private void InstallOneLevelFolders(TreeViewItem parent, string folder)
+        {
+            var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
+            var fullFolder = $"{projectRoot}/{folder}";
+            if (!Directory.Exists(fullFolder))
+                return;
+
+            foreach (var dirPath in Directory.GetDirectories(fullFolder))
+            {
+                var dirUnity = dirPath.Replace("\\", "/").Replace(projectRoot + "/", "");
+                var name = Path.GetFileName(dirPath);
+                var metaPath = Path.Combine(fullFolder, name + ".meta");
+                if (!File.Exists(metaPath))
+                    continue;
+
+                var guid = AssetDatabase.AssetPathToGUID(dirUnity);
+                var node = new ConfigDataTreeFolderNode(guid)
+                {
+                    id = GetFolderID(dirUnity),
+                    depth = parent.depth + 1,
+                    displayName = name,
+                    icon = (Texture2D)AssetDatabase.GetCachedIcon(dirUnity),
+                    // childrenBuilt 保持 false：子节点在首次展开时由 BuildChildren 填充
+                };
+                parent.AddChild(node);
+            }
+        }
+
+        /// <summary>只枚举指定文件夹的<b>直接配置文件</b>（一层，不递归，文件系统级），用于懒加载构建。</summary>
+        private void InstallOneLevelFiles(TreeViewItem parent, string folder)
+        {
+            var projectRoot = Path.GetDirectoryName(Application.dataPath).Replace("\\", "/");
+            var fullFolder = $"{projectRoot}/{folder}";
+            if (!Directory.Exists(fullFolder))
+                return;
+
+            var cfgTypeNames = new HashSet<string>(
+                GetCfgItems().Select(r => r.Type.Name), StringComparer.Ordinal);
+
+            foreach (var filePath in Directory.GetFiles(fullFolder))
+            {
+                var fp = filePath.Replace("\\", "/");
+                if (!fp.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var unityPath = fp.Substring(projectRoot.Length + 1);
+                var guid = AssetDatabase.AssetPathToGUID(unityPath);
+                if (string.IsNullOrEmpty(guid))
+                    continue;
+
+                var type = AssetDatabase.GetMainAssetTypeAtPath(unityPath);
+                if (type == null)
+                    continue;
+                if (!(type == typeof(ConfigTemplate) || type == typeof(ConfigEnumDefinition) || cfgTypeNames.Contains(type.Name)))
+                    continue;
+
+                var node = new ConfigDataTreeFileNode(guid, type)
+                {
+                    id = GetFileID(unityPath),
+                    depth = parent.depth + 1,
+                    displayName = Path.GetFileNameWithoutExtension(unityPath),
+                    icon = (Texture2D)AssetDatabase.GetCachedIcon(unityPath),
+                };
+
+                if (type == typeof(ConfigTemplate))
+                {
+                    var tpl = node.GetAsset() as ConfigTemplate;
+                    var tplIcon = ConfigTemplateIcon.Resolve(tpl);
+                    if (tplIcon != null)
+                        node.icon = tplIcon as Texture2D;
+                }
+
+                node.CacheLabel();
+                parent.AddChild(node);
             }
         }
 
@@ -478,6 +606,222 @@ namespace HYC.Framework.Config.Editor
 
         #endregion
 
+        #region 懒加载与手风琴
+
+        /// <summary>开启后 BuildRoot 打印耗时日志，用于优化前后对比。默认关闭。</summary>
+        public static bool EnableBuildProfiling;
+
+        private bool mInExpansion;
+        private HashSet<int> mLastExpanded; // 上一帧已展开分支根集合，用于检测展开态变化并驱动手风琴
+
+        /// <summary>
+        /// 懒加载：构建指定文件夹节点的直接子节点（一层，不递归）。已构建过直接返回；
+        /// 调用方在折叠时剪枝（children=null + childrenBuilt=false）以释放内存与避免脏数据。
+        /// </summary>
+        private void BuildChildren(ConfigDataTreeFolderNode folderNode)
+        {
+            if (folderNode.childrenBuilt)
+                return;
+            var folderPath = AssetDatabase.GUIDToAssetPath(folderNode.guid);
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                folderNode.childrenBuilt = true;
+                return;
+            }
+            InstallOneLevelFolders(folderNode, folderPath);
+            InstallOneLevelFiles(folderNode, folderPath);
+            folderNode.childrenBuilt = true;
+            if (folderNode.children == null)
+                folderNode.children = new List<TreeViewItem>();
+        }
+
+        private void BuildExpandedChain(TreeViewItem item)
+        {
+            // 构建「已展开」文件夹的子节点；递归必须无条件下沉——入口是根节点（id=-1，永不展开），
+            // 若把递归嵌进 IsExpanded 分支，从根进来直接返回，懒加载一次都不会执行。
+            if (item is ConfigDataTreeFolderNode fn && IsExpanded(fn.id) && !fn.childrenBuilt)
+                BuildChildren(fn);
+            if (item.children != null)
+            {
+                foreach (var c in item.children)
+                    BuildExpandedChain(c);
+            }
+        }
+
+        /// <summary>懒加载必须挂 BuildRows（渲染唯一取行路径：FetchData → BuildRows → AddExpandedRows），
+        /// 不能挂 GetRows——渲染路径不经过它，点三角只会命中「已展开但子节点还没构建」的空文件夹。
+        /// 先按展开链补齐子节点（只加行、不动展开态），再交给 base 走常规展开遍历。</summary>
+        protected override IList<TreeViewItem> BuildRows(TreeViewItem root)
+        {
+            if (root != null && string.IsNullOrEmpty(searchString))
+                BuildExpandedChain(root);
+            return base.BuildRows(root);
+        }
+
+        /// <summary>
+        /// 手风琴必须挂在 OnGUI 入口而非 GetRows：Unity 点三角时用点击瞬间的行下标回查 rows
+        /// （UserInputChangedExpandedState → GetLastChildRowUnder），并假设展开只在其下方加行；
+        /// 若在同一次 GetRows 里折叠兄弟分支，rows 收缩会令旧下标越界（ArgumentOutOfRangeException）。
+        /// 每帧渲染前先收敛展开态，再交给 base 渲染，行号全程一致。
+        /// </summary>
+        public override void OnGUI(Rect rect)
+        {
+            EnsureExpansionAnimationDisabled();
+            if (string.IsNullOrEmpty(searchString))
+                ApplyAccordionIfChanged();
+            base.OnGUI(rect);
+        }
+
+        private bool mExpansionAnimationDisabled;
+
+        /// <summary>
+        /// 关闭展开动画：动画分支在点击时用「点击瞬间的行下标」回查 rows
+        /// （UserInputChangedExpandedState → GetLastChildRowUnder），而本树的懒加载/手风琴
+        /// 会让 rows 在两次取行之间收缩，旧下标越界（ArgumentOutOfRangeException）。
+        /// 该下标回查只存在于动画分支；关掉后走 data.SetExpanded 直通路径，崩溃点不可达。
+        /// useExpansionAnimation 挂在 internal 的 TreeViewController 上且封装未暴露，反射一次性关闭。
+        /// </summary>
+        private void EnsureExpansionAnimationDisabled()
+        {
+            if (mExpansionAnimationDisabled)
+                return;
+            var controller = typeof(TreeView).GetField("m_TreeView",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(this);
+            if (controller == null)
+                return; // 控制器尚未初始化（首次 OnGUI 前），下一帧重试
+            var prop = controller.GetType().GetProperty("useExpansionAnimation");
+            prop?.SetValue(controller, false);
+            mExpansionAnimationDisabled = true;
+        }
+
+        /// <summary>
+        /// 强制单展开（手风琴）：同一时刻只保留一条展开分支（含其祖先链）。
+        /// 检测已展开分支根集合相较上一帧的变化，展开新分支时折叠其余；折叠时剪枝释放子节点。
+        /// 由 <see cref="OnGUI"/> 每帧入口驱动（不能挂 GetRows，见其重载注释）。
+        /// </summary>
+        private void ApplyAccordionIfChanged()
+        {
+            if (mInExpansion)
+                return;
+
+            var branches = new List<TreeViewItem>();
+            CollectExpandedItems(rootItem, branches);
+            var current = new HashSet<int>(branches.Select(b => b.id));
+
+            var prev = mLastExpanded;
+            if (prev != null && prev.SetEquals(current))
+                return; // 展开态未变化，无需处理
+
+            mInExpansion = true;
+            try
+            {
+                if (branches.Count > 1)
+                {
+                    // 保留一条分支（含其祖先链），折叠其余：优先保留本帧新展开的分支
+                    // （current-prev 的差集）；无新增（如恢复历史展开态）才退回取最深分支。
+                    // 不能只按深度排序取首——同层兄弟深度相同，List.Sort 不稳定，
+                    // 保留谁全凭运气，表现为「点新文件夹的三角永远打不开」。
+                    TreeViewItem keepRoot = null;
+                    if (prev != null)
+                    {
+                        foreach (var it in branches)
+                        {
+                            if (!prev.Contains(it.id)
+                                && (keepRoot == null || it.depth > keepRoot.depth))
+                                keepRoot = it;
+                        }
+                    }
+                    if (keepRoot == null)
+                    {
+                        branches.Sort((a, b) => b.depth.CompareTo(a.depth));
+                        keepRoot = branches[0];
+                    }
+                    var keep = new HashSet<int>();
+                    var p = keepRoot;
+                    while (p != null) { keep.Add(p.id); p = p.parent; }
+                    // mLastExpanded 只允许收「真实展开的文件夹根」：keep 会带根节点(-1)等祖先 id，
+                    // 而下一帧的 current（CollectExpandedItems 采样）不含它们 —— SetEquals 永远不等，
+                    // 剪枝兜底循环会把 prev 里不在 current 的 id 逐个 PruneById，连根节点(-1)一起剪光。
+                    keep.IntersectWith(current);
+                    foreach (var it in branches)
+                    {
+                        if (!keep.Contains(it.id))
+                        {
+                            SetExpanded(it.id, false);
+                            PruneById(it.id);
+                        }
+                    }
+                    mLastExpanded = new HashSet<int>(keep);
+                }
+                else
+                {
+                    mLastExpanded = current;
+                }
+
+                // 用户主动折叠的节点（上一帧有、本帧无）也要剪枝释放
+                if (prev != null)
+                {
+                    foreach (var id in prev)
+                    {
+                        if (!current.Contains(id))
+                            PruneById(id);
+                    }
+                }
+            }
+            finally
+            {
+                mInExpansion = false;
+            }
+        }
+
+        private void CollectExpandedItems(TreeViewItem item, List<TreeViewItem> outItems)
+        {
+            if ((item is ConfigDataTreeFolderNode fn && fn.id != -1 && IsExpanded(fn.id)) ||
+                (item is ConfigDataTreeVirtualFolderNode vf && IsExpanded(vf.id)))
+            {
+                outItems.Add(item);
+            }
+            if (item.children != null)
+            {
+                foreach (var c in item.children)
+                    CollectExpandedItems(c, outItems);
+            }
+        }
+
+        private void PruneById(int id)
+        {
+            if (id == -1)
+                return; // 根节点永不剪枝：children 被清空后没有任何路径会重建（BuildRoot 只在 Reload 跑）
+            if (FolderContainsSelection(id))
+                return; // 含当前选中文件的文件夹不剪枝，避免属性面板因 FindItem 失效而空白
+            var it = FindItem(id, rootItem);
+            if (it is ConfigDataTreeFolderNode fn)
+            {
+                // 置回空列表而非 null：节点仍需参与 hasChildren/递归遍历，null 会踩 Unity 内部 foreach
+                fn.children = new List<TreeViewItem>();
+                fn.childrenBuilt = false;
+            }
+        }
+
+        /// <summary>判断指定文件夹是否为任一当前选中项的祖先（用于剪枝保护）。</summary>
+        private bool FolderContainsSelection(int folderId)
+        {
+            foreach (var selId in GetSelection())
+            {
+                var it = FindItem(selId, rootItem);
+                var p = it?.parent;
+                while (p != null)
+                {
+                    if (p.id == folderId)
+                        return true;
+                    p = p.parent;
+                }
+            }
+            return false;
+        }
+
+        #endregion
+
         #region 行绘制
 
         private static GUIStyle _labelStyle;
@@ -522,7 +866,12 @@ namespace HYC.Framework.Config.Editor
 
             // 显示层动态加前缀，节点原名保持不动（重命名编辑的是原名）
             if (args.item is ConfigDataTreeFileNode file)
-                label = file.BuildDisplayLabel(label);
+            {
+                var lbl = file.cachedBaseLabel ?? label;
+                if (file.cachedAsset != null && EditorUtility.IsDirty(file.cachedAsset))
+                    lbl += " *";
+                label = lbl;
+            }
 
             // 「外部配置」虚拟文件夹用独立颜色区分于真实目录（子节点保持默认色，避免整棵花掉）
             var style = args.item is ConfigDataTreeVirtualFolderNode ? VirtualFolderLabelStyle : LabelStyle;
@@ -1129,7 +1478,8 @@ namespace HYC.Framework.Config.Editor
 
             var path = AssetDatabase.GetAssetPath(asset);
             var guid = AssetDatabase.AssetPathToGUID(path);
-            var node = FindFileNode(rootItem, guid);
+            // 懒加载树：沿目录链逐级构建，定位目标文件节点
+            var node = ResolveFileNodeByGuid(guid);
             if (node == null)
                 return;
 
@@ -1144,6 +1494,44 @@ namespace HYC.Framework.Config.Editor
             SetSelection(new List<int> { node.id });
             FrameItem(node.id);
             OnSelectionChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// 在懒加载树上定位文件节点：从根出发，按资产路径逐级 BuildChildren 直到其所在文件夹，
+        /// 再在其中找到对应 GUID 的文件节点。避免全量重建即可揭示深层资产。
+        /// </summary>
+        private ConfigDataTreeFileNode ResolveFileNodeByGuid(string guid)
+        {
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            if (string.IsNullOrEmpty(path))
+                return null;
+
+            var dir = Path.GetDirectoryName(path).Replace("\\", "/");
+            var rootFolder = ConfigDataSettings.RootFolder.Replace("\\", "/").TrimEnd('/');
+            if (!dir.StartsWith(rootFolder, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var rel = dir.Substring(rootFolder.Length).TrimStart('/');
+            var segs = rel.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            var current = (ConfigDataTreeFolderNode)rootItem;
+            var currentPath = rootFolder;
+            foreach (var seg in segs)
+            {
+                BuildChildren(current);
+                currentPath += "/" + seg;
+                var next = current.children?
+                    .OfType<ConfigDataTreeFolderNode>()
+                    .FirstOrDefault(f => string.Equals(AssetDatabase.GUIDToAssetPath(f.guid), currentPath, StringComparison.OrdinalIgnoreCase));
+                if (next == null)
+                    return null;
+                current = next;
+            }
+
+            BuildChildren(current);
+            return current.children?
+                .OfType<ConfigDataTreeFileNode>()
+                .FirstOrDefault(f => f.guid == guid);
         }
 
         private static ConfigDataTreeFileNode FindFileNode(TreeViewItem item, string guid)
