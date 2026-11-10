@@ -71,7 +71,9 @@
   - **批量创建（AI 一次性建很多模板的高性能入口）走 `ConfigAssetFactory.CreateTemplates(IEnumerable<TemplateSpec> specs)`**：与 `CreateTemplate` 行为一致，但全程只做 **一次** `SaveAssets` + **一次** `Refresh`（单模板版每个都 Save/Refresh，N 个放大 N 倍开销）；任一条规格失败整体回滚。`TemplateSpec` 可带 `List<TemplateFieldSpec>` 把字段一并建好。`CreateTemplate` 仍是单模板入口，二者二选一，禁止手填路径。
   - **批量生成代码走 `ConfigTemplateCodeGen.GenerateTemplates(IEnumerable<ConfigTemplate>)`**：循环写各模板局部文件，**末尾统一**重写查询门面 + 清理旧命名空间 + 刷新一次（N 个模板从「N 次 Refresh + N² 次 Facade 磁盘扫描」降到「1 次 Refresh + 1 次 Facade」）；逐条容错，单条失败不阻断其余。单模板仍走 `WriteFile`（语义不变）。
   - **手动批量入口**：Project 窗口右键模板文件夹 → `Assets/HYC Framework/Config/Create Templates (Batch)...` 打开窗口，按行粘贴 `显示名,类名[|字段:类型,...]`，可选一键生成代码。
-- 完整规则与用法见 `Documentation~/12-数据编辑与校验.md` 的「程序化创建」小节。
+- 完整规则与用法见 `Documentation~/12-数据编辑与校验.md` 的「程序化创建」小节；
+  **AI / 脚本调用的签名级速查（含幂等 `CreateOrGet`、流式 `Template()` / `TemplateFieldSpec.Int(...)` 助手、
+  模板字段默认值）见 `Documentation~/16-配置工厂API速查.md`（改工厂后必须同步该页）。**
 - **配置枚举成员顺序 / 增删 = 破坏性变更**：改枚举成员顺序或增删成员会改变既有数值，已导出的 Blob 会读不出 / 串号，必须重跑配置导出（`EnsureEnumDefs` 必须在清理 OutputDir 之后、生成配置类之前）。
 
 ## 2.1 行为树资产创建（TreeId 派发）

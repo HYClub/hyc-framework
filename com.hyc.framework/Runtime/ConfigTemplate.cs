@@ -225,6 +225,28 @@ namespace HYC.Framework.Config
         /// 目标字段只能是 bool/enum 标量字段；无效条件在生成时跳过、求值时视为满足。
         /// </summary>
         public List<ConfigVisibilityCondition> visibility = new List<ConfigVisibilityCondition>();
+
+        /// <summary>
+        /// 是否为该字段生成默认值初始化器（新建配置资产时生效）。
+        /// 只写主类 ScriptableObject 的字段声明：侧类型 / Blob 是 struct，C# 不允许实例字段初始化器。
+        /// 支持范围见 <see cref="ConfigFieldTypes.DefaultSlotOf"/>。
+        /// </summary>
+        public bool useDefault;
+
+        /// <summary>整数族（Int / Long / Short / Byte / UInt）的默认值。</summary>
+        public long defaultNumber;
+        /// <summary>
+        /// 枚举字段的默认值：按 <see cref="ConfigEnumDefinition.ValueOf"/> 的数值存。
+        /// 模板是通用数据结构，编译期不认识生成出来的枚举类型，故按值存、生成期反查成员名还原成
+        /// <c>{枚举类型}.{成员名}</c>；与导出侧枚举落 int 一致。
+        /// </summary>
+        public int defaultEnumValue;
+        /// <summary>浮点族（Float / Double）的默认值。</summary>
+        public double defaultReal;
+        /// <summary>Bool 的默认值。</summary>
+        public bool defaultFlag;
+        /// <summary>字符串族（String / LocalizedKey / Addressable / AudioEvent）的默认值。</summary>
+        public string defaultText = "";
     }
 
     /// <summary>

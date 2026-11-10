@@ -121,6 +121,8 @@ namespace HYC.Framework.Config.Editor
                         else if (!ConfigEnumCodeGen.IsGenerated(ConfigEnumCodeGen.FindEnum(fenum)))
                             tplErrors.Add($"字段 {fname} 的枚举 {fenum} 未生成代码，请先生成枚举代码");
                     }
+                    if (!ConfigDefaultValue.TryValidate(SnapshotForDefaultValue(fp), out var defError))
+                        tplErrors.Add($"字段 {fname} 的默认值无效：{defError}");
                 }
             }
 
@@ -1225,6 +1227,11 @@ namespace HYC.Framework.Config.Editor
 
             EditorGUILayout.Space(2);
 
+            // 默认值：按值槽绘制，只影响生成类的字段初始化器
+            DrawDefaultValueBlock(prop);
+
+            EditorGUILayout.Space(2);
+
             // 只读：数据编辑器里禁用该字段输入（典型：基类 ID/GUID）
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("只读", GUILayout.Width(56));
@@ -1245,6 +1252,131 @@ namespace HYC.Framework.Config.Editor
                     MessageType.Warning);
             }
             EditorGUILayout.EndVertical();
+        }
+
+        // ---------- 字段默认值（折叠明细区） ----------
+
+        private static GUIStyle sDefaultWarnStyle;
+
+        private static GUIStyle DefaultWarnStyle()
+        {
+            if (sDefaultWarnStyle == null)
+            {
+                sDefaultWarnStyle = new GUIStyle(EditorStyles.miniLabel);
+                sDefaultWarnStyle.normal.textColor = new Color(0.89f, 0.75f, 0.54f);
+                sDefaultWarnStyle.hover.textColor = sDefaultWarnStyle.normal.textColor;
+                sDefaultWarnStyle.active.textColor = sDefaultWarnStyle.normal.textColor;
+            }
+            return sDefaultWarnStyle;
+        }
+
+        /// <summary>
+        /// 从序列化属性取当前帧的默认值快照。模板对象要等 ApplyModifiedProperties 才同步，
+        /// 直接用对象校验会滞后一帧；校验一律走快照。
+        /// </summary>
+        private static ConfigTemplateField SnapshotForDefaultValue(SerializedProperty prop)
+        {
+            return new ConfigTemplateField
+            {
+                useDefault = prop.FindPropertyRelative("useDefault").boolValue,
+                type = (ConfigFieldType)prop.FindPropertyRelative("type").intValue,
+                isList = prop.FindPropertyRelative("isList").boolValue,
+                enumRefClassName = prop.FindPropertyRelative("enumRefClassName").stringValue ?? "",
+                defaultNumber = prop.FindPropertyRelative("defaultNumber").longValue,
+                defaultEnumValue = prop.FindPropertyRelative("defaultEnumValue").intValue,
+                defaultReal = prop.FindPropertyRelative("defaultReal").doubleValue,
+                defaultFlag = prop.FindPropertyRelative("defaultFlag").boolValue,
+                defaultText = prop.FindPropertyRelative("defaultText").stringValue ?? "",
+            };
+        }
+
+        /// <summary>
+        /// 默认值行：启用开关 + 按值槽绘制的控件。
+        /// 块始终绘制（不支持的类型也画一个占位控件），只换控件 / 文案 / 禁用态 —— IMGUI 每帧控件集合必须一致。
+        /// </summary>
+        private void DrawDefaultValueBlock(SerializedProperty prop)
+        {
+            var useProp = prop.FindPropertyRelative("useDefault");
+            var slot = ConfigFieldTypes.DefaultSlotOf((ConfigFieldType)prop.FindPropertyRelative("type").intValue);
+            var isList = prop.FindPropertyRelative("isList").boolValue;
+            var supported = !isList && slot != ConfigDefaultSlot.None;
+            var active = supported && useProp.boolValue;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("默认值", GUILayout.Width(56));
+            useProp.boolValue = EditorGUILayout.Toggle(useProp.boolValue, GUILayout.Width(22));
+
+            using (new EditorGUI.DisabledScope(!active))
+            {
+                switch (slot)
+                {
+                    case ConfigDefaultSlot.Number:
+                        var numberProp = prop.FindPropertyRelative("defaultNumber");
+                        numberProp.longValue = EditorGUILayout.LongField(numberProp.longValue, GUILayout.ExpandWidth(true));
+                        break;
+                    case ConfigDefaultSlot.Real:
+                        var realProp = prop.FindPropertyRelative("defaultReal");
+                        realProp.doubleValue = EditorGUILayout.DoubleField(realProp.doubleValue, GUILayout.ExpandWidth(true));
+                        break;
+                    case ConfigDefaultSlot.Flag:
+                        var flagProp = prop.FindPropertyRelative("defaultFlag");
+                        flagProp.boolValue = EditorGUILayout.Toggle(flagProp.boolValue, GUILayout.Width(22));
+                        break;
+                    case ConfigDefaultSlot.Text:
+                        var textProp = prop.FindPropertyRelative("defaultText");
+                        textProp.stringValue = EditorGUILayout.TextField(textProp.stringValue ?? "", GUILayout.ExpandWidth(true));
+                        break;
+                    case ConfigDefaultSlot.Enum:
+                        DrawDefaultEnumPopup(prop.FindPropertyRelative("enumRefClassName"),
+                            prop.FindPropertyRelative("defaultEnumValue"));
+                        break;
+                    default:
+                        EditorGUILayout.TextField("（该类型不支持默认值）", GUILayout.ExpandWidth(true));
+                        break;
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 提示行：始终绘制，只换文案 / 颜色
+            string message;
+            var warning = false;
+            if (!supported)
+                message = isList
+                    ? "列表字段不支持默认值（List 元素请由数据侧填写）"
+                    : "该类型不支持默认值（结构值类型 / 资源引用 / Char / Decimal 暂不支持）";
+            else if (!useProp.boolValue)
+                message = "未启用 → 生成代码不加默认值初始化器";
+            else if (!ConfigDefaultValue.TryValidate(SnapshotForDefaultValue(prop), out var defError))
+            {
+                message = defError;
+                warning = true;
+            }
+            else
+                message = "新建配置资产时写入该值；生成类字段初始化器（侧类型 / Blob 不加）";
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(16f);
+            EditorGUILayout.LabelField(message, warning ? DefaultWarnStyle() : EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>枚举默认值下拉：显示成员名，按 ValueOf 的数值存专用 int 槽；控件恒为一个 Popup。</summary>
+        private static void DrawDefaultEnumPopup(SerializedProperty enumProp, SerializedProperty valueProp)
+        {
+            var def = ConfigEnumCodeGen.FindEnum(enumProp.stringValue ?? "");
+            var count = def != null && def.values != null ? def.values.Count : 0;
+            var names = new string[count + 1];
+            names[0] = count == 0 ? "（枚举定义不存在或无枚举值）" : "（未选择）";
+            var idx = 0;
+            for (var i = 0; i < count; i++)
+            {
+                names[i + 1] = def.values[i] != null ? def.values[i].name : "(空)";
+                if (ConfigEnumDefinition.ValueOf(def, i) == valueProp.intValue)
+                    idx = i + 1;
+            }
+            var newIdx = EditorGUILayout.Popup(idx, names, GUILayout.Width(160));
+            if (newIdx > 0 && newIdx <= count)
+                valueProp.intValue = (int)ConfigEnumDefinition.ValueOf(def, newIdx - 1);
         }
 
         /// <summary>关联参数候选目标字段（本模板 + 继承链上的 bool/enum 标量字段）。</summary>
@@ -1513,6 +1645,13 @@ namespace HYC.Framework.Config.Editor
             f.FindPropertyRelative("notEmptyCheck").intValue = (int)ConfigCheckLevel.None;
             f.FindPropertyRelative("notZeroCheck").intValue = (int)ConfigCheckLevel.None;
             f.FindPropertyRelative("rangeCheck").intValue = (int)ConfigCheckLevel.None;
+            // 默认值按值槽逐项复位：arraySize++ 会复制上一行的槽值，不复位会出现「新字段凭空带了默认值」
+            f.FindPropertyRelative("useDefault").boolValue = false;
+            f.FindPropertyRelative("defaultNumber").longValue = 0;
+            f.FindPropertyRelative("defaultEnumValue").intValue = 0;
+            f.FindPropertyRelative("defaultReal").doubleValue = 0d;
+            f.FindPropertyRelative("defaultFlag").boolValue = false;
+            f.FindPropertyRelative("defaultText").stringValue = "";
             // 两侧导出设置按字段默认复位（值类型→直接导出自身类型；引用→取成员 ID；资源→名字；…）
             DefaultExportSettings(f);
 

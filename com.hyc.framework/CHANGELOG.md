@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 新增：模板字段默认值 + 配置工厂 API 大扩充（`CreateOrGet` / `CreateWith` / 流式规格）
+
+- **模板字段默认值**：`ConfigTemplateField` 新增 `useDefault` + 五个按值槽（`defaultNumber` / `defaultEnumValue` /
+  `defaultReal` / `defaultFlag` / `defaultText`）；支持范围由 `ConfigFieldTypes.DefaultSlotOf`（新增 `ConfigDefaultSlot`
+  枚举）唯一判定，v1 只收标量值类型与字符串族 + 枚举（按数值存、生成期反查成员名）。
+  唯一真源 `ConfigDefaultValue`（Editor）：读取 → `TryValidate`（范围 / NaN / 枚举成员存在性）→ `FormatLiteral`
+  生成字段初始化器；只落主类字段声明（侧类型 / Blob 是 struct 不允许初始化器），导出链路无感。
+  模板编辑器新增默认值折叠区（`DrawDefaultValueBlock`），生成期双重校验。
+- **`ConfigAssetFactory` API 扩充**：幂等 `CreateOrGet<T>` / 创建即填值 `CreateWith<T>` / 自定义名单批量
+  `CreateMany(Type, IEnumerable<string>)` / 泛型批量 `CreateMany<T>` / 可变参数 `CreateTemplates(params)` /
+  建模板 + 生成代码一条龙 `CreateTemplatesAndGenerate` / 追加删字段 `AddFields` / `RemoveFields`（幂等）/
+  查模板 `FindTemplate`；`TemplateSpec` / `TemplateFieldSpec` 流式构建器（`Unique` / `Base` / `InFolder` /
+  `Fields` / `Desc` / `ReadOnly` / `AsList`）与类型化字段助手（`Int` / `Long` / `Float` / `Bool` / `String`…，
+  直传默认值）。
+- **新文档 `Documentation~/16-配置工厂API速查.md`**：AI / 脚本专用速查表，覆盖工厂全部公开方法签名、
+  参数、异常与示例（README 篇数 45→46）。
+- doc11 补「四·D 默认值」说明；doc100 索引同步（362 文件 / 645 类型，DataEditor 组 62）。
+
+### 变更：数据编辑器左树性能优化（懒加载 + 手风琴 + 防抖）
+
+- **懒加载**：`ConfigDataTree.BuildRoot` 只构建根的一层子节点，子文件夹首次展开时填充、折叠时剪枝释放；搜索态自动切回全量构建。
+- **手风琴（单展开）**：同一时刻只保留一条展开分支，展开新文件夹自动折叠其余；含当前选中项的文件夹不剪枝。
+- **标签缓存**：文件节点前缀标签与资产引用构建期一次算好（`CacheLabel`），行绘制不再每帧 `LoadAssetAtPath`。
+- **外部变更防抖**：`projectChanged` 爆发合并为静默 150ms 后一次 Reload（`ConfigDataWindow`）。
+- 新增剖析开关 `ConfigDataTree.EnableBuildProfiling`（默认关闭）。doc12 补「左树性能行为」小节。
+
 ### 新增：配置模板批量创建（`CreateTemplates` / `GenerateTemplates` / 批量窗口）
 
 - **`ConfigAssetFactory.CreateTemplates(IEnumerable<TemplateSpec> specs)`**（新增嵌套类 `TemplateSpec` / `TemplateFieldSpec`）：

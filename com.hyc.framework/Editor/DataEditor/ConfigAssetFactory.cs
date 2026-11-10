@@ -21,6 +21,36 @@ namespace HYC.Framework.Config.Editor
     /// var list = ConfigAssetFactory.CreateMany(typeof(MyConfig), "Mob", 10); // 批量
     /// // 之后填字段 → EditorUtility.SetDirty(a); AssetDatabase.SaveAssets();
     /// </code>
+    /// <para>
+    /// 批量建模板（含字段 / 默认值 / 只读，AI 直接照抄）：
+    /// <code>
+    /// ConfigAssetFactory.CreateTemplates(
+    ///     ConfigAssetFactory.Template("角色/英雄配置", "HeroConfig",
+    ///         TemplateFieldSpec.Int("maxHp", 100).Desc("最大生命"),
+    ///         TemplateFieldSpec.Float("moveSpeed", 3.5f),
+    ///         TemplateFieldSpec.Bool("isBoss", false).ReadOnly(),
+    ///         TemplateFieldSpec.Text("heroName", "新英雄"),
+    ///         TemplateFieldSpec.Enum("heroType", "HeroType", "Warrior")),
+    ///     ConfigAssetFactory.Template("道具/道具配置", "ItemConfig",
+    ///         TemplateFieldSpec.Int("price", 10),
+    ///         TemplateFieldSpec.Of("icon", ConfigFieldType.Sprite)));
+    ///
+    /// // 给已存在的模板追加字段（同一套规格）：
+    /// ConfigAssetFactory.AddFields(tpl, TemplateFieldSpec.Bool("enabled", true));
+    ///
+    /// // 幂等创建 / 创建即填值 / 自定义名字批量：
+    /// var boss = ConfigAssetFactory.CreateOrGet&lt;BossConfig&gt;("Boss01");
+    /// var mob = ConfigAssetFactory.CreateWith&lt;MobConfig&gt;("Mob01", c =&gt; c.hp = 50);
+    /// var named = ConfigAssetFactory.CreateMany(typeof(MobConfig), new[] { "Slime", "Bat" });
+    ///
+    /// // 建模板 + 一步生成代码：
+    /// var r = ConfigAssetFactory.CreateTemplatesAndGenerate(
+    ///     ConfigAssetFactory.Template("道具/道具配置", "ItemConfig",
+    ///         TemplateFieldSpec.Int("price", 10)));
+    /// </code>
+    /// 静态工厂按字段类型自动写默认值槽；枚举默认值写成员名即可，工厂换算成数值。
+    /// 建完走 <c>ConfigTemplateCodeGen.GenerateTemplates</c> 生成代码。
+    /// </para>
     /// </summary>
     public static class ConfigAssetFactory
     {
@@ -87,25 +117,123 @@ namespace HYC.Framework.Config.Editor
                 throw new ArgumentOutOfRangeException(nameof(count), "count 必须 >= 1");
             if (string.IsNullOrEmpty(prefix))
                 prefix = type.Name;
+            ValidateBatchType(type);
 
+            var digits = Math.Max(1, count.ToString().Length);
+            var names = new List<string>(count);
+            for (var i = 1; i <= count; i++)
+                names.Add($"{SanitizeFileName(prefix)}_{i.ToString("D" + digits)}");
+            return CreateManyCore(type, names, folder);
+        }
+
+        /// <summary>
+        /// 批量创建（自定义资产名）：一次给一批名字，逐个派发 ID，任一失败整体回滚。
+        /// 名字空白 / 重复直接报错。与前缀版共用同一套回滚策略。
+        /// </summary>
+        public static IReadOnlyList<ScriptableObject> CreateMany(Type type, IEnumerable<string> names, string folder = null)
+        {
+            if (type == null)
+                throw new ArgumentNullException(nameof(type));
+            if (names == null)
+                throw new ArgumentNullException(nameof(names));
+            ValidateBatchType(type);
+
+            var list = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var n in names)
+            {
+                if (string.IsNullOrWhiteSpace(n))
+                    throw new ArgumentException("资产名不能为空或空白", nameof(names));
+                var clean = SanitizeFileName(n);
+                if (!seen.Add(clean))
+                    throw new InvalidOperationException($"批量创建的资产名重复：{clean}");
+                list.Add(clean);
+            }
+            if (list.Count == 0)
+                return new ScriptableObject[0];
+            return CreateManyCore(type, list, folder);
+        }
+
+        /// <summary>泛型版批量创建：AI 已知编译期类型时省去逐条转型。</summary>
+        public static IReadOnlyList<T> CreateMany<T>(string prefix, int count, string folder = null) where T : ScriptableObject
+        {
+            var made = CreateMany(typeof(T), prefix, count, folder);
+            var typed = new List<T>(made.Count);
+            foreach (var a in made)
+                typed.Add((T)a);
+            return typed;
+        }
+
+        /// <summary>
+        /// 幂等创建：同名资产已存在则直接复用（不重新派发 ID），否则按 <see cref="Create{T}(string, string)"/> 创建。
+        /// AI 可重复执行同一段脚本，不会因「文件已存在」中断。
+        /// </summary>
+        public static T CreateOrGet<T>(string assetName, string folder = null) where T : ScriptableObject
+        {
+            if (string.IsNullOrEmpty(assetName))
+                throw new ArgumentException("assetName 不能为空", nameof(assetName));
+            var type = typeof(T);
+            var targetFolder = string.IsNullOrEmpty(folder)
+                ? (ConfigAssetLayout.EnsureTypeFolder(type) ?? ConfigDataSettings.RootFolder)
+                : folder;
+            EnsureFolder(targetFolder);
+            var fullPath = Path.Combine(targetFolder, SanitizeFileName(assetName) + ".asset");
+            var existing = AssetDatabase.LoadAssetAtPath(fullPath, type) as T;
+            return existing != null ? existing : Create<T>(assetName, folder);
+        }
+
+        /// <summary>
+        /// 创建并立即初始化：工厂内完成填值 + SetDirty + SaveAssets，AI 不用记这三步。
+        /// 初始化回调抛异常时删除刚创建的资产再抛出（不留下半初始化资产）。
+        /// </summary>
+        public static T CreateWith<T>(string assetName, Action<T> initialize, string folder = null) where T : ScriptableObject
+        {
+            if (initialize == null)
+                throw new ArgumentNullException(nameof(initialize));
+            var asset = Create<T>(assetName, folder);
+            try
+            {
+                initialize(asset);
+            }
+            catch
+            {
+                var p = AssetDatabase.GetAssetPath(asset);
+                if (!string.IsNullOrEmpty(p))
+                    AssetDatabase.DeleteAsset(p);
+                throw;
+            }
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssets();
+            return asset;
+        }
+
+        private static void ValidateBatchType(Type type)
+        {
+            if (!typeof(ScriptableObject).IsAssignableFrom(type))
+                throw new ArgumentException($"类型 {type.Name} 不是 ScriptableObject", nameof(type));
             if (IsUniqueType(type))
                 throw new InvalidOperationException($"类型 {type.Name} 为唯一配置，不支持批量创建。");
+        }
 
+        /// <summary>
+        /// 批量创建核心：路径预检 → 逐个建资产 → 逐个派发 ID → 任一失败整体删除回滚 → 一次 Save/Refresh。
+        /// 前缀版与自定义名字版共用，保证两条入口行为一致。
+        /// </summary>
+        private static IReadOnlyList<ScriptableObject> CreateManyCore(Type type, List<string> assetNames, string folder)
+        {
             var targetFolder = string.IsNullOrEmpty(folder)
                 ? (ConfigAssetLayout.EnsureTypeFolder(type) ?? ConfigDataSettings.RootFolder)
                 : folder;
             EnsureFolder(targetFolder);
 
-            var digits = Math.Max(1, count.ToString().Length);
-            var paths = new List<string>(count);
-            for (var i = 1; i <= count; i++)
-                paths.Add(Path.Combine(targetFolder, $"{SanitizeFileName(prefix)}_{i.ToString("D" + digits)}.asset"));
-
+            var paths = new List<string>(assetNames.Count);
+            foreach (var name in assetNames)
+                paths.Add(Path.Combine(targetFolder, name + ".asset"));
             foreach (var p in paths)
                 if (File.Exists(p))
                     throw new InvalidOperationException($"文件已存在：{p}");
 
-            var created = new List<ScriptableObject>(count);
+            var created = new List<ScriptableObject>(paths.Count);
             try
             {
                 foreach (var p in paths)
@@ -207,13 +335,15 @@ namespace HYC.Framework.Config.Editor
             if (list.Count == 0)
                 return new ConfigTemplate[0];
 
-            var targetFolder = string.IsNullOrEmpty(list[0].folder)
-                ? (ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigTemplate)) ?? ConfigDataSettings.RootFolder)
-                : list[0].folder;
-            EnsureFolder(targetFolder);
+            var typeFolder = ConfigAssetLayout.EnsureTypeFolder(typeof(ConfigTemplate)) ?? ConfigDataSettings.RootFolder;
+            // 批次默认目录 = 第一条规格显式指定的 folder（都没设时全部落类型文件夹），
+            // 每条规格仍可用自己的 folder 覆盖；此前只有 list[0].folder 生效，其余被静默忽略。
+            var batchFolder = string.IsNullOrEmpty(list[0].folder) ? typeFolder : list[0].folder;
+            EnsureFolder(batchFolder);
 
             var defaultBase = ConfigTemplateCodeGen.GetConfigBaseTemplate();
-            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 每个目录各自的已用名集合：不同目录下的同名资产不该互相顶掉
+            var usedNamesByFolder = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var created = new List<ConfigTemplate>(list.Count);
 
             try
@@ -223,8 +353,16 @@ namespace HYC.Framework.Config.Editor
                     if (spec == null || string.IsNullOrWhiteSpace(spec.displayName))
                         throw new InvalidOperationException("TemplateSpec.displayName 不能为空。");
 
+                    var specFolder = string.IsNullOrEmpty(spec.folder) ? batchFolder : spec.folder;
+                    EnsureFolder(specFolder);
+                    if (!usedNamesByFolder.TryGetValue(specFolder, out var usedNames))
+                    {
+                        usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        usedNamesByFolder.Add(specFolder, usedNames);
+                    }
+
                     var assetName = ConfigTemplateCodeGen.DisplayNameToAssetName(spec.displayName);
-                    var path = UniqueTemplatePath(targetFolder, assetName, usedNames);
+                    var path = UniqueTemplatePath(specFolder, assetName, usedNames);
 
                     var tpl = ScriptableObject.CreateInstance<ConfigTemplate>();
                     tpl.displayName = spec.displayName.Trim();
@@ -237,15 +375,7 @@ namespace HYC.Framework.Config.Editor
                         {
                             if (fs == null || string.IsNullOrWhiteSpace(fs.name))
                                 continue;
-                            tpl.fields.Add(new ConfigTemplateField
-                            {
-                                name = fs.name,
-                                description = fs.displayName ?? "",
-                                type = fs.type,
-                                isList = fs.isList,
-                                refTypeFullName = fs.refTypeFullName ?? "",
-                                enumRefClassName = fs.enumRefClassName ?? "",
-                            });
+                            tpl.fields.Add(BuildField(spec.displayName, fs));
                         }
                     }
 
@@ -271,7 +401,151 @@ namespace HYC.Framework.Config.Editor
             return created.ToArray();
         }
 
+        /// <summary>
+        /// 批量创建的可变参数版：AI / 脚本直接列模板规格即可，不必自己包数组。
+        /// 与 <c>CreateTemplates(IEnumerable&lt;TemplateSpec&gt;)</c> 同一套逻辑与回滚策略。
+        /// </summary>
+        public static ConfigTemplate[] CreateTemplates(params TemplateSpec[] specs)
+            => CreateTemplates((IEnumerable<TemplateSpec>)specs);
+
+        /// <summary>
+        /// 建模板规格的便捷入口：显示名 + 类名 + 任意多个字段。
+        /// 字段用 <see cref="TemplateFieldSpec"/> 的静态工厂按类型创建，默认值按真实类型传入，
+        /// 工厂自动写入对应的默认值槽，调用方不需要知道 internal 值槽的存在。
+        /// </summary>
+        public static TemplateSpec Template(string displayName, string className, params TemplateFieldSpec[] fields)
+        {
+            return new TemplateSpec
+            {
+                displayName = displayName,
+                className = className,
+                fields = fields != null && fields.Length > 0 ? new List<TemplateFieldSpec>(fields) : null,
+            };
+        }
+
+        /// <summary>
+        /// 给已存在的模板批量追加字段（同一套 <see cref="TemplateFieldSpec"/>，支持默认值 / 只读）。
+        /// 全部构造并校验通过后才一次性写入：任一失败都不改模板；同名字段直接报错，不静默改名。
+        /// 只查本模板自身字段，继承链上的重名由生成代码阶段拦截。
+        /// </summary>
+        public static int AddFields(ConfigTemplate template, params TemplateFieldSpec[] fields)
+        {
+            if (template == null)
+                throw new ArgumentNullException(nameof(template));
+            if (fields == null || fields.Length == 0)
+                return 0;
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (template.fields != null)
+                foreach (var existing in template.fields)
+                    if (existing != null)
+                        names.Add(existing.name);
+
+            var pending = new List<ConfigTemplateField>();
+            foreach (var fs in fields)
+            {
+                if (fs == null || string.IsNullOrWhiteSpace(fs.name))
+                    throw new InvalidOperationException("TemplateFieldSpec.name 不能为空。");
+                var field = BuildField(template.displayName, fs);
+                if (!names.Add(field.name))
+                    throw new InvalidOperationException($"模板 {template.displayName} 已存在字段 {field.name}，禁止重复添加。");
+                pending.Add(field);
+            }
+
+            if (template.fields == null)
+                template.fields = new List<ConfigTemplateField>();
+            template.fields.AddRange(pending);
+            EditorUtility.SetDirty(template);
+            AssetDatabase.SaveAssets();
+            return pending.Count;
+        }
+
+        /// <summary>
+        /// 单模板 + 字段一步到位：等价于 <c>CreateTemplates(Template(...))</c> 取第一个。
+        /// 不叫 CreateTemplate 是为了避开与既有 <c>CreateTemplate(string, string, string)</c> 的 null 二义重载。
+        /// </summary>
+        public static ConfigTemplate CreateTemplateWithFields(string displayName, string className,
+            params TemplateFieldSpec[] fields)
+        {
+            var made = CreateTemplates(Template(displayName, className, fields));
+            return made.Length > 0 ? made[0] : null;
+        }
+
+        /// <summary>
+        /// 建模板 + 立即批量生成代码（一条龙）：返回模板数组与 <c>GenerateTemplates</c> 的
+        /// (成功数, 失败数, 错误汇总)。生成失败不回滚模板资产（资产已合法创建），错误逐条列在 errors 里。
+        /// </summary>
+        public static (ConfigTemplate[] templates, int ok, int failed, string errors)
+            CreateTemplatesAndGenerate(params TemplateSpec[] specs)
+        {
+            var templates = CreateTemplates(specs);
+            var (ok, failed, errors) = ConfigTemplateCodeGen.GenerateTemplates(templates);
+            return (templates, ok, failed, errors);
+        }
+
+        /// <summary>按生成类名查已有模板（AI 增量改模板的第一步）；找不到返回 null。</summary>
+        public static ConfigTemplate FindTemplate(string className)
+        {
+            if (string.IsNullOrWhiteSpace(className))
+                return null;
+            foreach (var t in ConfigTemplateCodeGen.LoadAllTemplates())
+                if (t != null && string.Equals(t.className, className, StringComparison.Ordinal))
+                    return t;
+            return null;
+        }
+
+        /// <summary>
+        /// 批量删除字段（幂等）：不存在的名字直接跳过，返回实际删除条数。
+        /// 只删本模板自身字段；有实际删除才 SetDirty + SaveAssets。
+        /// </summary>
+        public static int RemoveFields(ConfigTemplate template, params string[] fieldNames)
+        {
+            if (template == null)
+                throw new ArgumentNullException(nameof(template));
+            if (template.fields == null || fieldNames == null || fieldNames.Length == 0)
+                return 0;
+
+            var toRemove = new HashSet<string>(fieldNames, StringComparer.OrdinalIgnoreCase);
+            var before = template.fields.Count;
+            template.fields.RemoveAll(f => f != null && toRemove.Contains(f.name));
+            var removed = before - template.fields.Count;
+            if (removed > 0)
+            {
+                EditorUtility.SetDirty(template);
+                AssetDatabase.SaveAssets();
+            }
+            return removed;
+        }
+
         // ---------- 内部 ----------
+
+        /// <summary>
+        /// 字段规格 → ConfigTemplateField，并校验默认值。
+        /// CreateTemplates 与 AddFields 共用，保证两条入口规则一致；
+        /// 校验失败抛异常，CreateTemplates 会整体回滚已创建资产。
+        /// </summary>
+        private static ConfigTemplateField BuildField(string templateName, TemplateFieldSpec fs)
+        {
+            var field = new ConfigTemplateField
+            {
+                name = fs.name.Trim(),
+                description = fs.displayName ?? "",
+                type = fs.type,
+                isList = fs.isList,
+                refTypeFullName = fs.refTypeFullName ?? "",
+                enumRefClassName = fs.enumRefClassName ?? "",
+                readOnly = fs.readOnly,
+                useDefault = fs.useDefault,
+                defaultNumber = fs.defaultNumber,
+                defaultEnumValue = fs.defaultEnumValue,
+                defaultReal = fs.defaultReal,
+                defaultFlag = fs.defaultFlag,
+                defaultText = fs.defaultText ?? "",
+            };
+            if (!ConfigDefaultValue.TryValidate(field, out var error))
+                throw new InvalidOperationException($"模板 {templateName} 的字段 {field.name} 默认值无效：{error}");
+            return field;
+        }
 
         /// <summary>在 folder 下求一个不与磁盘及本批次已用名冲突的 .asset 路径（冲突自增后缀）。</summary>
         private static string UniqueTemplatePath(string folder, string assetName, HashSet<string> usedNames)
@@ -367,7 +641,8 @@ namespace HYC.Framework.Config.Editor
 
     /// <summary>
     /// 批量创建时单个模板的规格。显示名必填；类名 / 文件夹 / 字段等均可选。
-    /// <para>字段用 <see cref="TemplateFieldSpec"/> 描述，建模板时一并写入，省去后续逐条回填。</para>
+    /// <para>字段用 <see cref="TemplateFieldSpec"/> 描述，建模板时一并写入，省去后续逐条回填。
+    /// 用 <c>ConfigAssetFactory.Template</c> 构造更省事。</para>
     /// </summary>
     public sealed class TemplateSpec
     {
@@ -377,9 +652,39 @@ namespace HYC.Framework.Config.Editor
         public bool unique;
         public ConfigTemplate baseTemplate;
         public List<TemplateFieldSpec> fields;
+
+        // ---------- 链式修饰（AI 不用记字段名） ----------
+
+        /// <summary>全工程唯一（Single）：工厂禁止重复创建该类型。</summary>
+        public TemplateSpec Unique(bool value = true) { unique = value; return this; }
+
+        /// <summary>指定基类模板；不设则默认挂框架级 ConfigBase（生成的配置类带 ID/GUID）。</summary>
+        public TemplateSpec Base(ConfigTemplate template) { baseTemplate = template; return this; }
+
+        /// <summary>该模板的落盘目录（Assets/...）；不设则用批次默认目录（配置模板类型文件夹）。</summary>
+        public TemplateSpec InFolder(string path) { folder = path; return this; }
+
+        /// <summary>追加字段，可与 <c>ConfigAssetFactory.Template(...)</c> 构造时的 params 叠加。</summary>
+        public TemplateSpec Fields(params TemplateFieldSpec[] more)
+        {
+            if (more == null || more.Length == 0)
+                return this;
+            if (fields == null)
+                fields = new List<TemplateFieldSpec>();
+            fields.AddRange(more);
+            return this;
+        }
     }
 
-    /// <summary>批量建模板时单个字段的描述（映射到 <c>ConfigTemplateField</c> 的核心字段）。</summary>
+    /// <summary>
+    /// 批量建模板 / 追加字段时单个字段的描述。
+    /// <para>
+    /// <b>AI / 脚本请用静态工厂</b>（<c>Int</c> / <c>Float</c> / <c>Bool</c> / <c>Text</c> /
+    /// <c>Enum</c> / <c>Reference</c> / <c>Of</c> …）按类型创建并直接传入默认值：
+    /// 工厂自动把值写进对应的默认值槽，调用方不必知道 <c>defaultNumber</c> 等内部槽位，也不会填错槽。
+    /// 不支持默认值的类型（资源引用 / 结构值类型 / Char / Decimal）用 <c>Of</c>。
+    /// </para>
+    /// </summary>
     public sealed class TemplateFieldSpec
     {
         public string name;
@@ -388,5 +693,186 @@ namespace HYC.Framework.Config.Editor
         public bool isList;
         public string refTypeFullName;
         public string enumRefClassName;
+
+        /// <summary>数据编辑器里该字段只读（生成 [ReadOnly]）。用 <c>ReadOnly()</c> 链式设置。</summary>
+        public bool readOnly;
+
+        /// <summary>是否生成默认值初始化器；静态工厂在传入默认值时自动置位，一般无需手填。</summary>
+        public bool useDefault;
+        public long defaultNumber;
+        public int defaultEnumValue;
+        public double defaultReal;
+        public bool defaultFlag;
+        public string defaultText;
+
+        // ---------- 链式修饰 ----------
+
+        /// <summary>设置字段描述（模板字段表里的「描述」列）。</summary>
+        public TemplateFieldSpec Desc(string description) { displayName = description; return this; }
+
+        /// <summary>数据编辑器里只读。</summary>
+        public TemplateFieldSpec ReadOnly(bool value = true) { readOnly = value; return this; }
+
+        /// <summary>设为列表字段（列表字段不支持默认值）。</summary>
+        public TemplateFieldSpec AsList(bool value = true) { isList = value; return this; }
+
+        // ---------- 按类型的静态工厂（默认值按真实类型传，自动落槽） ----------
+
+        public static TemplateFieldSpec Int(string name, int? defaultValue = null)
+            => NumberSpec(name, ConfigFieldType.Int, defaultValue.HasValue ? (long?)defaultValue.Value : null);
+
+        public static TemplateFieldSpec Long(string name, long? defaultValue = null)
+            => NumberSpec(name, ConfigFieldType.Long, defaultValue);
+
+        public static TemplateFieldSpec Short(string name, short? defaultValue = null)
+            => NumberSpec(name, ConfigFieldType.Short, defaultValue.HasValue ? (long?)defaultValue.Value : null);
+
+        public static TemplateFieldSpec Byte(string name, byte? defaultValue = null)
+            => NumberSpec(name, ConfigFieldType.Byte, defaultValue.HasValue ? (long?)defaultValue.Value : null);
+
+        public static TemplateFieldSpec UInt(string name, uint? defaultValue = null)
+            => NumberSpec(name, ConfigFieldType.UInt, defaultValue.HasValue ? (long?)defaultValue.Value : null);
+
+        public static TemplateFieldSpec Float(string name, float? defaultValue = null)
+        {
+            var f = new TemplateFieldSpec { name = name, type = ConfigFieldType.Float };
+            if (defaultValue.HasValue)
+            {
+                f.useDefault = true;
+                f.defaultReal = defaultValue.Value;
+            }
+            return f;
+        }
+
+        public static TemplateFieldSpec Double(string name, double? defaultValue = null)
+        {
+            var f = new TemplateFieldSpec { name = name, type = ConfigFieldType.Double };
+            if (defaultValue.HasValue)
+            {
+                f.useDefault = true;
+                f.defaultReal = defaultValue.Value;
+            }
+            return f;
+        }
+
+        public static TemplateFieldSpec Bool(string name, bool? defaultValue = null)
+        {
+            var f = new TemplateFieldSpec { name = name, type = ConfigFieldType.Bool };
+            if (defaultValue.HasValue)
+            {
+                f.useDefault = true;
+                f.defaultFlag = defaultValue.Value;
+            }
+            return f;
+        }
+
+        /// <summary>字符串族通用构造；<c>defaultValue = null</c> 表示不设默认值，传 <c>""</c> 表示默认空串。</summary>
+        private static TemplateFieldSpec TextSpec(string name, ConfigFieldType type, string defaultValue)
+        {
+            var f = new TemplateFieldSpec { name = name, type = type };
+            if (defaultValue != null)
+            {
+                f.useDefault = true;
+                f.defaultText = defaultValue;
+            }
+            return f;
+        }
+
+        public static TemplateFieldSpec Text(string name, string defaultValue = null)
+            => TextSpec(name, ConfigFieldType.String, defaultValue);
+
+        public static TemplateFieldSpec LocKey(string name, string defaultValue = null)
+            => TextSpec(name, ConfigFieldType.LocalizedKey, defaultValue);
+
+        public static TemplateFieldSpec Addressable(string name, string defaultValue = null)
+            => TextSpec(name, ConfigFieldType.Addressable, defaultValue);
+
+        public static TemplateFieldSpec AudioEvent(string name, string defaultValue = null)
+            => TextSpec(name, ConfigFieldType.AudioEvent, defaultValue);
+
+        /// <summary>
+        /// 枚举字段：按<b>成员名</b>指定默认值，工厂现场查枚举定义资产换算成数值存入专用 int 槽。
+        /// 成员名不存在 / 枚举定义未创建时直接抛异常，不静默写 0。
+        /// </summary>
+        public static TemplateFieldSpec Enum(string name, string enumClassName, string memberName)
+        {
+            var f = new TemplateFieldSpec
+            {
+                name = name,
+                type = ConfigFieldType.Enum,
+                enumRefClassName = enumClassName ?? "",
+            };
+            if (memberName == null)
+                return f;
+
+            var def = ConfigEnumCodeGen.FindEnum(f.enumRefClassName);
+            if (def == null || def.values == null)
+                throw new InvalidOperationException(
+                    $"字段 {name} 的枚举定义 {f.enumRefClassName} 不存在：请先创建枚举定义资产再指定枚举默认值。");
+            for (var i = 0; i < def.values.Count; i++)
+            {
+                if (def.values[i] == null
+                    || !string.Equals(def.values[i].name, memberName, StringComparison.Ordinal))
+                    continue;
+                var value = ConfigEnumDefinition.ValueOf(def, i);
+                if (value > int.MaxValue || value < int.MinValue)
+                    throw new InvalidOperationException($"枚举成员 {memberName} 的数值 {value} 超出默认值槽（int）范围。");
+                f.useDefault = true;
+                f.defaultEnumValue = (int)value;
+                return f;
+            }
+            throw new InvalidOperationException(
+                $"枚举 {f.enumRefClassName} 中没有成员 {memberName}；可用成员见枚举定义资产。");
+        }
+
+        /// <summary>枚举字段：已知枚举数值时直接指定（跳过成员名反查）。</summary>
+        public static TemplateFieldSpec Enum(string name, string enumClassName, int defaultValue)
+        {
+            return new TemplateFieldSpec
+            {
+                name = name,
+                type = ConfigFieldType.Enum,
+                enumRefClassName = enumClassName ?? "",
+                useDefault = true,
+                defaultEnumValue = defaultValue,
+            };
+        }
+
+        public static TemplateFieldSpec Reference(string name, string refTypeFullName)
+        {
+            return new TemplateFieldSpec
+            {
+                name = name,
+                type = ConfigFieldType.Reference,
+                refTypeFullName = refTypeFullName ?? "",
+            };
+        }
+
+        /// <summary>其它类型（资源引用族 / 结构值类型 / Char / Decimal 等不支持默认值的类型）。</summary>
+        public static TemplateFieldSpec Of(string name, ConfigFieldType type)
+            => new TemplateFieldSpec { name = name, type = type };
+
+        // ---------- 常用非默认值类型快捷入口（等价于 Of(name, 对应类型)） ----------
+
+        public static TemplateFieldSpec Sprite(string name) => Of(name, ConfigFieldType.Sprite);
+        public static TemplateFieldSpec Texture2D(string name) => Of(name, ConfigFieldType.Texture2D);
+        public static TemplateFieldSpec GameObject(string name) => Of(name, ConfigFieldType.GameObject);
+        public static TemplateFieldSpec AudioClip(string name) => Of(name, ConfigFieldType.AudioClip);
+        public static TemplateFieldSpec AnimationClip(string name) => Of(name, ConfigFieldType.AnimationClip);
+        public static TemplateFieldSpec Vector2(string name) => Of(name, ConfigFieldType.Vector2);
+        public static TemplateFieldSpec Vector3(string name) => Of(name, ConfigFieldType.Vector3);
+        public static TemplateFieldSpec Color(string name) => Of(name, ConfigFieldType.Color);
+        public static TemplateFieldSpec BehaviourTree(string name) => Of(name, ConfigFieldType.BehaviourTree);
+
+        private static TemplateFieldSpec NumberSpec(string name, ConfigFieldType type, long? defaultValue)
+        {
+            var f = new TemplateFieldSpec { name = name, type = type };
+            if (defaultValue.HasValue)
+            {
+                f.useDefault = true;
+                f.defaultNumber = defaultValue.Value;
+            }
+            return f;
+        }
     }
 }

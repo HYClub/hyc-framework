@@ -259,6 +259,11 @@ namespace HYC.Framework.Config.Editor
                         return false;
                     }
                 }
+                if (!HYC.Framework.Config.Editor.ConfigDefaultValue.TryValidate(field, out var defaultError))
+                {
+                    error = $"字段 {field.name} 的默认值无效：{defaultError}";
+                    return false;
+                }
             }
 
             // 导出可行性（硬错误，阻断生成）：服务器 JSON 直接导出 Unity 对象/Gradient/曲线；
@@ -533,7 +538,19 @@ namespace HYC.Framework.Config.Editor
                     }
                 }
 
-                fieldLines.AppendLine($"        public {typeName} {field.name};");
+                // 默认值只落主类字段声明：侧类型 / Blob 是 struct，C# 不允许实例字段初始化器。
+                // 导出器按反射读资产值，故导出链路无需感知默认值。
+                var initializer = "";
+                if (field.useDefault)
+                {
+                    if (!HYC.Framework.Config.Editor.ConfigDefaultValue.TryValidate(field, out var defaultError))
+                    {
+                        error = $"字段 {field.name} 的默认值无效：{defaultError}";
+                        return null;
+                    }
+                    initializer = " = " + HYC.Framework.Config.Editor.ConfigDefaultValue.FormatLiteral(field, typeName);
+                }
+                fieldLines.AppendLine($"        public {typeName} {field.name}{initializer};");
             }
 
             // 基类 className：取继承链上最近一级基类（chain[0] 是直接基类）。

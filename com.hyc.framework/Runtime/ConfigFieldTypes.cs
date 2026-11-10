@@ -98,6 +98,49 @@ namespace HYC.Framework.Config
         }
 
         /// <summary>
+        /// 模板字段是否支持「默认值」（生成类字段初始化器）。
+        /// 判定与 <see cref="DefaultSlotOf"/> 同源：只有能按值落到某个槽位的类型才支持。
+        /// </summary>
+        public static bool SupportsDefaultValue(ConfigFieldType type)
+            => DefaultSlotOf(type) != ConfigDefaultSlot.None;
+
+        /// <summary>
+        /// 默认值按值存放时使用的槽位。编辑器绘制与代码生成器共用这一份判定，
+        /// 避免「UI 允许设、生成期却拦」的错位。
+        /// <para>
+        /// v1 只收标量值类型与字符串族：结构值类型（Color / Vector / Rect…）需按分量存与构造表达式；
+        /// Char / Decimal 不被 Unity 序列化（默认值无法持久化）；列表与引用类型没有标量默认值语义。
+        /// 枚举按数值存专用的 <see cref="ConfigDefaultSlot.Enum"/> 槽，生成时反查成员名。
+        /// </para>
+        /// </summary>
+        public static ConfigDefaultSlot DefaultSlotOf(ConfigFieldType type)
+        {
+            switch (type)
+            {
+                case ConfigFieldType.Int:
+                case ConfigFieldType.Long:
+                case ConfigFieldType.Short:
+                case ConfigFieldType.Byte:
+                case ConfigFieldType.UInt:
+                    return ConfigDefaultSlot.Number;
+                case ConfigFieldType.Float:
+                case ConfigFieldType.Double:
+                    return ConfigDefaultSlot.Real;
+                case ConfigFieldType.Bool:
+                    return ConfigDefaultSlot.Flag;
+                case ConfigFieldType.String:
+                case ConfigFieldType.LocalizedKey:
+                case ConfigFieldType.Addressable:
+                case ConfigFieldType.AudioEvent:
+                    return ConfigDefaultSlot.Text;
+                case ConfigFieldType.Enum:
+                    return ConfigDefaultSlot.Enum;
+                default:
+                    return ConfigDefaultSlot.None;
+            }
+        }
+
+        /// <summary>
         /// 服务器侧「直接导出」不可用的类型：Unity 对象引用族（Newtonsoft 会撞上
         /// <c>gameObject</c> 自引用循环）+ 非数值结构 Color/Color32 + 不可 JSON 序列化的
         /// Gradient/AnimationCurve。
@@ -112,5 +155,20 @@ namespace HYC.Framework.Config
                || type == ConfigFieldType.Color32
                || type == ConfigFieldType.Gradient
                || type == ConfigFieldType.AnimationCurve;
+    }
+
+    /// <summary>
+    /// 模板字段默认值按值存放的槽位；<see cref="ConfigDefaultSlot.None"/> 表示该类型不支持默认值。
+    /// 槽位与 <see cref="ConfigTemplateField"/> 上的 default* 字段一一对应。
+    /// </summary>
+    public enum ConfigDefaultSlot
+    {
+        None,
+        Number,
+        Real,
+        Flag,
+        Text,
+        /// <summary>枚举：按数值存专用 int 槽，生成时反查成员名。</summary>
+        Enum,
     }
 }
