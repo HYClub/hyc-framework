@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 修复：音频总览资产创建后无脚本（`AudioCatalogAsset` 缺 MonoScript）
+
+- `AudioCatalogAsset`（`[CfgAsset]` 的 `ScriptableObject`）原与 `AudioCatalog` 静态类等 7 个类型共处
+  `Runtime/Audio/AudioCatalog.cs`。Unity 只为「类名 == 文件名」的类型生成 MonoScript，而该文件的同名主类是
+  静态类 `AudioCatalog`，因此 `ScriptableObject.CreateInstance<AudioCatalogAsset>()` + `AssetDatabase.CreateAsset`
+  产出的资产 `m_Script` 为 `0`，`entries` / `folders` 无法序列化，配置表所有 `AudioEvent` 下拉为空。
+- 修复：把 `AudioCatalogAsset` 原样拆到独立文件 `Runtime/Audio/AudioCatalogAsset.cs`（类名 / 字段 / 方法 /
+  命名空间零变更），其余类型（`AudioEntry` / `AudioFolderNode` / Blob 行 / `AudioCatalog` 静态查询 /
+  `AudioCatalogBlobSystem`）保留在 `AudioCatalog.cs`；后者顺带移除随类失效的 `using System.IO` /
+  `using HYC.Framework.Config`，并更新文件头注释指向新文件。
+- 创建入口仍是 `AudioCatalogAssetLocator.LoadOrCreate()`：该类型非 `ConfigBase`、且不含 `ID` / `GUID` 字段，
+  **不能**走 `ConfigAssetFactory`（`Create` 内无条件 `AssignNewId` → `ConfigIdService.TryWriteId` 反射找不到
+  `ID`/`GUID` 会返 false，工厂随即删除资产并抛「缺少 ID/GUID 字段」）。它是手写 `[CfgAsset]` 单例，由专属
+  Locator 创建属预期设计。
+- doc100 索引同步（363 文件 / 645 类型，`Runtime/Audio` 组 8）；README 计数同步为 363 / 645
+  （原 360 / 640 为历史遗留漂移）。
+
 ### 修复：`BuildDefaultOverrides` 继承链构建断言分支错误
 
 - `ConfigAssetFactory.BuildDefaultOverrides` 原把「无基类模板」与「继承链构建失败」用 `||` 短路 + `out var` 合并判断，
