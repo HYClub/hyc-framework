@@ -375,9 +375,12 @@ namespace HYC.Framework.Config.Editor
                         {
                             if (fs == null || string.IsNullOrWhiteSpace(fs.name))
                                 continue;
+                            ResolveSelfReference(fs, tpl.className);
                             tpl.fields.Add(BuildField(spec.displayName, fs));
                         }
                     }
+                    if (spec.overrides != null && spec.overrides.Count > 0)
+                        BuildDefaultOverrides(tpl, spec.displayName, spec.overrides);
 
                     AssetDatabase.CreateAsset(tpl, path);
                     ConfigAssetLayout.Register(path, typeof(ConfigTemplate));
@@ -446,6 +449,7 @@ namespace HYC.Framework.Config.Editor
             {
                 if (fs == null || string.IsNullOrWhiteSpace(fs.name))
                     throw new InvalidOperationException("TemplateFieldSpec.name 不能为空。");
+                ResolveSelfReference(fs, template.className);
                 var field = BuildField(template.displayName, fs);
                 if (!names.Add(field.name))
                     throw new InvalidOperationException($"模板 {template.displayName} 已存在字段 {field.name}，禁止重复添加。");
@@ -520,6 +524,25 @@ namespace HYC.Framework.Config.Editor
         // ---------- 内部 ----------
 
         /// <summary>
+        /// 自引用规格 → 引用全名：按「当前命名空间 + 本模板 className」写，不依赖编译类型。
+        /// 生成器按模板资产 className 判定引用存在，代码生成后 UI 再按短名找到真实类型。
+        /// </summary>
+        private static void ResolveSelfReference(TemplateFieldSpec fs, string className)
+        {
+            if (fs == null)
+                return;
+            // 两种写法都收敛到同一个关键字解析：SelfReference(name) 的标记位，或 Reference(name, "self")
+            var isSelf = fs.selfReference || ConfigTemplateCodeGen.IsSelfRefKeyword(fs.refTypeFullName);
+            if (!isSelf)
+                return;
+            if (string.IsNullOrWhiteSpace(className))
+                throw new InvalidOperationException("自引用字段需要模板 className（不能为空）。");
+            fs.type = ConfigFieldType.Reference;
+            fs.refTypeFullName = ConfigTemplateCodeGen.ResolveRefArgument(
+                ConfigTemplateCodeGen.SelfRefKeyword, className);
+        }
+
+        /// <summary>
         /// 字段规格 → ConfigTemplateField，并校验默认值。
         /// CreateTemplates 与 AddFields 共用，保证两条入口规则一致；
         /// 校验失败抛异常，CreateTemplates 会整体回滚已创建资产。
@@ -545,6 +568,57 @@ namespace HYC.Framework.Config.Editor
             if (!ConfigDefaultValue.TryValidate(field, out var error))
                 throw new InvalidOperationException($"模板 {templateName} 的字段 {field.name} 默认值无效：{error}");
             return field;
+        }
+
+        /// <summary>
+        /// 把「基类字段默认值覆盖」规格写进派生模板：类型恒以基类字段为准，
+        /// 规格的类型必须与基类字段一致（防止 AI 用错静态工厂把值写进错误的槽）。
+        /// 校验失败抛异常，CreateTemplates 会整体回滚。
+        /// </summary>
+        private static void BuildDefaultOverrides(ConfigTemplate tpl, string templateName,
+            List<TemplateFieldSpec> specs)
+        {
+            var chain = new List<ConfigTemplate>();
+            if (tpl.baseTemplate == null
+                || !ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out var chainError))
+            {
+                throw new InvalidOperationException(
+                    $"模板 {templateName} 的默认值覆盖：{chainError ?? "没有基类模板，无法覆盖"}");
+            }
+
+            var seen = new HashSet<string>();
+            foreach (var fs in specs)
+            {
+                if (fs == null || string.IsNullOrWhiteSpace(fs.name))
+                    continue;
+                var name = fs.name.Trim();
+                if (!seen.Add(name))
+                    throw new InvalidOperationException($"模板 {templateName} 的默认值覆盖字段 {name} 重复");
+
+                var baseField = ConfigTemplateCodeGen.FindFieldInChain(chain, name);
+                if (baseField == null)
+                    throw new InvalidOperationException($"模板 {templateName} 的覆盖目标 {name} 不在基类继承链中");
+                if (fs.type != baseField.type || fs.isList != baseField.isList)
+                    throw new InvalidOperationException(
+                        $"模板 {templateName} 的覆盖字段 {name} 类型与基类不一致（规格 {fs.type}，基类 {baseField.type}）");
+
+                var shadow = new ConfigTemplateField
+                {
+                    name = name,
+                    type = baseField.type,
+                    isList = baseField.isList,
+                    enumRefClassName = baseField.enumRefClassName ?? "",
+                    useDefault = true,
+                    defaultNumber = fs.defaultNumber,
+                    defaultEnumValue = fs.defaultEnumValue,
+                    defaultReal = fs.defaultReal,
+                    defaultFlag = fs.defaultFlag,
+                    defaultText = fs.defaultText ?? "",
+                };
+                if (!ConfigDefaultValue.TryValidateOverride(baseField, shadow, out var error))
+                    throw new InvalidOperationException($"模板 {templateName} 的字段 {name} 默认值覆盖无效：{error}");
+                tpl.baseDefaultOverrides.Add(shadow);
+            }
         }
 
         /// <summary>在 folder 下求一个不与磁盘及本批次已用名冲突的 .asset 路径（冲突自增后缀）。</summary>
@@ -652,6 +726,8 @@ namespace HYC.Framework.Config.Editor
         public bool unique;
         public ConfigTemplate baseTemplate;
         public List<TemplateFieldSpec> fields;
+        /// <summary>基类字段默认值覆盖：用 TemplateFieldSpec 的按类型工厂描述（如 Int("hp", 250)）。</summary>
+        public List<TemplateFieldSpec> overrides;
 
         // ---------- 链式修饰（AI 不用记字段名） ----------
 
@@ -672,6 +748,21 @@ namespace HYC.Framework.Config.Editor
             if (fields == null)
                 fields = new List<TemplateFieldSpec>();
             fields.AddRange(more);
+            return this;
+        }
+
+        /// <summary>
+        /// 覆盖基类字段的默认值：按类型工厂传值，如 <c>Int("hp", 250)</c> / <c>Bool("isBoss", true)</c> /
+        /// <c>Enum("element", "HeroElement", "Water")</c>。类型必须与基类字段一致；基类字段只读或不存在时抛异常。
+        /// 生成结果＝派生类构造函数里的赋值，只在有覆盖项时生成构造函数。
+        /// </summary>
+        public TemplateSpec OverrideDefaults(params TemplateFieldSpec[] more)
+        {
+            if (more == null || more.Length == 0)
+                return this;
+            if (overrides == null)
+                overrides = new List<TemplateFieldSpec>();
+            overrides.AddRange(more);
             return this;
         }
     }
@@ -704,6 +795,12 @@ namespace HYC.Framework.Config.Editor
         public double defaultReal;
         public bool defaultFlag;
         public string defaultText;
+
+        /// <summary>
+        /// 自引用字段标记：由 <c>SelfReference(name)</c> 置位，建模板时解析成
+        /// 「当前命名空间 + 本模板 className」，模板与生成代码都还不存在也能建字段。
+        /// </summary>
+        public bool selfReference;
 
         // ---------- 链式修饰 ----------
 
@@ -838,6 +935,9 @@ namespace HYC.Framework.Config.Editor
             };
         }
 
+        /// <summary>单参数重载：引用本模板将要生成的配置类（等价 <c>SelfReference(name)</c>，连关键字都不用写）。</summary>
+        public static TemplateFieldSpec Reference(string name) => SelfReference(name);
+
         public static TemplateFieldSpec Reference(string name, string refTypeFullName)
         {
             return new TemplateFieldSpec
@@ -847,6 +947,19 @@ namespace HYC.Framework.Config.Editor
                 refTypeFullName = refTypeFullName ?? "",
             };
         }
+
+        /// <summary>
+        /// 自引用字段：字段类型是「当前模板将要生成的配置类」。
+        /// 模板还没创建、生成代码还不存在也能用；工厂按 className 写引用全名，生成期按模板资产判定。
+        /// 典型用途：树形配置（parent / nextLevel）引用同表另一行。
+        /// </summary>
+        public static TemplateFieldSpec SelfReference(string name)
+            => new TemplateFieldSpec
+            {
+                name = name,
+                type = ConfigFieldType.Reference,
+                selfReference = true,
+            };
 
         /// <summary>其它类型（资源引用族 / 结构值类型 / Char / Decimal 等不支持默认值的类型）。</summary>
         public static TemplateFieldSpec Of(string name, ConfigFieldType type)

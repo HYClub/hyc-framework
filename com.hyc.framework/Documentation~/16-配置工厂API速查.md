@@ -170,7 +170,10 @@ ConfigAssetFactory.Template("角色/英雄配置", "HeroConfig",
     .Unique()                                   // 全工程唯一（Single）
     .Base(otherTemplate)                        // 指定基类模板；不设默认 ConfigBase
     .InFolder("Assets/Configs/自定义目录")        // 覆盖本模板落盘目录
-    .Fields(TemplateFieldSpec.Bool("enabled")); // 追加字段
+    .Fields(TemplateFieldSpec.Bool("enabled"))  // 追加字段
+    .OverrideDefaults(                          // 覆盖基类字段默认值（类型须与基类一致）
+        TemplateFieldSpec.Int("hp", 250),
+        TemplateFieldSpec.Enum("element", "HeroElement", "Water"));
 ```
 
 | 字段 / 方法 | 说明 |
@@ -180,6 +183,7 @@ ConfigAssetFactory.Template("角色/英雄配置", "HeroConfig",
 | `unique` / `Unique(bool = true)` | 声明 Single；工厂禁止重复创建 |
 | `baseTemplate` / `Base(tpl)` | 基类模板 |
 | `fields` / `Fields(params …)` | 字段规格列表 |
+| `overrides` / `OverrideDefaults(params …)` | 基类字段默认值覆盖；生成派生类构造函数赋值，见 [11-字段类型与导出设置](./11-字段类型与导出设置.md) 四·E |
 
 > **目录规则**：批次默认目录 = 第一条规格的 `folder`（都没设时 = 配置模板类型文件夹）；
 > 每条规格可用 `InFolder` 覆盖自己，各目录独立做重名冲突检测。
@@ -210,7 +214,25 @@ ConfigAssetFactory.Template("角色/英雄配置", "HeroConfig",
 | `AudioEvent(name, string v = null)` | 音频事件 | `"clip:xxx"` / `"wwise:xxx"` |
 | `Enum(name, enumClassName, memberName)` | **枚举成员名** | `MyGame.Enums.HeroType.Warrior` |
 | `Enum(name, enumClassName, int value)` | 枚举数值 | 同上（跳过反查） |
-| `Reference(name, refTypeFullName)` | — | 配置引用（不支持默认值） |
+| `Reference(name)` | — | **单参数重载 = 自引用**，连关键字都不用写 |
+| `Reference(name, refTypeFullName)` | — | 配置引用（不支持默认值）；全名可传 `"self"` |
+| `SelfReference(name)` | — | 自引用的语义化别名，等价 `Reference(name)` / `Reference(name, "self")` |
+
+### `self` 关键字：不用拼类名
+
+`ConfigTemplateCodeGen.SelfRefKeyword = "self"`（大小写不敏感、可带空格）是唯一真源，
+由 `ResolveRefArgument(raw, className)` 统一解析成「当前命名空间 + 本模板 className」。
+**所有输入口在落盘前解析**，模板资产里不存魔法字符串，生成器 / UI / 导出链路无需感知。
+
+| 输入口 | 写法 |
+| --- | --- |
+| 工厂（代码，推荐） | `TemplateFieldSpec.Reference("parent")` 或 `SelfReference("parent")` |
+| 工厂（文本参数） | `TemplateFieldSpec.Reference("parent", "self")` |
+| 批量创建窗口（文本行） | `关卡/关卡配置,LevelConfig|parent:Reference:self,index:Int:1` |
+| Excel 导入（类型参数） | `Reference` 的 TypeArg 填 `self` |
+
+`self` 只在输入口有效：若手工把 `self` 直接写进 .asset，模板汇总区会红字提示「self 未解析」，
+「生成代码」硬拦截。`className` 为空时关键字不猜默认类名，工厂直接抛异常。
 
 - 数值 / bool / 字符串工厂：**不传默认值 = 不生成初始化器**；`Text(name, "")` 明确表示默认空串。
 - `Enum(..., memberName)` 现场查 `ConfigEnumDefinition` 资产，按 `ValueOf` 把成员名换算成数值存专用 `int` 槽；
@@ -280,6 +302,15 @@ ConfigAssetFactory.RemoveFields(tpl, "obsoleteField");
 10. **本页不覆盖的范围**：字段检查规则、客户端/服务端导出设置、关联参数（visibility）
     目前仍要在模板编辑器里配置，工厂规格暂不暴露。
 11. **`folder` 必须在 `Assets` 下**，否则 `EnsureFolder` 抛 `ArgumentException`。
+12. **派生默认值覆盖**：`OverrideDefaults` 的目标必须在基类继承链中、基类字段未勾 `readOnly`、
+    规格类型与基类字段一致，且类型支持默认值；任一不满足直接抛异常并整体回滚。
+    生成结果是派生类构造函数赋值（不是字段初始化器），**只对新建资产生效，不回填存量资产**；
+    基类字段删 / 改名 / 改为只读后，模板汇总区红字且「生成代码」硬拦截。
+13. **自引用字段**：`Reference(name)` 单参 / `SelfReference(name)` / `Reference(name, "self")` 三种等价写法，
+    关键字见上文「`self` 关键字」。建模板时解析成「当前命名空间 + 本模板 className」，
+    生成期按**模板资产 className** 判定引用存在（不依赖编译类型）；因此模板与生成代码都还不存在也能建。
+    生成并编译后 UI 按短名找到真实类型；生成前下拉显示「引用:ClassName（代码未生成）」，
+    汇总区不会误报「引用类型不存在」。典型用途：树形配置（parent / nextLevel）引用同表另一行。
 
 ---
 

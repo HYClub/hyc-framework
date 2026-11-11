@@ -145,7 +145,7 @@ namespace HYC.Framework.Config.Editor
                 string.IsNullOrWhiteSpace(plan.DisplayName) ? plan.ClassName : plan.DisplayName,
                 plan.ClassName);
             foreach (var f in fields)
-                tpl.fields.Add(ToTemplateField(f));
+                tpl.fields.Add(ToTemplateField(f, plan.ClassName));
             EditorUtility.SetDirty(tpl);
             AssetDatabase.SaveAssets();
             var tplPath = AssetDatabase.GetAssetPath(tpl);
@@ -191,8 +191,8 @@ namespace HYC.Framework.Config.Editor
             return true;
         }
 
-        /// <summary>草拟项 → 模板字段（枚举/引用带类名参数）。</summary>
-        private static ConfigTemplateField ToTemplateField(DraftField f)
+        /// <summary>草拟项 → 模板字段（枚举/引用带类名参数；引用参数 self 解析成本模板类名）。</summary>
+        private static ConfigTemplateField ToTemplateField(DraftField f, string className)
         {
             var tf = new ConfigTemplateField
             {
@@ -204,7 +204,7 @@ namespace HYC.Framework.Config.Editor
             if (f.Type == ConfigFieldType.Enum)
                 tf.enumRefClassName = f.TypeArg ?? "";
             if (f.Type == ConfigFieldType.Reference)
-                tf.refTypeFullName = f.TypeArg ?? "";
+                tf.refTypeFullName = ConfigTemplateCodeGen.ResolveRefArgument(f.TypeArg, className);
             return tf;
         }
 
@@ -267,7 +267,8 @@ namespace HYC.Framework.Config.Editor
                     byName.Remove(f.English);
                     if (tf.type != f.Type || tf.isList != f.IsList
                         || (f.Type == ConfigFieldType.Enum && tf.enumRefClassName != (f.TypeArg ?? ""))
-                        || (f.Type == ConfigFieldType.Reference && tf.refTypeFullName != (f.TypeArg ?? "")))
+                        || (f.Type == ConfigFieldType.Reference
+                            && tf.refTypeFullName != ConfigTemplateCodeGen.ResolveRefArgument(f.TypeArg, plan.ClassName)))
                     {
                         retyped.Add($"{f.English} ({tf.type}{(tf.isList ? "[]" : "")} → {f.Type}{(f.IsList ? "[]" : "")})");
                     }
@@ -278,11 +279,12 @@ namespace HYC.Framework.Config.Editor
                     tf.isList = f.IsList;
                     // 类型切走时清掉残留参数（消费端虽按 type 守卫，留着会在模板编辑器里造成误导）
                     tf.enumRefClassName = f.Type == ConfigFieldType.Enum ? (f.TypeArg ?? "") : "";
-                    tf.refTypeFullName = f.Type == ConfigFieldType.Reference ? (f.TypeArg ?? "") : "";
+                    tf.refTypeFullName = f.Type == ConfigFieldType.Reference
+                        ? ConfigTemplateCodeGen.ResolveRefArgument(f.TypeArg, plan.ClassName) : "";
                 }
                 else
                 {
-                    tf = ToTemplateField(f);
+                    tf = ToTemplateField(f, plan.ClassName);
                     tpl.fields.Add(tf);
                     added.Add(f.English);
                 }

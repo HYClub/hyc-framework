@@ -133,7 +133,7 @@ namespace HYC.Framework.Config.Editor
                         var ft = f.Trim();
                         if (ft.Length == 0)
                             continue;
-                        var fs = ParseField(ft);
+                        var fs = ParseField(ft, spec.className);
                         if (fs != null)
                             spec.fields.Add(fs);
                     }
@@ -143,9 +143,9 @@ namespace HYC.Framework.Config.Editor
             return result;
         }
 
-        private static TemplateFieldSpec ParseField(string token)
+        private static TemplateFieldSpec ParseField(string token, string className)
         {
-            // 支持 名称:类型 或 名称:类型:参数（Reference 全名 / Enum 类名）
+            // 支持 名称:类型 或 名称:类型:参数（Reference 全名 / self 关键字 / Enum 类名）
             var segs = token.Split(':');
             if (segs.Length < 2)
                 return null;
@@ -158,7 +158,12 @@ namespace HYC.Framework.Config.Editor
             {
                 var arg = segs[2].Trim();
                 if (type == ConfigFieldType.Reference)
-                    fs.refTypeFullName = arg;
+                {
+                    fs.refTypeFullName = ConfigTemplateCodeGen.ResolveRefArgument(arg, className);
+                    // 行内没写 className 时保留 self 标记，交给工厂用最终 className 解析
+                    if (ConfigTemplateCodeGen.IsSelfRefKeyword(fs.refTypeFullName))
+                        fs.selfReference = true;
+                }
                 else if (type == ConfigFieldType.Enum)
                     fs.enumRefClassName = arg;
             }

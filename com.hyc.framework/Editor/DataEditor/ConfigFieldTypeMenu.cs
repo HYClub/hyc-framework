@@ -131,8 +131,14 @@ namespace HYC.Framework.Config.Editor
             {
                 case ConfigFieldType.Reference:
                 {
+                    if (ConfigTemplateCodeGen.IsSelfRefKeyword(refTypeFullName))
+                        return "引用:self（未解析）";
                     var refType = ConfigTemplateCodeGen.ResolveRefTypeForUi(refTypeFullName);
-                    return refType != null ? ConfigTypeDisplay.GetFullLabel(refType) : "引用:未选择";
+                    if (refType != null)
+                        return ConfigTypeDisplay.GetFullLabel(refType);
+                    // 模板已建、代码未生成时（含自引用字段）按模板 className 显示，避免误报「未选择」
+                    var pendingClass = ConfigTemplateCodeGen.GeneratedTemplateRefShortName(refTypeFullName);
+                    return pendingClass != null ? $"引用:{pendingClass}（代码未生成）" : "引用:未选择";
                 }
                 case ConfigFieldType.Enum:
                 {

@@ -30,6 +30,61 @@ namespace HYC.Framework.Config.Editor
             return null;
         }
 
+        /// <summary>
+        /// 把「基类字段 + 派生模板覆盖条目」合成校验/格式化用的快照：类型恒取自基类字段，值槽取自覆盖条目。
+        /// 生成器与编辑器共用，保证覆盖值不会写进错误的槽、枚举成员名按基类枚举定义反查。
+        /// </summary>
+        public static HYC.Framework.Config.ConfigTemplateField MakeOverrideSnapshot(
+            HYC.Framework.Config.ConfigTemplateField baseField,
+            HYC.Framework.Config.ConfigTemplateField overrideEntry)
+        {
+            if (baseField == null || overrideEntry == null)
+                return null;
+            return new HYC.Framework.Config.ConfigTemplateField
+            {
+                name = baseField.name,
+                type = baseField.type,
+                isList = baseField.isList,
+                enumRefClassName = baseField.enumRefClassName,
+                useDefault = true,
+                defaultNumber = overrideEntry.defaultNumber,
+                defaultEnumValue = overrideEntry.defaultEnumValue,
+                defaultReal = overrideEntry.defaultReal,
+                defaultFlag = overrideEntry.defaultFlag,
+                defaultText = overrideEntry.defaultText ?? "",
+            };
+        }
+
+        /// <summary>
+        /// 校验一条派生默认值覆盖：目标基类字段必须存在、未只读、类型支持默认值，且值本身合法。
+        /// 未启用覆盖恒通过。基类字段被删/改名/改为只读时生成期硬报错，不静默丢弃。
+        /// </summary>
+        public static bool TryValidateOverride(
+            HYC.Framework.Config.ConfigTemplateField baseField,
+            HYC.Framework.Config.ConfigTemplateField overrideEntry,
+            out string error)
+        {
+            error = null;
+            if (overrideEntry == null || !overrideEntry.useDefault)
+                return true;
+            if (baseField == null)
+            {
+                error = "基类字段不存在（已删除或改名），请取消该覆盖";
+                return false;
+            }
+            if (baseField.readOnly)
+            {
+                error = "基类字段已勾选只读，不可覆盖默认值，请取消该覆盖";
+                return false;
+            }
+            if (!IsSupported(baseField))
+            {
+                error = baseField.isList ? "列表字段不支持默认值覆盖" : $"类型 {baseField.type} 不支持默认值覆盖";
+                return false;
+            }
+            return TryValidate(MakeOverrideSnapshot(baseField, overrideEntry), out error);
+        }
+
         /// <summary>校验默认值能否安全落成字段初始化器；未启用默认值恒通过。</summary>
         public static bool TryValidate(HYC.Framework.Config.ConfigTemplateField f, out string error)
         {

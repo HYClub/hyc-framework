@@ -19,11 +19,95 @@ namespace HYC.Framework.Config.Editor
     public class ConfigTemplateEditor : ConfigDataEditor
     {
         private SerializedProperty mFieldsProp;
+        private SerializedProperty mOverridesProp;
         private Vector2 mScroll;
+        private readonly List<int> mExpandedFields = new List<int>();
+        private readonly HashSet<string> mExpandedBaseFields = new HashSet<string>();
 
         protected override void Init()
         {
             mFieldsProp = mTarget.FindProperty("fields");
+            mOverridesProp = mTarget.FindProperty("baseDefaultOverrides");
+        }
+
+        /// <summary>
+        /// 按继承链同步「基类字段默认值覆盖」影子条目：每个基类字段一条，值槽保留；
+        /// 已启用但基类字段已消失的条目保留，以便生成期硬报错（不静默丢覆盖）。
+        /// 在任何控件绘制之前、mTarget.Update() 之后调用，直接改资产对象再刷新序列化视图，
+        /// 保证 Layout / Repaint 两趟看到的控件集合完全一致。
+        /// </summary>
+        private void SyncBaseDefaultOverrides()
+        {
+            var tpl = mTarget.targetObject as ConfigTemplate;
+            if (tpl == null || mOverridesProp == null)
+                return;
+
+            var chain = new List<ConfigTemplate>();
+            if (tpl.baseTemplate != null && !ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out _))
+                return; // 继承链异常由字段表顶部提示负责
+
+            var desired = new List<ConfigTemplateField>();
+            for (var i = chain.Count - 1; i >= 0; i--)
+            {
+                if (chain[i].fields == null)
+                    continue;
+                foreach (var f in chain[i].fields)
+                {
+                    if (f != null)
+                        desired.Add(f);
+                }
+            }
+
+            var current = tpl.baseDefaultOverrides ?? (tpl.baseDefaultOverrides = new List<ConfigTemplateField>());
+            var rebuilt = new List<ConfigTemplateField>(desired.Count + current.Count);
+            foreach (var bf in desired)
+            {
+                var entry = current.Find(e => e != null && e.name == bf.name);
+                if (entry == null)
+                {
+                    entry = new ConfigTemplateField
+                    {
+                        useDefault = false,
+                        defaultNumber = bf.defaultNumber,
+                        defaultEnumValue = bf.defaultEnumValue,
+                        defaultReal = bf.defaultReal,
+                        defaultFlag = bf.defaultFlag,
+                        defaultText = bf.defaultText ?? "",
+                    };
+                }
+                // 类型信息恒以基类字段为准，避免基类改类型后影子条目把值写进旧槽
+                entry.name = bf.name;
+                entry.type = bf.type;
+                entry.isList = bf.isList;
+                entry.enumRefClassName = bf.enumRefClassName ?? "";
+                rebuilt.Add(entry);
+            }
+            var desiredNames = new HashSet<string>(desired.Select(f => f.name));
+            foreach (var stale in current)
+            {
+                if (stale != null && stale.useDefault && !desiredNames.Contains(stale.name)
+                    && !rebuilt.Contains(stale))
+                    rebuilt.Add(stale);
+            }
+
+            var same = current.Count == rebuilt.Count;
+            if (same)
+            {
+                for (var i = 0; i < rebuilt.Count; i++)
+                {
+                    if (!ReferenceEquals(current[i], rebuilt[i]))
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+            }
+            if (same)
+                return;
+
+            tpl.baseDefaultOverrides = rebuilt;
+            EditorUtility.SetDirty(tpl);
+            mTarget.Update();
         }
 
         public override void OnGUI(float viewW, float viewH)
@@ -32,6 +116,7 @@ namespace HYC.Framework.Config.Editor
                 return;
 
             mTarget.Update();
+            SyncBaseDefaultOverrides();
 
             // 顶部标题栏：模板显示名-类名
             var tpl = mTarget.targetObject as ConfigTemplate;
@@ -107,7 +192,13 @@ namespace HYC.Framework.Config.Editor
                     var ftype = (ConfigFieldType)fp.FindPropertyRelative("type").intValue;
                     var fref = fp.FindPropertyRelative("refTypeFullName").stringValue;
                     var fname = fp.FindPropertyRelative("name").stringValue;
-                    if (ftype == ConfigFieldType.Reference && !string.IsNullOrEmpty(fref) && Type.GetType(fref) == null)
+                    if (ftype == ConfigFieldType.Reference && ConfigTemplateCodeGen.IsSelfRefKeyword(fref))
+                    {
+                        tplErrors.Add($"字段 {fname} 的引用参数 self 未解析（请走工厂 / 批量创建窗口 / Excel 导入）");
+                    }
+                    else if (ftype == ConfigFieldType.Reference && !string.IsNullOrEmpty(fref)
+                        && Type.GetType(fref) == null
+                        && !ConfigTemplateCodeGen.IsGeneratedTemplateRef(fref))
                     {
                         tplErrors.Add($"字段 {fname} 的引用类型不存在（未生成或已删除）");
                     }
@@ -123,6 +214,24 @@ namespace HYC.Framework.Config.Editor
                     }
                     if (!ConfigDefaultValue.TryValidate(SnapshotForDefaultValue(fp), out var defError))
                         tplErrors.Add($"字段 {fname} 的默认值无效：{defError}");
+                }
+            }
+
+            // 派生默认值覆盖：与 Generate() 的 Validate 同一套规则，红字提前暴露
+            if (mOverridesProp != null && tplNow != null)
+            {
+                var overrideChain = new List<ConfigTemplate>();
+                if (tplNow.baseTemplate != null)
+                    ConfigTemplateCodeGen.TryBuildInheritanceChain(tplNow, overrideChain, out _);
+                for (var i = 0; i < mOverridesProp.arraySize; i++)
+                {
+                    var op = mOverridesProp.GetArrayElementAtIndex(i);
+                    if (!op.FindPropertyRelative("useDefault").boolValue)
+                        continue;
+                    var oname = op.FindPropertyRelative("name").stringValue;
+                    var baseFieldNow = ConfigTemplateCodeGen.FindFieldInChain(overrideChain, oname);
+                    if (!ConfigDefaultValue.TryValidateOverride(baseFieldNow, SnapshotForDefaultValue(op), out var overrideError))
+                        tplErrors.Add($"基类字段 {oname} 的默认值覆盖无效：{overrideError}");
                 }
             }
 
@@ -939,14 +1048,27 @@ namespace HYC.Framework.Config.Editor
             EditorGUI.LabelField(new Rect(headerRect.xMax - opsW, headerRect.y, opsW, headerRect.height), "操作", HeaderOpsStyle());
             GUI.contentColor = oldHeaderContent;
 
-            // 基类字段行（只读）
+            // 基类字段行：定义只读，但可展开就地覆盖默认值
             for (var i = chain.Count - 1; i >= 0; i--)
             {
                 foreach (var f in chain[i].fields)
                 {
                     var row = EditorGUILayout.GetControlRect(true, lineH);
                     DrawRowDecoration(row); // hover 高亮（纯装饰，绘在控件之下）
+                    var expandedBase = mExpandedBaseFields.Contains(f.name);
+                    var baseCtrlY = row.y + (row.height - 22f) * 0.5f;
+                    if (GUI.Button(new Rect(row.x + 2, baseCtrlY, 22f, 22f),
+                        expandedBase ? "▼" : "▶", EditorStyles.label))
+                    {
+                        if (expandedBase) mExpandedBaseFields.Remove(f.name);
+                        else mExpandedBaseFields.Add(f.name);
+                    }
                     DrawReadOnlyFieldRow(row, chain[i].className, f);
+                    if (expandedBase)
+                    {
+                        DrawBaseDefaultOverrideDetail(f, chain[i].className);
+                        EditorGUILayout.Space(4);
+                    }
                 }
             }
 
@@ -1066,7 +1188,11 @@ namespace HYC.Framework.Config.Editor
             var (nameR, descR, typeR, listR, _, _, _) = ColumnWidths(row.width, row.y, row.height);
 
             // 基类字段：只读（label 样式）且整行置灰——与可编辑的输入框明确区分
-            EditorGUI.LabelField(CellRect(nameR, nameR.y, nameR.height), f.name, sReadOnlyLabel);
+            // 行首让出 22px 展开箭头位，与自身字段行对齐
+            var nameCell = CellRect(nameR, nameR.y, nameR.height);
+            nameCell.x += 20f;
+            nameCell.width = Mathf.Max(1f, nameCell.width - 22f);
+            EditorGUI.LabelField(nameCell, f.name, sReadOnlyLabel);
             EditorGUI.LabelField(CellRect(descR, descR.y, descR.height), f.description, sReadOnlyLabel);
 
             // 类型 + 来源标注（放在类型列内，不超出窗口）
@@ -1210,7 +1336,56 @@ namespace HYC.Framework.Config.Editor
                 DeleteOwnField(index);
         }
 
-        private readonly List<int> mExpandedFields = new List<int>();
+        /// <summary>基类字段展开明细：字段定义只读，只有「默认值（覆盖）」可编辑。</summary>
+        private void DrawBaseDefaultOverrideDetail(ConfigTemplateField baseField, string sourceClass)
+        {
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField($"来自 {sourceClass} · 字段定义（名称 / 类型 / 描述）只读",
+                EditorStyles.miniLabel);
+
+            var idx = -1;
+            if (mOverridesProp != null)
+            {
+                for (var i = 0; i < mOverridesProp.arraySize; i++)
+                {
+                    var entry = mOverridesProp.GetArrayElementAtIndex(i);
+                    if (entry.FindPropertyRelative("name").stringValue == baseField.name)
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+            }
+
+            if (idx >= 0)
+                DrawDefaultValueBlock(mOverridesProp.GetArrayElementAtIndex(idx), true, baseField);
+            else
+                EditorGUILayout.HelpBox("覆盖数据尚未同步，请重新打开模板", MessageType.Warning);
+
+            EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>基类字段默认值的展示文本（覆盖行的「未覆盖 → 继承 …」提示用）。</summary>
+        private static string BaseDefaultText(ConfigTemplateField f)
+        {
+            if (f == null || !f.useDefault || !ConfigDefaultValue.IsSupported(f))
+                return "（基类未设默认值）";
+            switch (ConfigFieldTypes.DefaultSlotOf(f.type))
+            {
+                case ConfigDefaultSlot.Number:
+                    return f.defaultNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                case ConfigDefaultSlot.Real:
+                    return f.defaultReal.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                case ConfigDefaultSlot.Flag:
+                    return f.defaultFlag ? "true" : "false";
+                case ConfigDefaultSlot.Text:
+                    return "\"" + (f.defaultText ?? "") + "\"";
+                case ConfigDefaultSlot.Enum:
+                    return ConfigDefaultValue.EnumMemberName(f) ?? "（枚举成员不存在）";
+                default:
+                    return "（基类未设默认值）";
+            }
+        }
 
         /// <summary>展开明细区：字段描述 + 只读 + 关联参数（范围已内联到主行「范围」列）。</summary>
         private void DrawExpandedFieldDetail(SerializedProperty prop)
@@ -1294,19 +1469,23 @@ namespace HYC.Framework.Config.Editor
         /// 默认值行：启用开关 + 按值槽绘制的控件。
         /// 块始终绘制（不支持的类型也画一个占位控件），只换控件 / 文案 / 禁用态 —— IMGUI 每帧控件集合必须一致。
         /// </summary>
-        private void DrawDefaultValueBlock(SerializedProperty prop)
+        private void DrawDefaultValueBlock(SerializedProperty prop, bool isOverride = false,
+            ConfigTemplateField baseField = null)
         {
             var useProp = prop.FindPropertyRelative("useDefault");
             var slot = ConfigFieldTypes.DefaultSlotOf((ConfigFieldType)prop.FindPropertyRelative("type").intValue);
             var isList = prop.FindPropertyRelative("isList").boolValue;
             var supported = !isList && slot != ConfigDefaultSlot.None;
             var active = supported && useProp.boolValue;
+            // 基类字段只读时值控件禁用，但开关保持可用——用户要能取消覆盖来解除生成硬报错
+            var locked = isOverride && baseField != null && baseField.readOnly;
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("默认值", GUILayout.Width(56));
+            EditorGUILayout.LabelField(isOverride ? "默认值(覆盖)" : "默认值",
+                GUILayout.Width(isOverride ? 88f : 56f));
             useProp.boolValue = EditorGUILayout.Toggle(useProp.boolValue, GUILayout.Width(22));
 
-            using (new EditorGUI.DisabledScope(!active))
+            using (new EditorGUI.DisabledScope(!active || locked))
             {
                 switch (slot)
                 {
@@ -1340,19 +1519,37 @@ namespace HYC.Framework.Config.Editor
             // 提示行：始终绘制，只换文案 / 颜色
             string message;
             var warning = false;
+            string defError = null;
+            var valid = true;
             if (!supported)
                 message = isList
-                    ? "列表字段不支持默认值（List 元素请由数据侧填写）"
-                    : "该类型不支持默认值（结构值类型 / 资源引用 / Char / Decimal 暂不支持）";
+                    ? (isOverride ? "列表字段不支持默认值覆盖（List 元素请由数据侧填写）" : "列表字段不支持默认值（List 元素请由数据侧填写）")
+                    : (isOverride ? "该类型不支持默认值覆盖" : "该类型不支持默认值（结构值类型 / 资源引用 / Char / Decimal 暂不支持）");
             else if (!useProp.boolValue)
-                message = "未启用 → 生成代码不加默认值初始化器";
-            else if (!ConfigDefaultValue.TryValidate(SnapshotForDefaultValue(prop), out var defError))
+                message = isOverride
+                    ? "未覆盖 → 继承基类默认值 " + BaseDefaultText(baseField)
+                    : "未启用 → 生成代码不加默认值初始化器";
+            else if (locked)
             {
-                message = defError;
+                message = "基类字段已勾选只读：请取消覆盖，否则生成会硬报错";
                 warning = true;
             }
             else
-                message = "新建配置资产时写入该值；生成类字段初始化器（侧类型 / Blob 不加）";
+            {
+                // 覆盖行按「基类字段 + 覆盖条目」校验；自身字段沿用原规则
+                valid = isOverride
+                    ? ConfigDefaultValue.TryValidateOverride(baseField, SnapshotForDefaultValue(prop), out defError)
+                    : ConfigDefaultValue.TryValidate(SnapshotForDefaultValue(prop), out defError);
+                if (!valid)
+                {
+                    message = defError;
+                    warning = true;
+                }
+                else
+                    message = isOverride
+                        ? "覆盖 → 派生类构造函数写入该值（新建资产生效，存量资产不回填）"
+                        : "新建配置资产时写入该值；生成类字段初始化器（侧类型 / Blob 不加）";
+            }
 
             EditorGUILayout.BeginHorizontal();
             GUILayout.Space(16f);

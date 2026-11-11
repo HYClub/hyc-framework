@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   参数、异常与示例（README 篇数 45→46）。
 - doc11 补「四·D 默认值」说明；doc100 索引同步（362 文件 / 645 类型，DataEditor 组 62）。
 
+### 新增：派生默认值覆盖 + 自引用字段（`self` 关键字）
+
+- **派生默认值覆盖**：`ConfigTemplate` 新增 `baseDefaultOverrides`（按字段名对齐的影子条目，编辑器自动同步、用户不可见）。
+  派生模板可在基类字段的只读定义上「就地改默认值」，生成形态为派生主类构造函数逐字段赋值（非初始化器），
+  只对新建资产生效、不回填存量；基类字段 `readOnly` 时禁止覆盖（生成期硬报错）。
+  新增 `ConfigDefaultValue.MakeOverrideSnapshot` / `TryValidateOverride`（基类删/改名/改只读/类型不支持均不静默丢弃）；
+  工厂 `TemplateSpec.OverrideDefaults(...)`、批量窗口与 Excel 导入同步支持。doc11 新增「四·E」。
+- **自引用字段**：`Reference(name)` 单参 / `SelfReference(name)` / `Reference(name, "self")` 三种等价写法，
+  输入口 `self` 经 `ConfigTemplateCodeGen.ResolveRefArgument` 解析为「当前命名空间 + 本模板 className」。
+  `ConfigFieldTypeMenu` 在「模板已建、代码未生成」时按短类名显示（不再误报「未选择」）。
+- `ConfigDefaultValue` 仍是默认值唯一真源，新增校验覆盖到派生链；doc16 速查同步这两组 API。
+
 ### 变更：数据编辑器左树性能优化（懒加载 + 手风琴 + 防抖）
 
 - **懒加载**：`ConfigDataTree.BuildRoot` 只构建根的一层子节点，子文件夹首次展开时填充、折叠时剪枝释放；搜索态自动切回全量构建。

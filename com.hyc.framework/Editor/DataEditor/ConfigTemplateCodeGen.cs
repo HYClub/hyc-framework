@@ -229,6 +229,11 @@ namespace HYC.Framework.Config.Editor
                     error = $"字段名 {field.name} 与基类字段重复";
                     return false;
                 }
+                if (field.type == ConfigFieldType.Reference && IsSelfRefKeyword(field.refTypeFullName))
+                {
+                    error = $"字段 {field.name} 的引用参数 self 未解析（请走工厂 / 批量创建窗口 / Excel 导入，或填写具体类型全名）";
+                    return false;
+                }
                 if (field.type == ConfigFieldType.Reference && string.IsNullOrEmpty(field.refTypeFullName))
                 {
                     error = $"字段 {field.name} 已选择“配置引用”，但未选择引用类型";
@@ -263,6 +268,34 @@ namespace HYC.Framework.Config.Editor
                 {
                     error = $"字段 {field.name} 的默认值无效：{defaultError}";
                     return false;
+                }
+            }
+
+            // 派生默认值覆盖：目标必须位于继承链、基类字段未只读、值合法。
+            // 基类字段被删除 / 改名 / 改为只读时不静默丢弃，直接硬报错阻断生成。
+            if (template.baseDefaultOverrides != null)
+            {
+                var seenOverrides = new HashSet<string>();
+                foreach (var ov in template.baseDefaultOverrides)
+                {
+                    if (ov == null || !ov.useDefault)
+                        continue;
+                    if (template.baseTemplate == null || chain.Count == 0)
+                    {
+                        error = $"字段 {ov.name} 的默认值覆盖需要基类模板，当前模板没有基类";
+                        return false;
+                    }
+                    if (string.IsNullOrWhiteSpace(ov.name) || !seenOverrides.Add(ov.name))
+                    {
+                        error = $"默认值覆盖字段 {ov.name} 为空或重复";
+                        return false;
+                    }
+                    var baseField = FindFieldInChain(chain, ov.name);
+                    if (!HYC.Framework.Config.Editor.ConfigDefaultValue.TryValidateOverride(baseField, ov, out var overrideError))
+                    {
+                        error = $"字段 {ov.name} 的默认值覆盖无效：{overrideError}";
+                        return false;
+                    }
                 }
             }
 
@@ -553,6 +586,27 @@ namespace HYC.Framework.Config.Editor
                 fieldLines.AppendLine($"        public {typeName} {field.name}{initializer};");
             }
 
+            // 派生默认值覆盖：按继承链字段的类型解析字面量，生成派生主类构造函数赋值。
+            // 只在有启用的覆盖项时生成构造函数；侧类型 / Blob 是 struct，不受影响。
+            var overrideAssignments = new StringBuilder();
+            if (template.baseDefaultOverrides != null)
+            {
+                foreach (var ov in template.baseDefaultOverrides)
+                {
+                    if (ov == null || !ov.useDefault)
+                        continue;
+                    var snapshot = HYC.Framework.Config.Editor.ConfigDefaultValue.MakeOverrideSnapshot(
+                        FindFieldInChain(chain, ov.name), ov);
+                    if (snapshot == null)
+                        continue; // Validate 已阻断，这里只做兜底
+                    var declaredType = ResolveTypeName(snapshot, usings, ref needsUnity, ref needsCollections);
+                    if (declaredType == null)
+                        continue; // Validate 已阻断
+                    overrideAssignments.AppendLine($"        {ov.name} = " +
+                        HYC.Framework.Config.Editor.ConfigDefaultValue.FormatLiteral(snapshot, declaredType) + ";");
+                }
+            }
+
             // 基类 className：取继承链上最近一级基类（chain[0] 是直接基类）。
             // 无基类模板时直接继承 ScriptableObject。统一生成非 sealed 类。
             var baseClassName = chain.Count > 0 ? chain[0].className : "ScriptableObject";
@@ -587,6 +641,14 @@ namespace HYC.Framework.Config.Editor
             sb.AppendLine($"    {declaration}");
             sb.AppendLine("    {");
             sb.Append(fieldLines);
+            if (overrideAssignments.Length > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"        public {template.className}()");
+                sb.AppendLine("        {");
+                sb.Append(overrideAssignments);
+                sb.AppendLine("        }");
+            }
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
@@ -932,8 +994,26 @@ namespace HYC.Framework.Config.Editor
             return true;
         }
 
-        /// <summary>
-        /// Flattened field list: outermost base fields first, then this template's
+        /// <summary>在继承链（近→远）中按字段名查找基类字段；重复名由 Validate 拦截。</summary>
+        public static HYC.Framework.Config.ConfigTemplateField FindFieldInChain(
+            List<ConfigTemplate> chain, string name)
+        {
+            if (chain == null || string.IsNullOrEmpty(name))
+                return null;
+            foreach (var tpl in chain)
+            {
+                if (tpl == null || tpl.fields == null)
+                    continue;
+                foreach (var f in tpl.fields)
+                {
+                    if (f != null && f.name == name)
+                        return f;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Flattened field list: outermost base fields first, then this template's
         /// own fields. Base fields are marked read-only so the editor can render
         /// them as a readonly group.
         /// </summary>
@@ -1110,7 +1190,16 @@ namespace HYC.Framework.Config.Editor
             if (t != null)
                 return t;
             var rebuilt = RebuildRefTypeFullName(storedFullName);
-            return rebuilt != null ? Type.GetType(rebuilt) : null;
+            t = rebuilt != null ? Type.GetType(rebuilt) : null;
+            if (t != null)
+                return t;
+            // 生成类落在宿主程序集，存储全名可能没有程序集限定段（如工厂写的自引用）。
+            // 按模板 className 的短名在已编译的 [CfgAsset] 类型里找，避免猜 Assembly-CSharp。
+            var shortName = RefTypeShortName(storedFullName);
+            if (!string.IsNullOrEmpty(shortName) && IsGeneratedConfigClassName(shortName))
+                return TypeCache.GetTypesWithAttribute<CfgAssetAttribute>()
+                    .FirstOrDefault(candidate => candidate.Name == shortName);
+            return null;
         }
 
         /// <summary>
@@ -1129,6 +1218,40 @@ namespace HYC.Framework.Config.Editor
         /// <summary>短名是否命中某 <c>generateCode</c> 模板的 className（= 由生成器产出的配置类）。</summary>
         private static bool IsGeneratedConfigClassName(string shortName)
             => LoadAllTemplates().Any(t => t != null && t.generateCode && t.className == shortName);
+
+        /// <summary>引用参数里代替「当前模板将要生成的配置类」的关键字（大小写不敏感）。</summary>
+        public const string SelfRefKeyword = "self";
+
+        /// <summary>该引用参数是否为 self 关键字。</summary>
+        public static bool IsSelfRefKeyword(string raw)
+            => string.Equals((raw ?? "").Trim(), SelfRefKeyword, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 引用参数 → 实际全名：self 解析成「当前命名空间 + 本模板 className」，其余原样返回。
+        /// className 为空时保留关键字，由调用方报错（不猜默认类名）。
+        /// </summary>
+        public static string ResolveRefArgument(string raw, string className)
+        {
+            if (!IsSelfRefKeyword(raw))
+                return raw ?? "";
+            if (string.IsNullOrWhiteSpace(className))
+                return SelfRefKeyword;
+            return ConfigDataSettings.Namespace + "." + className.Trim();
+        }
+
+        /// <summary>存储的全名是否指向某个「由模板生成」的配置类——包括**自身代码还没生成**的模板。
+        /// 自引用字段在建模板阶段靠这条通道成立：按模板资产 className 判定，不依赖反射拿到的编译类型。
+        /// </summary>
+        public static bool IsGeneratedTemplateRef(string storedFullName)
+            => GeneratedTemplateRefShortName(storedFullName) != null;
+
+        /// <summary>返回该存储全名命中的模板 className；未命中返回 null。</summary>
+        public static string GeneratedTemplateRefShortName(string storedFullName)
+        {
+            var shortName = RefTypeShortName(storedFullName);
+            return string.IsNullOrEmpty(shortName) || !IsGeneratedConfigClassName(shortName)
+                ? null : shortName;
+        }
 
         private static string UnityTypeName(ConfigFieldType type)
         {

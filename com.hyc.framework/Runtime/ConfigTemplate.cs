@@ -194,8 +194,9 @@ namespace HYC.Framework.Config
         public string enumRefClassName = "";
 
         /// <summary>
-        /// 数据编辑器中该字段只读（生成代码打 [ReadOnly]，绘制时禁用输入）。
-        /// 仅影响编辑器展示，不影响反射赋值（如 ID/GUID 自动发号）与导出。
+        /// 数据编辑器中该字段只读（生成代码打 [ReadOnly]，绘制时禁用输入）；
+        /// 同时作为派生模板的继承锁：基类字段勾选只读后，派生模板不可覆盖该字段的默认值（生成校验硬报错）。
+        /// 不影响反射赋值（如 ID/GUID 自动发号）与导出。
         /// </summary>
         public bool readOnly;
 
@@ -275,7 +276,7 @@ namespace HYC.Framework.Config
         [HideInInspector]
         public bool generateCode = true;
 
-        [Tooltip("基类模板：生成类将继承基类模板生成的类。基类字段以只读形式展示")]
+        [Tooltip("基类模板：生成类将继承基类模板生成的类。基类字段定义只读，但未勾选只读的字段可在派生模板里覆盖默认值")]
         public ConfigTemplate baseTemplate;
 
         [Tooltip("唯一（Single）：勾选后该类型全工程只能存在一份配置；生成 [CfgAsset(..., unique: true)]，创建器不再提供二次创建")]
@@ -288,5 +289,13 @@ namespace HYC.Framework.Config
         public Texture2D iconCustom;
 
         public List<ConfigTemplateField> fields = new List<ConfigTemplateField>();
+
+        /// <summary>
+        /// 基类字段默认值覆盖（派生模板专用）：按继承链字段名一一对齐的影子条目，编辑器自动同步，用户不可见。
+        /// 只使用 <see cref="ConfigTemplateField.useDefault"/>（= 启用覆盖）与六个默认值槽；
+        /// type / isList / enumRefClassName 由编辑器按基类字段同步，生成期一律以基类字段为准。
+        /// 基类字段 <see cref="ConfigTemplateField.readOnly"/> 为 true 时禁止覆盖（生成校验硬报错）。
+        /// </summary>
+        public List<ConfigTemplateField> baseDefaultOverrides = new List<ConfigTemplateField>();
     }
 }
