@@ -1336,6 +1336,120 @@ namespace HYC.Framework.Config.Editor
             return fi.FieldType;
         }
 
+        /// <summary>
+        /// 解析“取成员”导出模式下，引用目标上的成员类型。
+        /// <para>
+        /// ① 目标为<b>生成类</b>引用（短名命中模板）：直接查目标模板定义（含继承链 <see cref="FindFieldByName"/>），
+        /// 按成员 <see cref="ConfigTemplateField.type"/> 判定类型性质并映射 C# 名——<b>零反射、不依赖编译态</b>。
+        /// 这是修复重点：原 <see cref="MemberTypeOf"/> 对生成类引用用 <see cref="Type.GetType"/> 反射，
+        /// 而 codegen 阶段该生成类尚未编译进程序集（甚至因缺基类侧类型处于坏装配态），反射拿不到成员 →
+        /// 侧类型 / Blob 静默返回 null、被调用方吞掉 → 基类侧类型不落盘 → 派生侧类型 CS0246。
+        /// ② 目标为<b>手写 [CfgAsset] 类</b>：保留反射路径（预编译，安全）。
+        /// </para>
+        /// </summary>
+        private static ResolvedMemberInfo ResolveMember(ConfigTemplateField f, string memberName,
+            SortedSet<string> usings, ref bool needsUnity, ref bool needsCollections, out string error)
+        {
+            error = null;
+            if (f.type != ConfigFieldType.Reference)
+            {
+                error = $"字段 {f.name} 选了\"取成员\"但不是配置引用字段";
+                return null;
+            }
+            if (string.IsNullOrEmpty(memberName))
+            {
+                error = $"字段 {f.name} 选了\"取成员\"但未选择成员";
+                return null;
+            }
+
+            // 生成类引用：从模板定义解析，不依赖反射 / 编译态（修 CS0246 根因）
+            var genShort = GeneratedTemplateRefShortName(f.refTypeFullName);
+            if (genShort != null)
+            {
+                var target = LoadAllTemplates().FirstOrDefault(t => t != null && t.generateCode && t.className == genShort);
+                if (target == null)
+                {
+                    error = $"字段 {f.name} 的引用类型 {genShort} 未生成（找不到对应模板）";
+                    return null;
+                }
+                var chain = new List<ConfigTemplate>();
+                TryBuildInheritanceChain(target, chain, out _);
+                var member = FindFieldByName(target, chain, memberName);
+                if (member == null)
+                {
+                    error = $"字段 {f.name} 的引用类型 {genShort} 上没有成员 {memberName}（按模板定义查）";
+                    return null;
+                }
+                if (!IsScalarConfigFieldType(member.type))
+                {
+                    error = $"字段 {f.name} 的成员 {memberName} 不是标量类型";
+                    return null;
+                }
+                var info = new ResolvedMemberInfo
+                {
+                    IsString = IsStringLike(member.type),
+                    IsEnum = member.type == ConfigFieldType.Enum,
+                    IsScalar = true,
+                };
+                // 取成员投影的是「成员元素类型」；外层 ExportFieldDeclTypeName 会按导出字段自身的
+                // isList 决定是否包 List<>，故这里用非列表副本解析，避免双重包裹 List<List<>>。
+                var memberElem = new ConfigTemplateField
+                {
+                    type = member.type,
+                    isList = false,
+                    refTypeFullName = member.refTypeFullName,
+                    enumRefClassName = member.enumRefClassName,
+                };
+                info.CsType = ResolveTypeName(memberElem, usings, ref needsUnity, ref needsCollections);
+                if (info.CsType == null)
+                {
+                    error = $"字段 {f.name} 的成员 {memberName} 类型无法映射为 C# 类型";
+                    return null;
+                }
+                return info;
+            }
+
+            // 手写 [CfgAsset] 类：反射（原有逻辑，预编译安全）
+            var t = MemberTypeOf(f, memberName, out error);
+            if (t == null) return null;
+            if (!IsScalarType(t))
+            {
+                error = $"字段 {f.name} 的成员 {memberName} 不是标量类型";
+                return null;
+            }
+            var info2 = new ResolvedMemberInfo
+            {
+                IsString = t == typeof(string),
+                IsEnum = t.IsEnum,
+                IsScalar = true,
+                CsType = CsTypeName(t, usings, out error),
+            };
+            if (info2.CsType == null) return null;
+            return info2;
+        }
+
+        /// <summary>“取成员”解析结果：成员类型性质 + C# 类型名（已含 using 收集）。</summary>
+        private sealed class ResolvedMemberInfo
+        {
+            public bool IsString;
+            public bool IsEnum;
+            public bool IsScalar;
+            public string CsType;
+        }
+
+        /// <summary>
+        /// 按 <see cref="ConfigFieldType"/> 判定成员是否为标量（与主类 / 侧类型可声明的原始类型对齐：
+        /// 数值 / 字符串族 / 枚举 / 行为树(long)）。Unity 结构体（Vector3 等）不算标量，与原 <see cref="IsScalarType"/> 一致。
+        /// </summary>
+        private static bool IsScalarConfigFieldType(ConfigFieldType type)
+            => type == ConfigFieldType.String || type == ConfigFieldType.Int || type == ConfigFieldType.Long
+            || type == ConfigFieldType.Float || type == ConfigFieldType.Double || type == ConfigFieldType.Bool
+            || type == ConfigFieldType.Short || type == ConfigFieldType.Byte || type == ConfigFieldType.UInt
+            || type == ConfigFieldType.Char || type == ConfigFieldType.Decimal
+            || type == ConfigFieldType.LocalizedKey || type == ConfigFieldType.Addressable
+            || type == ConfigFieldType.AudioEvent || type == ConfigFieldType.Enum
+            || type == ConfigFieldType.BehaviourTree;
+
         private static bool IsScalarType(Type t)
             => t.IsPrimitive || t.IsEnum || t == typeof(string);
 
@@ -1402,25 +1516,9 @@ namespace HYC.Framework.Config.Editor
                     break;
                 case ConfigFieldExportMode.Member:
                 {
-                    if (f.type != ConfigFieldType.Reference)
-                    {
-                        error = $"字段 {f.name} 选了\"取成员\"但不是配置引用字段";
-                        return null;
-                    }
-                    if (string.IsNullOrEmpty(setting.memberName))
-                    {
-                        error = $"字段 {f.name} 选了\"取成员\"但未选择成员";
-                        return null;
-                    }
-                    var mt = MemberTypeOf(f, setting.memberName, out error);
-                    if (mt == null) return null;
-                    if (!IsScalarType(mt))
-                    {
-                        error = $"字段 {f.name} 的成员 {setting.memberName} 不是标量类型";
-                        return null;
-                    }
-                    elem = CsTypeName(mt, usings, out error);
-                    if (elem == null) return null;
+                    var mi = ResolveMember(f, setting.memberName, usings, ref needsUnity, ref needsCollections, out error);
+                    if (mi == null) return null;
+                    elem = mi.CsType;
                     break;
                 }
                 default:
@@ -1478,6 +1576,9 @@ namespace HYC.Framework.Config.Editor
             var info = new BlobElemInfo();
             var set = ExportSettingOf(f, true);
             var type = f.type;
+            // Blob 路径不收集 using（Blob 文件自带 UnityEngine 等 using；枚举成员固定映射 int），故传丢弃用集合
+            var _usings = new SortedSet<string>();
+            bool _nu = false, _nc = false;
 
             // 显式 FixedString（仅字符串源字段可选）
             if (set.mode == ConfigFieldExportMode.FixedString && IsStringLike(type))
@@ -1490,21 +1591,21 @@ namespace HYC.Framework.Config.Editor
             // 配置引用取成员：string 成员 → BlobString；枚举 → int；其他标量数值 → 同类型
             if (set.mode == ConfigFieldExportMode.Member)
             {
-                var mt = MemberTypeOf(f, set.memberName, out _);
-                if (mt != null && IsScalarType(mt))
+                var mi = ResolveMember(f, set.memberName, _usings, ref _nu, ref _nc, out _);
+                if (mi != null && mi.IsScalar)
                 {
-                    if (mt == typeof(string))
+                    if (mi.IsString)
                     {
                         info.TypeName = "BlobString";
                         info.BlobString = true;
                         return info;
                     }
-                    if (mt.IsEnum)
+                    if (mi.IsEnum)
                     {
                         info.TypeName = "int";
                         return info;
                     }
-                    info.TypeName = CsTypeName(mt, new SortedSet<string>(), out _);
+                    info.TypeName = mi.CsType;
                     return info;
                 }
             }
@@ -1564,8 +1665,10 @@ namespace HYC.Framework.Config.Editor
             var set = ExportSettingOf(f, true);
             if (set.mode == ConfigFieldExportMode.Member)
             {
-                var mt = MemberTypeOf(f, set.memberName, out _);
-                if (mt != null && mt.IsEnum)
+                var _usings = new SortedSet<string>();
+                bool _nu = false, _nc = false;
+                var mi = ResolveMember(f, set.memberName, _usings, ref _nu, ref _nc, out _);
+                if (mi != null && mi.IsEnum)
                     return $"(int)({e} == null ? default : {e}.{set.memberName})";
                 return $"{e} == null ? default : {e}.{set.memberName}";
             }
@@ -1599,8 +1702,10 @@ namespace HYC.Framework.Config.Editor
                 return $"{e} == null ? \"\" : {e}.name";
             if (set.mode == ConfigFieldExportMode.Member)
             {
-                var mt = MemberTypeOf(f, set.memberName, out _);
-                if (mt == typeof(string))
+                var _usings = new SortedSet<string>();
+                bool _nu = false, _nc = false;
+                var mi = ResolveMember(f, set.memberName, _usings, ref _nu, ref _nc, out _);
+                if (mi != null && mi.IsString)
                     return $"{e} == null ? \"\" : {e}.{set.memberName}";
                 return $"{e}.ToString()";
             }
@@ -1814,8 +1919,12 @@ namespace HYC.Framework.Config.Editor
             WriteEditorFile(template);
 
             // 生成客户端/服务器类型 + 检查类 + 导出类
-            WriteSideFiles(template, forClient: true, out _);
-            WriteSideFiles(template, forClient: false, out _);
+            // 侧类型生成失败（如字段解析失败）必须上抛日志，否则会被静默吞掉、最终崩成一片 CS0246，
+            // 且无法定位到具体模板 / 字段（见基类侧类型未生成问题的复盘）。
+            if (!WriteSideFiles(template, forClient: true, out var ce) && !string.IsNullOrEmpty(ce))
+                Debug.LogError($"[CodeGen] {template.className} 的 Client 侧类型生成失败: {ce}");
+            if (!WriteSideFiles(template, forClient: false, out var se) && !string.IsNullOrEmpty(se))
+                Debug.LogError($"[CodeGen] {template.className} 的 Server 侧类型生成失败: {se}");
             WriteCheckFile(template);
             WriteExportFile(template);
 
@@ -2242,13 +2351,16 @@ namespace HYC.Framework.Config.Editor
             return null;
         }
 
-        /// <summary>生成客户端/服务器类型文件（Client/Server 子目录）。</summary>
-        private static void WriteSideFiles(ConfigTemplate template, bool forClient, out string error)
+        /// <summary>
+        /// 生成并写入 XxxClient/XxxServer.cs；返回是否成功写入。
+        /// code 为 null（字段解析失败等）时返回 false 并透出原因，调用方需上抛日志。
+        /// </summary>
+        private static bool WriteSideFiles(ConfigTemplate template, bool forClient, out string error)
         {
             error = null;
             var code = GenerateSideType(template, forClient, out error);
             if (code == null)
-                return;
+                return false;
 
             var side = forClient ? "Client" : "Server";
             var dir = $"{ConfigDataSettings.OutputDir}/{side}";
@@ -2257,6 +2369,7 @@ namespace HYC.Framework.Config.Editor
 
             var path = $"{dir}/{template.className}{side}.cs";
             WriteAndImport(path, code);
+            return true;
         }
 
         /// <summary>生成 XxxConfigCheck.cs：按字段检查规则收集错误。</summary>

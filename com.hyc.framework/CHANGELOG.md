@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 修复：「取成员」对生成类引用走反射导致侧类型静默缺失（CS0246 根因）
+
+- `ConfigTemplateCodeGen` 新增 `ResolveMember`（+嵌套类 `ResolvedMemberInfo`）作为「取成员」成员类型解析的**唯一入口**：
+  引用目标是**本工程生成类**时改从模板定义解析（含继承链 `FindFieldByName`，按字段 `type` 映射 C# 类型），**零反射、不依赖编译态**；
+  只有手写 `[CfgAsset]` 类仍走反射（预编译安全）。
+  根因：原实现一律 `Type.GetType` 反射，而 codegen 阶段生成类尚未编译（甚至因缺基类侧类型处于坏装配态）→ 拿不到成员 →
+  `GenerateSideType` / Blob 元素类型静默返回 null → 基类侧类型不落盘 → 派生侧类型 **CS0246**。
+  侧类型 / 服务端类型 / Blob 三条导出路径已统一改用该入口。
+- `WriteSideFiles` 改为返回 `bool`：侧类型生成失败时 `Debug.LogError` 打出模板名 + 具体字段原因，不再静默吞掉。
+- doc11 补「`Member` 的成员类型从哪来（零反射优先）」；doc100 索引同步（646 类型，新增 `ResolvedMemberInfo`）。
+
 ### 修复：音频总览资产创建后无脚本（`AudioCatalogAsset` 缺 MonoScript）
 
 - `AudioCatalogAsset`（`[CfgAsset]` 的 `ScriptableObject`）原与 `AudioCatalog` 静态类等 7 个类型共处
