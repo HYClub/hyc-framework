@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 修复：`BuildDefaultOverrides` 继承链构建断言分支错误
+
+- `ConfigAssetFactory.BuildDefaultOverrides` 原把「无基类模板」与「继承链构建失败」用 `||` 短路 + `out var` 合并判断，
+  在 `baseTemplate == null` 短路时 `chainError` 未由方法赋值，不同 C# 实现下存在未赋值 / 误报风险；
+  现拆为两步：先判 `baseTemplate == null` 再调 `TryBuildInheritanceChain`，错误信息更准确。
+
 ### 新增：模板字段默认值 + 配置工厂 API 大扩充（`CreateOrGet` / `CreateWith` / 流式规格）
 
 - **模板字段默认值**：`ConfigTemplateField` 新增 `useDefault` + 五个按值槽（`defaultNumber` / `defaultEnumValue` /

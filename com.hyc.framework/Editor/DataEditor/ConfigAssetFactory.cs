@@ -579,12 +579,11 @@ namespace HYC.Framework.Config.Editor
             List<TemplateFieldSpec> specs)
         {
             var chain = new List<ConfigTemplate>();
-            if (tpl.baseTemplate == null
-                || !ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out var chainError))
-            {
-                throw new InvalidOperationException(
-                    $"模板 {templateName} 的默认值覆盖：{chainError ?? "没有基类模板，无法覆盖"}");
-            }
+            if (tpl.baseTemplate == null)
+                throw new InvalidOperationException($"模板 {templateName} 的默认值覆盖：没有基类模板，无法覆盖");
+            string chainError;
+            if (!ConfigTemplateCodeGen.TryBuildInheritanceChain(tpl, chain, out chainError))
+                throw new InvalidOperationException($"模板 {templateName} 的默认值覆盖：{chainError ?? "继承链构建失败"}");
 
             var seen = new HashSet<string>();
             foreach (var fs in specs)
