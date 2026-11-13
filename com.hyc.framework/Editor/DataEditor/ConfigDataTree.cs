@@ -924,20 +924,15 @@ namespace HYC.Framework.Config.Editor
         private void ExportSingleAsset(ConfigDataTreeFileNode file)
         {
             var asset = file.GetAsset();
-            if (ConfigExportService.ExportSingle(asset, true, true))
-                EditorUtility.DisplayDialog("导出", $"已导出 {asset.name} 到客户端/服务器目录", "确定");
+            ConfigExportRunner.StartSingleExport(asset, true, true);
         }
 
         /// <summary>保存并导出文件夹下所有配置（先保存整个文件夹，再按类型批量导出，含子文件夹）。</summary>
         private void SaveAndExportFolderAll(ConfigDataTreeFolderNode folder)
         {
             var path = AssetDatabase.GUIDToAssetPath(folder.guid);
-            ConfigExportService.SaveFolder(path);   // 先保存，避免「改了没存就导出」
-            var count = ConfigExportService.ExportFolder(path, true, true);
-            if (count <= 0)
-                EditorUtility.DisplayDialog("保存并导出", "未找到可导出的配置", "确定");
-            else
-                EditorUtility.DisplayDialog("保存并导出", $"已保存并导出 {count} 种配置到客户端/服务器目录", "确定");
+            // 交给非阻塞导出引擎：单 Refresh + 进度窗 + 可取消，不再同步卡主线程
+            ConfigExportRunner.StartFolderExport(path, true, true);
         }
 
         /// <summary>
@@ -1029,13 +1024,7 @@ namespace HYC.Framework.Config.Editor
         {
             var path = AssetDatabase.GUIDToAssetPath(folder.guid);
             ConfigExportService.SaveFolder(path); // 先保存，避免「改了没存就导出」
-
-            if (ConfigExportService.ExportAll(configType, true, true))
-                EditorUtility.DisplayDialog("导出",
-                    $"已导出 {ConfigTypeDisplay.GetShortName(configType)}（{configType.Name}）到客户端/服务器目录", "确定");
-            else
-                EditorUtility.DisplayDialog("导出失败",
-                    $"导出 {configType.Name} 失败（该类型是否还没生成导出类？）", "确定");
+            ConfigExportRunner.StartTypeExport(configType, true, true);
         }
 
         /// <summary>
@@ -1155,9 +1144,9 @@ namespace HYC.Framework.Config.Editor
             if (!EditorUtility.DisplayDialog("全量清理后全量导出",
                     "将删除客户端/服务器导出目录下所有旧 *.blob，再重新导出全部配置。\n（改名或删除的配置类型不会留下幽灵文件）", "执行", "取消"))
                 return;
-            var n = ConfigExportService.CleanAndExportAll(true, true);
-            EditorUtility.DisplayDialog("全量清理后全量导出", $"已全量清理并重新导出 {n} 类配置", "确定");
-            Reload();
+            // 非阻塞导出引擎：准备→逐类型导出（每类一帧，主线程不焊死）→ 末尾单次 Refresh，
+            // 进度/日志/取消集中在 ConfigExportWindow；结束后自动刷新左树。
+            ConfigExportRunner.StartFullExport(true, true);
         }
 
         /// <summary>保存并导出单个配置实例（先保存资产，再导出）。</summary>
@@ -1167,8 +1156,7 @@ namespace HYC.Framework.Config.Editor
             if (asset == null) return;
             EditorUtility.SetDirty(asset);
             AssetDatabase.SaveAssetIfDirty(asset);
-            if (ConfigExportService.ExportSingle(asset, true, true))
-                EditorUtility.DisplayDialog("保存并导出", $"已保存并导出 {asset.name} 到客户端/服务器目录", "确定");
+            ConfigExportRunner.StartSingleExport(asset, true, true);
         }
 
         /// <summary>构建文件节点的右键菜单（供测试与后续扩展复用）。</summary>

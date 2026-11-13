@@ -32,18 +32,25 @@ namespace HYC.Framework.Config.Editor
         /// <summary>本导出类对应的配置类型（生成的派生类在构造器里传入）。</summary>
         protected Type ConfigType { get; }
 
+        /// <summary>
+        /// 检查结果上报接收器。默认直接调 <see cref="BuildErrorWindow.Report"/>（与原行为一致）；
+        /// 非阻塞导出（<see cref="ConfigExportRunner"/>）在运行期间替换为自己的汇聚接收器，
+        /// 把检查错误收进进度窗日志、并在结束后一次性开窗，避免每类型弹一次错误窗打断流程。
+        /// </summary>
+        public static Action<List<CheckError>, string> CheckErrorSink { get; set; } = BuildErrorWindow.Report;
+
         /// <summary>配置类名（产物文件命名用，如 DropConfig.json）。</summary>
         protected string ClassName => ConfigType.Name;
 
         /// <summary>导出单个配置实例（生成的派生类经 <see cref="ConfigExportService"/> 转调到此）。</summary>
-        public bool ExportCore(ConfigBase data, bool exportClient, bool exportServer)
+        public bool ExportCore(ConfigBase data, bool exportClient, bool exportServer, bool refresh = true)
         {
             var errors = CheckData(data);
             if (errors.Count > 0)
             {
                 // data 可能为 Unity 伪 null（已销毁）——生成的 Check 有 data==null 分支即预期此事；
                 // 用 Unity 的 == 判定后再取 name，避免上下文字符串自身抛 NRE
-                BuildErrorWindow.Report(errors, data == null ? ClassName : $"导出 {data.name}");
+                CheckErrorSink?.Invoke(errors, data == null ? ClassName : $"导出 {data.name}");
                 if (HasBlockingError(errors))
                     return false;
             }
@@ -51,12 +58,12 @@ namespace HYC.Framework.Config.Editor
             var ok = true;
             if (exportClient) ok &= ExportClientCore(data);
             if (exportServer) ok &= ExportServerCore(data);
-            AssetDatabase.Refresh();
+            if (refresh) AssetDatabase.Refresh();
             return ok;
         }
 
         /// <summary>批量导出该类型全部配置实例（客户端 + 服务器）。返回 true 表示成功。</summary>
-        public bool ExportAllCore(bool exportClient, bool exportServer)
+        public bool ExportAllCore(bool exportClient, bool exportServer, bool refresh = true)
         {
             var all = CollectAssets();
             var ok = true;
@@ -80,7 +87,7 @@ namespace HYC.Framework.Config.Editor
                         var errs = CheckData(all[i]);
                         if (errs.Count > 0)
                         {
-                            BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                            CheckErrorSink?.Invoke(errs, $"导出 {ClassName}");
                             if (HasBlockingError(errs))
                                 return false;
                         }
@@ -98,7 +105,7 @@ namespace HYC.Framework.Config.Editor
                         var errs = CheckData(all[i]);
                         if (errs.Count > 0)
                         {
-                            BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                            CheckErrorSink?.Invoke(errs, $"导出 {ClassName}");
                             if (HasBlockingError(errs))
                                 return false;
                         }
@@ -119,7 +126,7 @@ namespace HYC.Framework.Config.Editor
                     var errs = CheckData(all[i]);
                     if (errs.Count > 0)
                     {
-                        BuildErrorWindow.Report(errs, $"导出 {ClassName}");
+                        CheckErrorSink?.Invoke(errs, $"导出 {ClassName}");
                         if (HasBlockingError(errs))
                             return false;
                     }
@@ -129,7 +136,7 @@ namespace HYC.Framework.Config.Editor
                 WriteJson(dir, ClassName + ".json", list);
             }
 
-            AssetDatabase.Refresh();
+            if (refresh) AssetDatabase.Refresh();
             return ok;
         }
 

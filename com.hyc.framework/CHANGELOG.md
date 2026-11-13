@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 变更：配置导出改为非阻塞引擎（进度窗 + 末尾单次 Refresh + 可取消）
+
+- 新增 `ConfigExportRunner`（静态、基于 `EditorApplication.update` 分帧状态机）统一驱动「全量 / 文件夹 / 单类型 / 单实例」四种导出入口：每帧只处理一个作业后让出主线程，编辑器保持响应、不再触发 Unity 的 "Hold on (busy for …)" 强制等待框；取消只在类型边界生效（绝不留下半截 blob）。
+- 新增 `ConfigExportWindow`（EditorWindow）展示总体进度、当前类型/阶段、分级日志与取消/关闭按钮，长相与 `config_export_progress_ui.html` 原型一致。
+- `ConfigBaseExport` 新增 `CheckErrorSink` 可插拔错误接收器 + `ExportCore`/`ExportAllCore` 增加 `refresh` 开关；循环内 `AssetDatabase.Refresh()` 改为由调用方在**末尾统一 Refresh 一次**（N 类型 = N 次全量刷新是卡死主因，原 `ConfigExportService.CleanAndExportAll` 循环每类型刷一次 + 末尾再刷一次）。
+- `ConfigExportService` 透传 `refresh` 开关，并在 `CleanAndExportAll` / `ExportFolder` 循环末尾各刷新一次；`CollectConfigTypes` / `ClearBlobDir` 提升为 public 供 Runner 复用。
+- `ConfigDataTree` 四个导出入口（全量 / 文件夹 / 单类型 / 单实例）改为接入 Runner，移除同步完成弹窗。
+- 批模式（CI）不走 Runner，仍走 `ConfigExportService` 同步入口（同样受益於末尾单次 Refresh）。
+
 ### 修复：「取成员」对生成类引用走反射导致侧类型静默缺失（CS0246 根因）
 
 - `ConfigTemplateCodeGen` 新增 `ResolveMember`（+嵌套类 `ResolvedMemberInfo`）作为「取成员」成员类型解析的**唯一入口**：

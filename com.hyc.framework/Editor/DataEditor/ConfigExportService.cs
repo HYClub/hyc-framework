@@ -15,7 +15,7 @@ namespace HYC.Framework.Config.Editor
     public static class ConfigExportService
     {
         /// <summary>导出单个配置实例（按运行时类型匹配 XxxConfigExport）。</summary>
-        public static bool ExportSingle(UnityEngine.Object asset, bool client, bool server)
+        public static bool ExportSingle(UnityEngine.Object asset, bool client, bool server, bool refresh = true)
         {
             // Unity 的 == null 对「已销毁对象」也返回 true，所以先判空再取属性。
             if (asset == null)
@@ -52,7 +52,7 @@ namespace HYC.Framework.Config.Editor
                 return false;
 
             BuildErrorWindow.BeginExportOperation();
-            var ok = exporter.ExportCore(so as ConfigBase, client, server);
+            var ok = exporter.ExportCore(so as ConfigBase, client, server, refresh);
             BuildErrorWindow.EndExportOperation($"导出 {so.name}", ok);
             return ok;
         }
@@ -91,10 +91,12 @@ namespace HYC.Framework.Config.Editor
                 var type = asset.GetType();
                 if (done.Add(type))
                 {
-                    if (ExportAll(type, client, server))
+                    if (ExportAll(type, client, server, false))
                         exported++;
                 }
             }
+            // 目录内全部类型导出完再统一刷新一次（避免逐类型 Refresh 卡死主线程）
+            AssetDatabase.Refresh();
             // 零检查项时按设置给一次「未发现问题」确认（一次目录导出最多一个框）
             BuildErrorWindow.EndExportOperation($"导出目录 {folder}", exported > 0);
 
@@ -131,7 +133,7 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>按类型批量导出（实例化生成的 XxxExport 调 <see cref="ConfigBaseExport.ExportAllCore"/>）。</summary>
-        public static bool ExportAll(Type configType, bool client, bool server)
+        public static bool ExportAll(Type configType, bool client, bool server, bool refresh = true)
         {
             if (configType == null)
                 return false;
@@ -146,7 +148,7 @@ namespace HYC.Framework.Config.Editor
             if (!TryCreateExporter(exportType, configType, out var exporter))
                 return false;
 
-            return exporter.ExportAllCore(client, server);
+            return exporter.ExportAllCore(client, server, refresh);
         }
 
         /// <summary>
@@ -195,7 +197,7 @@ namespace HYC.Framework.Config.Editor
             BuildErrorWindow.BeginExportOperation();
             foreach (var t in types)
             {
-                if (ExportAll(t, client, server))
+                if (ExportAll(t, client, server, false))
                     exported++;
                 else
                     failed.Add(t.Name);
@@ -218,7 +220,7 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>删除指定目录内的全部 <c>*.blob</c>（不删子目录，避免误伤）。目录不存在则跳过。</summary>
-        private static void ClearBlobDir(string dir)
+        public static void ClearBlobDir(string dir)
         {
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
                 return;
@@ -233,7 +235,7 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>收集根目录下全部配置资产类型（去重，跳过模板/枚举/本命名空间之外）。</summary>
-        private static List<Type> CollectConfigTypes(string folder)
+        public static List<Type> CollectConfigTypes(string folder)
         {
             var types = new List<Type>();
             var seen = new HashSet<Type>();
