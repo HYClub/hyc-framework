@@ -51,10 +51,10 @@ namespace HYC.Framework.Config.Editor
             if (!TryCreateExporter(exportType, so.GetType(), out var exporter))
                 return false;
 
-            BuildErrorWindow.BeginExportOperation();
-            var ok = exporter.ExportCore(so as ConfigBase, client, server, refresh);
-            BuildErrorWindow.EndExportOperation($"导出 {so.name}", ok);
-            return ok;
+            // 检查结果汇报（Begin/EndExportOperation）由**顶层驱动方**负责：
+            // 交互式走 ConfigExportRunner（模态窗内不能弹 DisplayDialog，会变成嵌套模态），
+            // 批处理走 ExportFolder / CleanAndExportAll。此处只做导出本身。
+            return exporter.ExportCore(so as ConfigBase, client, server, refresh);
         }
 
         /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。</summary>

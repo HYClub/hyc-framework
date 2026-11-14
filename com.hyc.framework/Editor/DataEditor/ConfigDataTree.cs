@@ -931,7 +931,7 @@ namespace HYC.Framework.Config.Editor
         private void SaveAndExportFolderAll(ConfigDataTreeFolderNode folder)
         {
             var path = AssetDatabase.GUIDToAssetPath(folder.guid);
-            // 交给非阻塞导出引擎：单 Refresh + 进度窗 + 可取消，不再同步卡主线程
+            // 交给模态导出引擎：每帧推一行 + 逐行进度 + 末尾单次 Refresh，主线程不再焊死
             ConfigExportRunner.StartFolderExport(path, true, true);
         }
 
@@ -1023,8 +1023,8 @@ namespace HYC.Framework.Config.Editor
         private void ExportFolderType(ConfigDataTreeFolderNode folder, Type configType)
         {
             var path = AssetDatabase.GUIDToAssetPath(folder.guid);
-            ConfigExportService.SaveFolder(path); // 先保存，避免「改了没存就导出」
-            ConfigExportRunner.StartTypeExport(configType, true, true);
+            // 落盘交给导出窗的「准备」阶段：窗口弹出前不做重活，点了执行才存
+            ConfigExportRunner.StartTypeExport(configType, true, true, path);
         }
 
         /// <summary>
@@ -1086,17 +1086,8 @@ namespace HYC.Framework.Config.Editor
                 return;
             }
 
-            var ok = 0;
-            foreach (var def in defs)
-            {
-                EditorUtility.SetDirty(def);
-                AssetDatabase.SaveAssetIfDirty(def);
-                if (ConfigEnumCodeGen.Export(def, true, true))
-                    ok++;
-            }
-
-            EditorUtility.DisplayDialog("保存导出所有枚举",
-                $"已保存并导出 {ok}/{defs.Count} 个枚举到客户端/服务器目录", "确定");
+            // 走通用导出窗：逐枚举打勾、末尾统一一次 Refresh（不再每人弹一个完成框）
+            ConfigExportRunner.StartEnumExport(defs);
         }
 
         /// <summary>保存并生成文件夹下所有模板代码（递归，含子文件夹；流程与单个生成一致：先落盘再生成，生成后再落盘消 * 标记）。</summary>
@@ -1138,14 +1129,14 @@ namespace HYC.Framework.Config.Editor
                 EditorUtility.DisplayDialog("生成模板代码", $"成功 {ok}/{tpls.Count} 个。\n首个失败：{firstError}", "确定");
         }
 
-        /// <summary>全量清理后全量导出（先确认，再调用 ConfigExportService 清空并重新导出所有配置类型）。</summary>
+        /// <summary>
+        /// 全量清理后全量导出。危险确认不再走 EditorUtility.DisplayDialog，
+        /// 而是由导出窗在列表中就地提示（需连点两次「执行」），点取消即零副作用退出。
+        /// </summary>
         public void CleanAndExportAll()
         {
-            if (!EditorUtility.DisplayDialog("全量清理后全量导出",
-                    "将删除客户端/服务器导出目录下所有旧 *.blob，再重新导出全部配置。\n（改名或删除的配置类型不会留下幽灵文件）", "执行", "取消"))
-                return;
-            // 非阻塞导出引擎：准备→逐类型导出（每类一帧，主线程不焊死）→ 末尾单次 Refresh，
-            // 进度/日志/取消集中在 ConfigExportWindow；结束后自动刷新左树。
+            // 模态导出窗：落盘→清理→逐类型导出（每帧一行，主线程不冻）→ 末尾单次 Refresh；
+            // 结束后自动刷新左树，有检查项则打开错误窗。
             ConfigExportRunner.StartFullExport(true, true);
         }
 
@@ -1282,12 +1273,8 @@ namespace HYC.Framework.Config.Editor
         /// <summary>导出枚举到客户端/服务器目录。</summary>
         private void ExportEnum(ConfigEnumDefinition def)
         {
-            EditorUtility.SetDirty(def);
-            AssetDatabase.SaveAssets();
-            if (ConfigEnumCodeGen.Export(def, true, true))
-                EditorUtility.DisplayDialog("导出", $"已导出枚举 {def.className} 到客户端/服务器目录", "确定");
-            else
-                EditorUtility.DisplayDialog("导出失败", $"导出枚举 {def.className} 失败", "确定");
+            ConfigExportRunner.StartEnumExport(
+                new List<ConfigEnumDefinition> { def }, "导出枚举 " + def.className);
         }
 
         /// <summary>生成模板代码并刷新树（带错误提示）。</summary>

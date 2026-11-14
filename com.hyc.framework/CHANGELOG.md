@@ -6,14 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### 变更：配置导出改为非阻塞引擎（进度窗 + 末尾单次 Refresh + 可取消）
+### 变更：导出通用化 —— `Editor/Export/` 通用导出层（所有导出共用模态清单窗）
 
-- 新增 `ConfigExportRunner`（静态、基于 `EditorApplication.update` 分帧状态机）统一驱动「全量 / 文件夹 / 单类型 / 单实例」四种导出入口：每帧只处理一个作业后让出主线程，编辑器保持响应、不再触发 Unity 的 "Hold on (busy for …)" 强制等待框；取消只在类型边界生效（绝不留下半截 blob）。
-- 新增 `ConfigExportWindow`（EditorWindow）展示总体进度、当前类型/阶段、分级日志与取消/关闭按钮，长相与 `config_export_progress_ui.html` 原型一致。
+> 本条目最初只服务配置导出（`ConfigExportWindow`）。同批已把它抽象成通用层并**删除旧窗**
+> ——两层都还没发版，不构成破坏性变更。现在任何导出只需提供「作业行 + 可选准备/收尾回调」。
+
+- 新增 `Editor/Export/`（命名空间 `HYC.Framework.Editor.Export`）三层：
+  - `HyExportTypes.cs`：`HyExportRequest`（标题 / 说明 / `destructive` / 作业表 / `prepare` / `finalize` / `onFinished`）、`HyExportJob`（行名 / 计数 / 单位 / `Func<bool> run`）、`HyExportSummary`、`HyExportError`、`HyExportPhase`、`HyExportRowState`、`HyExportRow`、`HyExportLevel`。
+  - `HyExportEngine.cs`：静态状态机。`Run(request)` 绑定请求 →（`AssetDatabase.StartAssetEditing` 批模式走同步路径，否则弹模态窗）→ 汇总 → 回调；`Step()` 由窗口每帧调用，`Preparing` / `Working` / `Finalizing` 三段各自「先画一帧文案、下一拍才干活」；`Working` 又分两拍（先标行 `Active`，下一拍执行），所以每行都看得到「进行中 → 打勾」。`Report(level, context, message)` 供作业体收集检查错误。
+  - `HyExportWindow.cs`：模态清单窗（**导出中无关闭按钮**），三态 **预览 → 执行 → 完成**：预览态只画列表 + `取消` / `执行`，零副作用；`destructive` 的请求需连点两次「执行」（按钮文案变「确认执行?」）替代原来的 `EditorUtility.DisplayDialog` 确认框；完成后给结果条与「关闭」。
+- **点击导出菜单不再弹确认框**：危险操作的说明文字直接进列表顶部（`HyExportRequest.description`），确认动作就是窗内的执行按钮。`ConfigDataTree.CleanAndExportAll` 里的 `EditorUtility.DisplayDialog("全量清理后全量导出", …)` 已删除。
+- `ConfigExportRunner` 重写为**薄适配器**（不再自带窗口与状态机）：四个入口 → `Precheck`（ID/GUID 预检，必须在弹模态窗前，模态循环里不能弹框）→ 拆成作业行 → `Launch`。`ConfigExportWindow.cs` 与其 `ConfigExportPhase` / `ConfigExportRowState` / `ConfigExportRow` / `ConfigExportProgress` 全部删除。
+- `ConfigExportRunner` 的 `prepare` 承担落盘与清理（`SaveFolder` + `ClearBlobDir`，仅全量导出），`finalize` 承担整个操作的**唯一一次** `AssetDatabase.Refresh()`；中止 / 取消时 `finalize` 不跑，由收尾补一次（已完成类型的产物还是要落盘）。
+- `ConfigEnumCodeGen` 的 `WriteFile` / `Export` 新增 `refresh` 开关（默认 `true`，存量调用零改动）：批量导出枚举时逐枚举各自的 `Refresh` 会变成 N 次全量刷新，统一交给 `finalize` 刷一次。
+- 窗口 `SafeClose()` 与项目「关闭窗口一律 `EditorApplication.delayCall`」约定的**刻意偏离**已写在 XML 注释里：`delayCall` 走 `EditorApplication.update`，而模态循环不泵 update，照约定写会把窗口永久留住（用户无法关闭）。改为同步 `Close()` + `mClosing` 幂等 + 关完 `GUIUtility.ExitGUI()` 中止本帧剩余布局，并在 `OnGUI` 里对 `ExitGUIException` 重新抛出（那是正常退出信号，不是绘制异常）。
+- 尚未迁移：BT / SceneContent / Map / Audio 的导出仍走各自老路径，后续按同一模式接入本层。
+
+### 变更：配置导出改为模态列表进度窗（分帧推进 + 末尾单次 Refresh）
+
+- 新增 `ConfigExportRunner` 统一驱动「全量 / 文件夹 / 单类型 / 单实例」四种导出入口：先做 ID/GUID 预检（可能弹重新派发对话框，必须在模态前），再开模态窗，由窗口 `OnGUI` 每帧调 `HyExportEngine.Step()` 推进一步——每帧只走**一个**配置类型，且分两拍（先标「进行中」让窗口画一帧，下一拍才执行），所以每行都看得到「进行中 → 打勾」，编辑器全程不出现 Unity 的 "Hold on (busy for …)" 等待框。
+  - 为什么推进在 `OnGUI` 而不在 `EditorApplication.update`：`ShowModalUtility()` 走原生 `MakeModal` 模态消息循环，**阻塞调用方且不跑 `EditorApplication.update`**，只泵 GUI 事件。
+  - 状态推进与行移除只在 `EventType.Layout` 阶段做一次，保证同一帧 Layout / Repaint 看到完全相同的可见行集合（否则 IMGUI 报 Layout / Repaint 不匹配）。
+  - 落盘 / 清理 / 末尾 `Refresh` 三段原子重活各用两拍执行：第一拍只更新阶段文案，第二拍才干活，避免那段时间界面还停在上一阶段文案、看起来像卡死。
 - `ConfigBaseExport` 新增 `CheckErrorSink` 可插拔错误接收器 + `ExportCore`/`ExportAllCore` 增加 `refresh` 开关；循环内 `AssetDatabase.Refresh()` 改为由调用方在**末尾统一 Refresh 一次**（N 类型 = N 次全量刷新是卡死主因，原 `ConfigExportService.CleanAndExportAll` 循环每类型刷一次 + 末尾再刷一次）。
 - `ConfigExportService` 透传 `refresh` 开关，并在 `CleanAndExportAll` / `ExportFolder` 循环末尾各刷新一次；`CollectConfigTypes` / `ClearBlobDir` 提升为 public 供 Runner 复用。
-- `ConfigDataTree` 四个导出入口（全量 / 文件夹 / 单类型 / 单实例）改为接入 Runner，移除同步完成弹窗。
-- 批模式（CI）不走 Runner，仍走 `ConfigExportService` 同步入口（同样受益於末尾单次 Refresh）。
+  `ExportSingle` 不再自己做 `BeginExportOperation`/`EndExportOperation`——检查结果汇报归顶层驱动方（模态窗内 `DisplayDialog` 会变成嵌套模态）。
+- `BuildErrorWindow` 新增 `MarkReported()`：模态导出窗结束后统一开错误窗，据此避免再弹一次「未发现问题」。
+- 行数统计复用预检那次 `CollectConfigAssets` 的结果，不再为每个类型各跑一次全工程 `FindAssets`（窗口弹出前的隐藏卡顿源）。
+- `ConfigDataTree` 四个导出入口（全量 / 文件夹 / 单类型 / 单实例）改为接入 Runner，移除同步完成弹窗；结束后只刷新**已打开**的数据配置窗口左树，不主动创建窗口。
+- 批模式（CI）不走模态，仍走同步路径（同样末尾单次 Refresh）。
 
 ### 修复：「取成员」对生成类引用走反射导致侧类型静默缺失（CS0246 根因）
 

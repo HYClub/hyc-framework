@@ -148,8 +148,11 @@ namespace HYC.Framework.Config.Editor
             return File.Exists(Path.Combine(Directory.GetCurrentDirectory(), path));
         }
 
-        /// <summary>写入生成的枚举代码文件。</summary>
-        public static bool WriteFile(ConfigEnumDefinition def, out string error)
+        /// <summary>
+        /// 写入生成的枚举代码文件。<paramref name="refresh"/> 传 false 时不自刷资产库——
+        /// 批量导出（通用导出窗）由调用方在末尾统一刷一次，避免 N 个枚举 = N 次全量刷新。
+        /// </summary>
+        public static bool WriteFile(ConfigEnumDefinition def, out string error, bool refresh = true)
         {
             if (!Validate(def, out error))
                 return false;
@@ -163,17 +166,17 @@ namespace HYC.Framework.Config.Editor
 
             // 内容没变就不重写、也不 Refresh（重复生成枚举时省掉无谓的导入与编译抖动）；
             // 走统一写盘入口，自动套「自动生成」壳
-            if (GeneratedCodeFile.WriteIfChanged(relativePath, GeneratedCodeFile.WithHeader(code)))
+            if (GeneratedCodeFile.WriteIfChanged(relativePath, GeneratedCodeFile.WithHeader(code)) && refresh)
                 AssetDatabase.Refresh();
             return true;
         }
 
         /// <summary>按导出目标导出 .cs 到客户端/服务器目录。</summary>
-        public static bool Export(ConfigEnumDefinition def, bool client, bool server)
+        public static bool Export(ConfigEnumDefinition def, bool client, bool server, bool refresh = true)
         {
             if (!IsGenerated(def))
             {
-                if (!WriteFile(def, out var err))
+                if (!WriteFile(def, out var err, refresh))
                 {
                     Debug.LogWarning($"[枚举] 导出 {def.className} 失败：{err}");
                     return false;

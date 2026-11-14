@@ -36,10 +36,18 @@ namespace HYC.Framework.Config.Editor
         private static bool s_reportedInOperation;
 
         /// <summary>
-        /// 顶层导出操作开始时调用，清掉标记。由 <see cref="ConfigExportService"/> 的三个入口
-        /// （单实例 / 文件夹 / 全量清理导出）在各自导出循环之前调用。
+        /// 顶层导出操作开始时调用，清掉标记。由顶层驱动方在导出循环之前调用
+        /// （交互式：<see cref="ConfigExportRunner"/>；批处理：<see cref="ConfigExportService.ExportFolder"/> /
+        /// <see cref="ConfigExportService.CleanAndExportAll"/>）。
         /// </summary>
         public static void BeginExportOperation() => s_reportedInOperation = false;
+
+        /// <summary>
+        /// 标记「本次操作已经汇报过检查结果」。给自定义汇报通道用：
+        /// 模态导出窗不能在模态循环里弹窗，只能在结束后统一开错误窗，这里补上标记以免
+        /// <see cref="EndExportOperation"/> 再弹一次「未发现问题」。
+        /// </summary>
+        public static void MarkReported() => s_reportedInOperation = true;
 
         /// <summary>
         /// 顶层导出操作结束时调用：本次一条检查项都没有、且开启了
