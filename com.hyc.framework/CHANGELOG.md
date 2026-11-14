@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-14
+
 ### 变更：导出通用化 —— `Editor/Export/` 通用导出层（所有导出共用模态清单窗）
 
 > 本条目最初只服务配置导出（`ConfigExportWindow`）。同批已把它抽象成通用层并**删除旧窗**
