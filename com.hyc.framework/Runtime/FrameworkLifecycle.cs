@@ -4,9 +4,11 @@
 // 说明: 进程级静态资源的统一收口 + World 销毁钩子
 //
 // 为什么需要这个文件：
-//   框架的 Manager(BTManager / ConfigRegistry / LocalizationManager ...) 是
-//   **进程级静态单例**，但它们持有的 native 容器(NativeHashMap / NativeArray /
-//   BlobAssetReference) 有真正的生命周期，必须在 World 销毁时统一释放。
+//   框架的 Manager(BTManager / ConfigRegistry / AudioCatalog ...) 是
+//   **进程级静态单例**，其中持有 native 容器(NativeHashMap / NativeArray /
+//   BlobAssetReference) 的那些有真正的生命周期，必须在 World 销毁时统一释放。
+//   注：LocalizationManager 只持有托管 string[] / Dictionary，不占 native 容器，
+//   故不在回收清单内（详见 DisposeAll 内注释）。
 //
 //   这里提供唯一收口，并挂一个空系统自动在 World 销毁时触发：
 //   - World.Dispose() 时 Unity 会销毁所有 system，FrameworkCleanupSystem.OnDestroy 随之执行；
@@ -47,8 +49,12 @@ namespace HYC.Framework
             // 配置：ConfigBlobTable 实现 IDisposable，Clear() 内部会释放 blob 与索引
             ConfigRegistry.Clear();
 
-            // 有意**不**清 LocalizationManager：它持有的是「本地化文本数据」而非原生资源，
-            // 且已经自带「Reload 失败保留原数据」的保护。World 销毁后数据仍在，
+            // 音频总览：持有 BlobAssetReference<AudioCatalogBlob>（native 句柄），必须释放。
+            // Release() 内部判 IsCreated 并幂等重置，重复调用安全。
+            HYC.Framework.Audio.AudioCatalog.Release();
+
+            // 有意**不**清 LocalizationManager：它只持有 string[] / Dictionary 等托管数据，
+            // 不占 native 容器，且自带「Reload 失败保留原数据」的保护。World 销毁后数据仍在，
             // 宿主重建 World 时可直接复用；真要重载请显式调 LocalizationManager.Reload()。
         }
 
@@ -66,6 +72,11 @@ namespace HYC.Framework
         {
             if (LocalizationManager.IDs == null || LocalizationManager.IDs.Length == 0)
                 LocalizationBlobSystem.Load();
+
+            // 音频总览与本地化同构：BeforeSceneLoad 阶段在 NeedsPreload 平台会主动跳过，
+            // 这里补一次。IsLoaded 内部判空，已加载则不重复读（Adopt 幂等）。
+            if (!HYC.Framework.Audio.AudioCatalog.IsLoaded)
+                HYC.Framework.Audio.AudioCatalogBlobSystem.Load();
         }
 
         /// <summary>

@@ -24,7 +24,8 @@
    SceneContentExporter.Export(Selection.activeObject);   // 不传 alias：自动取 Addressables 地址 > 资产名
    SceneContentExporter.ExportAll();                      // 批量导出全部含标记的关卡
    ```
-   Blob 落 `StreamingAssets/SceneContent/<资产GUID>.blob` 与 `…/server/<资产GUID>.blob`；
+   客户端 Blob 落 `StreamingAssets/SceneContent/<资产GUID>.blob`（唯一进客户端包体的产物）；
+   服务端 JSON 落 `Exports/Server/SceneContent/<资产GUID>.json`（Assets 外，只交付服务端）；
    同时维护映射清单 `StreamingAssets/SceneContent/index.json`（业务 key → 资产 GUID）。
 6. **运行期加载**（关卡加载完成后，用加载器**本来就持有**的业务 key）
    ```csharp
@@ -39,12 +40,14 @@
    }
    // 关卡加载器手里的业务 key（配置 id / Addressables 地址 / 资产名）：
    SceneContentLoader.LoadByKey(levelKey, new MySpawner());                        // 客户端
-   SceneContentLoader.LoadByKey(levelKey, serverSpawner, SceneContentSide.Server); // 专用服务器
+   // 服务端数据不进客户端包体：由服务端进程直接读 Exports/Server/SceneContent/<guid>.json；
+   // 运行期 Load / LoadByKey 传 SceneContentSide.Server 会报错并返回 false。
    // 仅当手里确实已有资产 GUID 时，才用底层通道：SceneContentLoader.Load(guid, new MySpawner());
    ```
 
 **关键契约（AI 改写时务必遵守）**：
 - **运行期用业务 key，不用资产 GUID**：`AssetDatabase` 只在编辑器可用，打包后（尤其 WebGL）没有；且程序化重建 prefab 会换 GUID。导出期把「业务 key → GUID」写进 `SceneContent/index.json`，`LoadByKey` 查表后复用 `Load`。Unity 运行期无 `gameObject→资产GUID` API，GUID 不能从关卡内 GO 反查，**更不能在代码 / Inspector 里手抄**。完整说明见「业务 key 与映射清单」。
+- **服务端产物不进客户端包体**：服务端只出 JSON 到 `ServerExportDir/SceneContent/<guid>.json`（默认 `Exports/Server/`，在 Assets 外、非 Blob），由服务端进程自行读取；运行期 `Load` / `LoadByKey` 的 `side=Server` 只报错，不读包体。
 - **key 来源**：`Export(asset, alias)` 显式 alias > Addressables 地址 > 资产名；`ExportAll()` 自动推断。同名资产（不同目录）会撞 key，须显式传不重复的 alias。
 - **内容 id 是稳定 int**：`ISceneContentMarker.ContentTypeId` 建议来自 `SceneContentTypeId.Compute(className)`（FNV-1a 32 位，无需发号服）；改类名 = 换 id，需重导 blob。
 - **payload 自定**：标记组件实现 `ISceneContentMarkerPayload.ToPayloadJson(GameObject levelRoot, SceneContentSide side)` 决定字段与两侧差异；不实现退回 `JsonUtility.ToJson`（仅标量）。
@@ -96,10 +99,10 @@
 ```
 关卡 Prefab / Scene 资产（.meta GUID）
 └─ B. 标记组件 ISceneContentMarker（挂在资产内 GO 上）  ──→ 收集 → SceneContentBlob
-                                                            StreamingAssets/SceneContent/<guid>.blob            (客户端)
-                                                            StreamingAssets/SceneContent/server/<guid>.blob     (服务端)
-                                                            StreamingAssets/SceneContent/index.json             (业务 key → guid)
-        (运行期) 关卡加载器持有业务 key → LoadByKey(key, spawner, side)
+                                                            StreamingAssets/SceneContent/<guid>.blob   (客户端，进包体)
+                                                            StreamingAssets/SceneContent/index.json  (业务 key → guid)
+                                                            Exports/Server/SceneContent/<guid>.json (服务端，Assets 外)
+        (运行期) 关卡加载器持有业务 key → LoadByKey(key, spawner)
                  → 查 index.json 得 guid → Load(guid, …) → spawner.Spawn(...)
 ```
 
@@ -304,13 +307,17 @@ Scene 走临时 Additive 加载后的根 GO），**不再有 `SceneContentAuthor
   （Prefab `GameObject` 或 `SceneAsset` 均可；`alias` 可选，见 3.5.1）。
 
 导出器取 `AssetDatabase.GetAssetPath` → `AssetPathToGUID` 得到关卡 GUID，对资产内 GO 扫描
-`GetComponentsInChildren<ISceneContentMarker>(true)`，两侧产物分别落：
+`GetComponentsInChildren<ISceneContentMarker>(true)`，按侧收集 payload 并分别落：
 
-- 客户端：`StreamingAssets/SceneContent/<guid>.blob`
-- 服务端：`StreamingAssets/SceneContent/server/<guid>.blob`
+- 客户端：`StreamingAssets/SceneContent/<guid>.blob`（**唯一进客户端包体的产物**；做 TryRead 往返自校验：
+  读回 Blob 内 `LevelGuid` 与资产 GUID 比对，不一致报 Error）
+- 服务端：`{ServerExportDir}/SceneContent/<guid>.json`（默认 `Exports/Server/`，**纯 JSON、不是 Blob**）。
+  字段是扁平 float + `payloadJson`，与客户端 Blob 同源；另带 `key` / `guid` / `assetPath` / `version`，
+  便于服务端按业务 key 索引。`ServerExportDir` 落在 Assets 内时导出器直接报错拒绝。
 
-纯单机工程可在 `SceneContentExporter` 侧关掉服务端产物（默认两都写）。
-导出后做 TryRead 往返自校验：读回 Blob 内 `LevelGuid` 与资产 GUID 比对，不一致报 Error。
+服务端产物由服务端进程自行读取，运行期 `SceneContentLoader` 不读它。
+`SceneContentSide.Server` 仍用于标记组件的 payload 裁剪（哪些字段给服务端），不再对应第二份 Blob。
+旧版曾把 `SceneContent/server/<guid>.blob` 写进 StreamingAssets：导出器现在会检测该残留目录并报 Error 提示删除。
 Scene 资产不可挂运行时组件，导出时以 Additive 方式临时加载取根 GO，扫完即关，不影响当前场景。
 
 #### 3.5.1 业务 key 与映射清单（运行期身份）
@@ -340,14 +347,15 @@ upsert 一条到 `StreamingAssets/SceneContent/index.json`：
 | key 撞车 | 不同资产同名（不同目录）用资产名兜底时会撞 key，框架打 Warning 提示改用显式 alias |
 | 未命中 | `LoadByKey` 报 Error 并**列出清单里所有可用 key**；清单缺失/为空/解析失败都有独立报错 |
 
-运行期用 `SceneContentLoader.LoadByKey(key, spawner[, side])`：走 `StreamingAssets.ReadText`
+运行期用 `SceneContentLoader.LoadByKey(key, spawner)`：走 `StreamingAssets.ReadText`
 读清单 → 查 key 换成 guid → 复用 `Load`。**`Load(guid, …)` 保留为底层通道**，仅当手里确实已有 GUID 时用。
+`side` 参数保留兼容，但只接受 `Client`；传 `Server` 会明确报错并返回 false（服务端数据不在包体内）。
 
 - **WebGL / Android 无需额外接线**：`index.json` 是纯磁盘文件，构建期
   `StreamingAssetsManifestBuilder` 递归枚举 StreamingAssets（排除 `aa/`、`.meta`）把它写进
   `hyc_streaming_manifest.txt`，随 `FrameworkBootstrap.InitializeAsync` 的 `PreloadAsync()` 预取。
   ⚠️ 不要用 `File.ReadAllText` 读它——那两个平台读不到。
-- **不改动 Blob**：`SceneContentBlob.BlobVersion` 仍为 3、`LevelGuid` 字段与 WriteSide 往返自校验都不动。
+- **不改动 Blob**：`SceneContentBlob.BlobVersion` 仍为 3、`LevelGuid` 字段与 `WriteClientBlob` 往返自校验都不动。
   存量已导出的 blob **零重导**；只是新增一个映射文件。
 - **孤儿文件**：关卡重建换 GUID 后，旧 `<oldGuid>.blob` 会留在磁盘（清单已指向新 GUID，不影响正确性），
   但需要时手动清理 `StreamingAssets/SceneContent/` 下的历史 blob，避免被构建清单收录进包。
@@ -391,16 +399,16 @@ upsert 一条到 `StreamingAssets/SceneContent/index.json`：
 框架查 `SceneContent/index.json` 换成资产 GUID 再加载（见 3.5.1）：
 
 ```csharp
-// 游戏自己的关卡加载完成后（第三个参数默认 Client）
+// 游戏自己的关卡加载完成后
 // levelKey 与导出时登记的 alias / Addressables 地址 / 资产名一致
 SceneContentLoader.LoadByKey(levelKey, mySpawner);
-// 专用服务器进程读另一份产物：
-SceneContentLoader.LoadByKey(levelKey, serverSpawner, SceneContentSide.Server);
+// 服务端进程不走运行期 Loader：直接读 Exports/Server/SceneContent/<guid>.json。
 ```
 
 > **不要手抄资产 GUID**：`AssetDatabase` 打包后不存在，运行期也没有
 > `gameObject → 资产 GUID` 的 API；程序化重建关卡还会换 GUID。
-> 只有确实已持有 GUID 时，才用底层通道 `SceneContentLoader.Load(guid, spawner[, side])`。
+> 只有确实已持有 GUID 时，才用底层通道 `SceneContentLoader.Load(guid, spawner)`。
+> `side` 保留兼容但只接受 `Client`；服务端数据不在客户端包体内。
 > `LoadByKey` 查不到 key 会报 Error 并列出清单里所有可用 key。
 
 `mySpawner` 实现 `ISceneContentSpawner`，按 `contentTypeId` 决定生成什么：
@@ -446,8 +454,10 @@ SceneContentResolvers.Register(myResolver); // int GetContentTypeId(GameObject p
 - **blittable**：Blob 内只用 `int / float（扁平 PosX..RotW..ScaleZ）/ BlobArray<byte>`，prefab 引用收成 int id。
   坐标刻意不用 `float3`/`quaternion`：导出器在 Editor 程序集（asmdef 无 Unity.Mathematics 引用），
   碰 math 字段会 CS0012 / EA0003；运行期由 `SceneContentLoader` 重组为 math 类型再交给 spawner。
-- **Blob 落点**：`Assets/StreamingAssets/SceneContent/`（服务端加 `server/` 子目录），
-  运行期只能从 StreamingAssets 读取（跨端一致）。
+- **客户端 Blob 落点**：`Assets/StreamingAssets/SceneContent/`，运行期只能从 StreamingAssets 读取（跨端一致）。
+- **服务端产物边界（硬规则）**：服务端只出 JSON 到 `ServerExportDir/SceneContent/`（默认 `Exports/Server/`，
+  在 Assets 外），**不产 Blob、不写 StreamingAssets、不进客户端包体**。
+  靠「构建清单排除 `server/`」修不了这个——文件仍在 `Assets/StreamingAssets/`，所有平台都会打进包体。
 - **映射清单不是 Blob**：`SceneContent/index.json` 是纯文本 JSON，由导出器 upsert 维护，
   运行期必须走 `StreamingAssets.ReadText`（`LoadByKey` 已封装）——**禁止 `File.ReadAllText`**，
   WebGL / Android 读不到物理文件。构建期由 `StreamingAssetsManifestBuilder` 递归收录进预取清单，

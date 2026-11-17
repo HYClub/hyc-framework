@@ -164,12 +164,19 @@
 - `CinemachineDualVariant` 默认按**层名**解析，无名层要走 `SetLayers(层号,层号)`；`CinemachineRigBinder` 在 `Awake` 一次性扫描机位，晚加的机位需 `binder.Rescan()`。
 
 ### SceneContent（场景内容物）
+- **服务端产物不进客户端包体（铁律）**：服务端**不产 Blob**、服务导出目录**不进客户端**。
+  客户端只写 `Assets/StreamingAssets/SceneContent/<guid>.blob` + `index.json`；服务端只写
+  `{ServerExportDir}/SceneContent/<guid>.json`（默认 `Exports/Server/`，必须在 Assets 外，纯 JSON）。
+  `ServerExportDir` 落在 Assets 内时导出器与设置窗口都要拒绝；「构建清单排除 `server/`」是假修复，
+  文件仍在 StreamingAssets 里、所有平台都会打进包体。`SceneContentSide.Server` 只用于 payload 字段裁剪，
+  运行期 `Load` / `LoadByKey` 传 Server 明确报错返回 false；签名保留以兼容宿主，不要删参数。
+  旧工程若残留 `Assets/StreamingAssets/SceneContent/server/`，导出时会报 Error 提示删除。
 - **编辑器期 prefab→id 解析器必须放样例自己的 Editor asmdef**：解析器类型在框架 Editor 程序集，运行时 asmdef 引用不了它（`#if UNITY_EDITOR` 包在运行时 asmdef 里照样 CS0234）。`SceneContentResolvers.Register` 一次性、编辑器期自注册；运行期 `SceneContentLoader` 只做加载。
-- **运行期身份 = 业务 key，禁止手抄资产 GUID（铁律）**：GUID 只在 Editor 可得（`AssetDatabase` 属 `UnityEditor`），程序化重建 prefab（先 `DeleteAsset` 再 `SaveAsPrefabAsset`）还会换 GUID。导出期 `Export(asset, alias = null)` 把「业务 key → GUID」upsert 进 `SceneContent/index.json`（key 优先级：显式 alias > Addressables 地址 > 资产名）；运行期关卡加载器用自己本来就有的业务 key（`LevelConfig.MapAddress` / 配置 id / 资产名）调 `SceneContentLoader.LoadByKey(key, spawner[, side])`，框架查表换 GUID 后复用 `Load`。`Load(guid,…)` 仅作底层通道。**不要**在代码 / Inspector / 字典里硬编码 GUID；查不到 key 时框架会报 Error 并列出清单全部可用 key。
+- **运行期身份 = 业务 key，禁止手抄资产 GUID（铁律）**：GUID 只在 Editor 可得（`AssetDatabase` 属 `UnityEditor`），程序化重建 prefab（先 `DeleteAsset` 再 `SaveAsPrefabAsset`）还会换 GUID。导出期 `Export(asset, alias = null)` 把「业务 key → GUID」upsert 进 `SceneContent/index.json`（key 优先级：显式 alias > Addressables 地址 > 资产名）；运行期关卡加载器用自己本来就有的业务 key（`LevelConfig.MapAddress` / 配置 id / 资产名）调 `SceneContentLoader.LoadByKey(key, spawner)`，框架查表换 GUID 后复用 `Load`。`Load(guid,…)` 仅作底层通道；`side` 参数保留兼容但只接受 `Client`。**不要**在代码 / Inspector / 字典里硬编码 GUID；查不到 key 时框架会报 Error 并列出清单全部可用 key。
 - **Blob 身份 = 资产 GUID（彻底无描述器组件）**：导出器直接对关卡 **Prefab / Scene 资产**调用，用其 `.meta` GUID 命名 Blob（`SceneContent/<guid>.blob`）。来源只有 B（标记组件 `ISceneContentMarker`，挂资产内 GO 即被自动发现）；早期 A 来源（手填实例条目 + `SceneContentAuthoring`）已移除。`SceneContentBlob.BlobVersion` / `LevelGuid` / 自校验不动，清单结构变更只抬 `SceneContentManifest.ManifestVersion`。
 - **WebGL / Android 零接线**：`index.json` 由构建期 `StreamingAssetsManifestBuilder` 递归收录进 `hyc_streaming_manifest.txt`，随 `FrameworkBootstrap.InitializeAsync` 的 `PreloadAsync()` 预取；读它必须走 `StreamingAssets.ReadText`（`LoadByKey` 已封装），**禁 `File.ReadAllText`**。
 - 导出写 Blob 注意 `EA0001`（BlobBuilder Allocator/线程约束）、payload 字节复制显式 `try/finally`；生成代码走框架 asmdef，不可手改。
-- **用法速查（给接入方 AI）**：建类型 `SceneContentFactory.CreateType(name, className)` → 设计器配字段 → 「生成代码」→ 挂组件到关卡 prefab → `SceneContentExporter.Export(资产, 业务key)` / `ExportAll()` → 运行期用业务 key 调 `SceneContentLoader.LoadByKey(key, spawner[, side])`。完整 6 步 + 代码示例见 `14-场景内容物-SceneContent.md` 的「用法速查」节，映射清单规则见 3.5.1。
+- **用法速查（给接入方 AI）**：建类型 `SceneContentFactory.CreateType(name, className)` → 设计器配字段 → 「生成代码」→ 挂组件到关卡 prefab → `SceneContentExporter.Export(资产, 业务key)` / `ExportAll()` → 运行期用业务 key 调 `SceneContentLoader.LoadByKey(key, spawner)`。完整 6 步 + 代码示例见 `14-场景内容物-SceneContent.md` 的「用法速查」节，映射清单规则见 3.5.1。
 
 ### Input（输入组件化）
 - **每名玩家要独立 `InputActionAsset` 实例**：`Object.Instantiate(...)` 克隆；共享同一实例会让边沿（`justPressed`）与启用状态跨玩家串味。

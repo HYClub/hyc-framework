@@ -206,7 +206,22 @@ namespace HYC.Framework.Audio
             }
         }
 
-        public void StopAll() => StopChannel(AudioChannelId.Master);
+        public void StopAll()
+        {
+            // 不能直接 StopChannel(Master)：Master.Value = 0 只代表「全局音量」这一控制位，
+            // 播放时 voice.Channel 记的是实际组（Music / Sfx …，均非 0），按 0 过滤一个都停不掉。
+            // 语义与 WwiseAudio.StopAll 一致——无条件停掉所有在播 voice。
+            for (int i = 0; i < _voices.Count; i++)
+            {
+                var v = _voices[i];
+                if (!v.Playing && !v.Paused) continue;
+                v.Source.Stop();
+                v.Source.clip = null;
+                v.Playing = false;
+                v.Paused = false;
+                v.Address = null;
+            }
+        }
 
         public void Pause(AudioHandle handle, bool paused)
         {

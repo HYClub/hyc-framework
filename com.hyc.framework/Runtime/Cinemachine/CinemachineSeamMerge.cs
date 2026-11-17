@@ -156,7 +156,8 @@ namespace HYC.Framework.Cinemachine
             var raw = m_Profile.Duration <= 0f ? 1f : Mathf.Clamp01(m_Time / m_Profile.Duration);
             var t = m_Profile.Ease != null && m_Profile.Ease.length > 0 ? m_Profile.Ease.Evaluate(raw) : raw;
 
-            ApplySeam(m_Reverse ? 1f - t : t);
+            // t 单调递增（0→1），方向由 ApplySeam 按 m_Reverse 决定。
+            ApplySeam(t);
 
             if (raw >= 1f)
                 Finish();
@@ -167,10 +168,16 @@ namespace HYC.Framework.Cinemachine
             if (m_Compositor == null)
                 return;
 
+            // 正向：从当前接缝 → 目标（合拢）。反向：Begin 把起点设成了「已合并」target，
+            // 这里必须朝「分开态」零值走；若仍 Lerp 到 target 则起点==终点，渐变恒为常量。
+            // 零值终点与 Finish() 里 reverse 分支设置的分开态一致。
             var seam = m_BaseSeam;
-            seam.Push = Mathf.Lerp(seam.Push, m_Profile.PushTarget, t);
-            seam.Crossfade = Mathf.Lerp(seam.Crossfade, m_Profile.CrossfadeTarget, t);
-            seam.Feather = Mathf.Lerp(seam.Feather, m_Profile.FeatherTarget, t);
+            float pushTo = m_Reverse ? 0f : m_Profile.PushTarget;
+            float crossfadeTo = m_Reverse ? 0f : m_Profile.CrossfadeTarget;
+            float featherTo = m_Reverse ? 0f : m_Profile.FeatherTarget;
+            seam.Push = Mathf.Lerp(seam.Push, pushTo, t);
+            seam.Crossfade = Mathf.Lerp(seam.Crossfade, crossfadeTo, t);
+            seam.Feather = Mathf.Lerp(seam.Feather, featherTo, t);
             m_Compositor.SetSeam(seam);
         }
 

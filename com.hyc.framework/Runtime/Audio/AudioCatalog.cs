@@ -273,6 +273,15 @@ namespace HYC.Framework.Audio
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void AutoLoadAtPlay()
         {
+            // 与 LocalizationBlobSystem 同一守卫：NeedsPreload 平台（WebGL / Android）上本方法
+            // 可能早于宿主 await PreloadAsync 完成就触发，此时缓存为空、读了也全空。主动跳过，
+            // 由 FrameworkLifecycle.EnsureBootDataLoaded 在预取完成后补加载（引导入口会调）。
+            if (HYC.Framework.IO.StreamingAssets.NeedsPreload && !HYC.Framework.IO.StreamingAssets.IsPreloaded)
+            {
+                Debug.LogWarning("[HYC.Audio] 需要预取的平台（WebGL / Android）上 StreamingAssets 尚未预取完成，" +
+                                 "已跳过音频总览自动加载，请在引导完成后由 EnsureBootDataLoaded 补加载。");
+                return;
+            }
             if (!AudioCatalog.IsLoaded) Load();
         }
 

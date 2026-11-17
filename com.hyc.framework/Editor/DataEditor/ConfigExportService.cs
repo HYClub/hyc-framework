@@ -57,28 +57,23 @@ namespace HYC.Framework.Config.Editor
             return exporter.ExportCore(so as ConfigBase, client, server, refresh);
         }
 
-        /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。</summary>
+        /// <summary>导出文件夹下所有配置资产（每类型批量导出，一类型一份产物）。批处理 / CI 路径。</summary>
         public static int ExportFolder(string folder, bool client, bool server)
         {
             var exported = 0;
-            var assetPaths = AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder });
-            var assets = new List<ScriptableObject>();
-            var done = new HashSet<Type>();
-
-            foreach (var guid in assetPaths)
+            var assets = ConfigIdService.CollectConfigAssets(folder); // 读索引，不再各自 FindAssets
+            var byType = new Dictionary<Type, List<ConfigBase>>();
+            for (var i = 0; i < assets.Count; i++)
             {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
-                if (asset == null)
-                    continue;
-
-                var type = asset.GetType();
-                if (type == typeof(ConfigTemplate))
-                    continue;
-                if (type.Namespace == null || !type.Namespace.StartsWith(ConfigDataSettings.Namespace))
-                    continue;
-
-                assets.Add(asset);
+                var cb = assets[i] as ConfigBase;
+                if (cb == null) continue;
+                var type = assets[i].GetType();
+                if (!byType.TryGetValue(type, out var list))
+                {
+                    list = new List<ConfigBase>();
+                    byType[type] = list;
+                }
+                list.Add(cb);
             }
 
             // 导出前查重（重复/未分配 → 弹窗重新派发）
@@ -86,14 +81,10 @@ namespace HYC.Framework.Config.Editor
                 return 0;
 
             BuildErrorWindow.BeginExportOperation();
-            foreach (var asset in assets)
+            foreach (var kv in byType)
             {
-                var type = asset.GetType();
-                if (done.Add(type))
-                {
-                    if (ExportAll(type, client, server, false))
-                        exported++;
-                }
+                if (ExportAll(kv.Key, client, server, false, kv.Value))
+                    exported++;
             }
             // 目录内全部类型导出完再统一刷新一次（避免逐类型 Refresh 卡死主线程）
             AssetDatabase.Refresh();
@@ -104,36 +95,28 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>
-        /// 保存文件夹下所有配置资产（递归）。先 <c>SetDirty</c> 再 <c>SaveAssets</c>，
-        /// 跳过 <see cref="ConfigTemplate"/> 与本命名空间之外的 ScriptableObject。
-        /// 供「保存并导出」在导出前确保所有改动已落盘。
+        /// 保存改动过的配置资产。Inspector / <c>SerializedObject.ApplyModifiedProperties</c> 编辑时
+        /// Unity 已自动把资产标脏，<c>SaveAssets()</c> 一次即可把全部脏资产落盘。
         /// </summary>
+        /// <remarks>
+        /// 不要再逐个 <c>FindAssets</c> → <c>LoadAssetAtPath</c> → <c>SetDirty</c>：那样等于把全目录
+        /// 资产强制标脏并重写一遍，上千资产时是上万次调用，会把主线程占满十几秒。
+        /// </remarks>
         public static void SaveFolder(string folder)
         {
             if (string.IsNullOrEmpty(folder) || !AssetDatabase.IsValidFolder(folder))
                 return;
 
-            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder }))
-            {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
-                if (asset == null)
-                    continue;
-
-                var type = asset.GetType();
-                if (type == typeof(ConfigTemplate))
-                    continue;
-                if (type.Namespace == null || !type.Namespace.StartsWith(ConfigDataSettings.Namespace))
-                    continue;
-
-                EditorUtility.SetDirty(asset);
-            }
-
             AssetDatabase.SaveAssets();
         }
 
-        /// <summary>按类型批量导出（实例化生成的 XxxExport 调 <see cref="ConfigBaseExport.ExportAllCore"/>）。</summary>
-        public static bool ExportAll(Type configType, bool client, bool server, bool refresh = true)
+        /// <summary>
+        /// 按类型批量导出（实例化生成的 XxxExport 调 <see cref="ConfigBaseExport.ExportAllCore"/>）。
+        /// <paramref name="suppliedAssets"/> 由 <see cref="ConfigExportRunner"/> 从 <see cref="ConfigAssetIndex"/>
+        /// 按精确类型分组注入；传 null 时退回基类自己的全工程扫描（兼容其它调用方）。
+        /// </summary>
+        public static bool ExportAll(Type configType, bool client, bool server, bool refresh = true,
+                                     IReadOnlyList<ConfigBase> suppliedAssets = null)
         {
             if (configType == null)
                 return false;
@@ -148,7 +131,7 @@ namespace HYC.Framework.Config.Editor
             if (!TryCreateExporter(exportType, configType, out var exporter))
                 return false;
 
-            return exporter.ExportAllCore(client, server, refresh);
+            return exporter.ExportAllCore(client, server, refresh, suppliedAssets);
         }
 
         /// <summary>
@@ -234,21 +217,24 @@ namespace HYC.Framework.Config.Editor
                 Debug.Log($"[Config] 已清理 {count} 个旧 blob：{dir}");
         }
 
-        /// <summary>收集根目录下全部配置资产类型（去重，跳过模板/枚举/本命名空间之外）。</summary>
+        /// <summary>
+        /// 收集目录下全部配置资产类型（去重，跳过模板 / 本命名空间之外）。
+        /// 数据源统一为 <see cref="ConfigAssetIndex"/>：只读索引里的精确类型，不加载资产对象。
+        /// </summary>
         public static List<Type> CollectConfigTypes(string folder)
         {
             var types = new List<Type>();
             var seen = new HashSet<Type>();
-            if (!AssetDatabase.IsValidFolder(folder)) return types;
+            var ns = ConfigDataSettings.Namespace;
 
-            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder }))
+            var entries = string.IsNullOrEmpty(folder)
+                ? ConfigAssetIndex.All()
+                : ConfigAssetIndex.ByFolder(folder);
+            for (var i = 0; i < entries.Count; i++)
             {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
-                if (asset == null) continue;
-                var type = asset.GetType();
-                if (type == typeof(ConfigTemplate)) continue;
-                if (type.Namespace == null || !type.Namespace.StartsWith(ConfigDataSettings.Namespace)) continue;
+                var type = entries[i].AssetType;
+                if (type == null || type == typeof(HYC.Framework.Config.ConfigTemplate)) continue;
+                if (type.Namespace == null || !type.Namespace.StartsWith(ns)) continue;
                 if (seen.Add(type)) types.Add(type);
             }
             return types;

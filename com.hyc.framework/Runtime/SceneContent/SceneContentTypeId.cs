@@ -34,12 +34,15 @@ namespace HYC.Framework.SceneContent
         }
     }
 
-    /// <summary>导出侧。场景内容可以按侧导出成两份 blob（客户端 / 服务端）。</summary>
+    /// <summary>
+    /// 导出侧：决定标记组件 <see cref="ISceneContentMarkerPayload"/> 的 payload 字段裁剪。
+    /// 客户端出 Blob 进包体，服务端出 JSON 到 ServerExportDir；两侧不是两份 Blob。
+    /// </summary>
     public enum SceneContentSide
     {
         /// <summary>客户端：完整数据（含可视对象引用）。</summary>
         Client,
-        /// <summary>服务端：通常只要逻辑字段，GO 引用默认不导出。</summary>
+        /// <summary>服务端：通常只要逻辑字段，GO 引用默认不导出；运行期 Loader 不接受本侧。</summary>
         Server,
     }
 }

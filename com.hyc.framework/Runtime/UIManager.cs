@@ -780,11 +780,9 @@ namespace HYC.Framework.UI
                     return;
             }
 
-            Close(window);
-
-            var group = GetSystemGroup(type);
-            group.RemoveSystemFromUpdateList(window);
-            window.Enabled = false;
+            // Enabled=false 与 from update list 的移除已在 Close(window)（实例版）内部统一完成。
+            // 透传 animation：否则 Close(type, false) 会在实例版里重新触发一遍退场动画。
+            Close(window, animation);
         }
 
         public static void CloseHudNotice<T>(T window) where T : AbsUISystem
@@ -794,12 +792,8 @@ namespace HYC.Framework.UI
                 return;
             }
 
+            // Enabled=false 与 from update list 的移除已在 Close(window)（实例版）内部统一完成。
             Close(window);
-
-            var world = World.DefaultGameObjectInjectionWorld;
-
-            var group = GetSystemGroup(typeof(T));
-            group.RemoveSystemFromUpdateList(window);
         }
 
         public static void Close<T>(T window, bool animation = true) where T : AbsUISystem
@@ -872,6 +866,13 @@ namespace HYC.Framework.UI
             // 每开关一次窗口就永久残留一条：WindowState 连带整棵 View 资源一起被字典钉住，
             // 既是无界内存增长，也会让「已销毁的窗口」继续出现在状态表里。
             ForgetWindowState(window);
+
+            // IsOpen 只看 window.Enabled。此实例版 Close 是 Close(Type)/CloseBy/CloseHudNotice
+            // 的共同底层，必须在真正关闭分支里置 Enabled=false 并从 update list 移除，
+            // 否则外部直接调 Close(instance) 后 IsOpen 长期为 true、系统仍在空转。
+            // 动画分支（FireExitAnimation 返回 true）在方法开头已 return，不会走到这里。
+            window.Enabled = false;
+            GetSystemGroup(window.GetType()).RemoveSystemFromUpdateList(window);
 
             ResetWindowFocus();
             ResetGUIInput();

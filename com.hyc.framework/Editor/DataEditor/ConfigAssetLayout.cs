@@ -73,9 +73,10 @@ namespace HYC.Framework.Config.Editor
             var slash = relative.IndexOf('/');
             if (slash <= 0) return false; // 资产直接在根目录下 = 未归置
 
-            // 回调安全：类型文件夹名一律取缓存（见 sTypeFolderCache 说明），此处不碰 AssetDatabase。
+            // 回调安全：类型文件夹名一律从 ConfigAssetIndex 读（TryPeek 是纯内存查询，
+            // 不碰 AssetDatabase，可安全用于 OnWillMoveAsset）。
             // 未命中 → expected 为 null → 下方比较不成立 → 按「未归置」放行。
-            var expected = sTypeFolderCache.TryGetValue(path, out var cached) ? cached : null;
+            var expected = ConfigAssetIndex.TryPeek(path, out var entry) ? entry.TypeFolder : null;
 
             var firstSegment = relative.Substring(0, slash);
             if (!string.Equals(firstSegment, expected, StringComparison.OrdinalIgnoreCase))
@@ -117,57 +118,44 @@ namespace HYC.Framework.Config.Editor
                    "文件夹内可自由移动 / 建子文件夹 / 重命名，移出会破坏该结构。";
         }
 
-        // ---------- 类型文件夹缓存（回调安全） ----------
+        // ---------- 兼容壳：类型文件夹登记并入 ConfigAssetIndex ----------
 
         /// <summary>
-        /// 资产路径 → 类型文件夹名。
-        /// <para>Unity 官方明确要求：<see cref="AssetModificationProcessor.OnWillMoveAsset"/> 回调内
-        /// <b>不得调用任何 AssetDatabase API</b>（建议只用文件操作 / VCS API）。因此「某条路径属于哪个类型」
-        /// 必须在回调<b>之外</b>先行解析并缓存，回调内只做对本字典的纯查询。</para>
-        /// <para>缓存未命中一律按「未归置」放行：<b>宁可漏拦，也绝不能阻塞 Unity 的改名流程</b>。</para>
+        /// 登记一条资产（调用方已持有类型，省一次反查）。
+        /// 旧实现维护独立的「路径 → 类型文件夹名」字典；现已并入
+        /// <see cref="ConfigAssetIndex"/> 这条唯一真源，避免两套缓存各自失效。
+        /// 保留公开签名是因为 <see cref="ConfigAssetFactory"/> 在创建资产后直接调用。
         /// </summary>
-        private static readonly Dictionary<string, string> sTypeFolderCache =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>登记路径所属类型文件夹（调用方已持有类型，无需反查）。</summary>
         public static void Register(string assetPath, Type assetType)
         {
             if (string.IsNullOrEmpty(assetPath)) return;
-            var expected = FolderNameFor(assetType);
-            if (expected == null) return; // 非配置类资产（模板/枚举之外）不归我们管
-            sTypeFolderCache[Normalize(assetPath)] = expected;
+            ConfigAssetIndex.Upsert(assetPath, assetType);
         }
 
         /// <summary>
-        /// 登记路径所属类型文件夹（内部反查类型）。
+        /// 登记一条资产（由索引内部反查类型）。
         /// <b>只允许在 AssetModificationProcessor 回调之外调用</b>。
         /// </summary>
         public static void Register(string assetPath)
         {
             if (string.IsNullOrEmpty(assetPath)) return;
-            // 非 .asset 直接跳过：避免每次导入贴图 / 脚本都白付一次 AssetDatabase 反查的代价
-            if (!assetPath.EndsWith(".asset", StringComparison.OrdinalIgnoreCase)) return;
-            Register(assetPath, AssetDatabase.GetMainAssetTypeAtPath(assetPath));
+            ConfigAssetIndex.Upsert(assetPath);
         }
 
         /// <summary>移除登记（资产删除，或改名 / 移动前的旧路径）。</summary>
         public static void Unregister(string assetPath)
         {
             if (string.IsNullOrEmpty(assetPath)) return;
-            sTypeFolderCache.Remove(Normalize(assetPath));
+            ConfigAssetIndex.Remove(assetPath);
         }
 
         /// <summary>
-        /// 冷启动补齐：域重载后静态字典会清空，而 Unity <b>不会</b>重导入未变动的资产
-        /// （即 Import 钩子不再触发），故需在 AssetDatabase 就绪后补扫一次配置根。
+        /// 冷启动补齐：域重载后静态索引会清空，而 Unity <b>不会</b>重导入未变动的资产
+        /// （Import 钩子不再触发），故需在 AssetDatabase 就绪后补一次全量扫描。
         /// </summary>
         public static void WarmupTypeFolderCache()
         {
-            var root = Normalize(ConfigDataSettings.RootFolder);
-            if (string.IsNullOrEmpty(root) || !AssetDatabase.IsValidFolder(root)) return;
-
-            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { root }))
-                Register(AssetDatabase.GUIDToAssetPath(guid));
+            ConfigAssetIndex.Rebuild();
         }
 
         // ---------- 内部 ----------
@@ -248,7 +236,7 @@ namespace HYC.Framework.Config.Editor
     }
 
     /// <summary>
-    /// 维护 <see cref="ConfigAssetLayout"/> 的类型文件夹缓存：导入 / 删除 / 移动时同步登记。
+    /// 维护 <see cref="ConfigAssetIndex"/>：导入 / 删除 / 移动时做**增量**更新，不重建整表。
     /// <para><b>回调层级差异</b>：AssetPostprocessor 的钩子不在 AssetModificationProcessor 内部，
     /// 因此这里可以安全调用 AssetDatabase API——正是为了让 <see cref="ConfigAssetMoveGuard"/> 在
     /// 改名回调里<b>不必</b>调用它们而存在。</para>
@@ -258,27 +246,59 @@ namespace HYC.Framework.Config.Editor
         static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
         {
             foreach (var p in imported ?? Array.Empty<string>())
-                ConfigAssetLayout.Register(p);
+                ConfigAssetIndex.Upsert(p);
             foreach (var p in deleted ?? Array.Empty<string>())
-                ConfigAssetLayout.Unregister(p);
+                ConfigAssetIndex.Remove(p);
 
             var moves = moved ?? Array.Empty<string>();
             var movesFrom = movedFrom ?? Array.Empty<string>();
             for (var i = 0; i < moves.Length && i < movesFrom.Length; i++)
-            {
-                ConfigAssetLayout.Unregister(movesFrom[i]);
-                ConfigAssetLayout.Register(moves[i]);
-            }
+                ConfigAssetIndex.Move(movesFrom[i], moves[i]);
+
+            ConfigAssetIndex.NoteImportHandled();
         }
     }
 
-    /// <summary>域重载 / 打开工程后补齐类型文件夹缓存（延到 AssetDatabase 就绪再扫）。</summary>
+    /// <summary>
+    /// 索引生命周期：① 域重载 / 打开工程后补一次全量扫描（延到 AssetDatabase 就绪）；
+    /// ② <c>projectChanged</c> 防抖兜底——外部 VCS 拉取 / 脚本改资产等未走导入钩子的情形，
+    /// 用 <see cref="ConfigAssetIndex.Reconcile"/> 做差集对齐，不重建结构。
+    /// </summary>
     [InitializeOnLoad]
     public static class ConfigAssetTypeCacheWarmup
     {
+        private static double sPendingAt = -1;
+
         static ConfigAssetTypeCacheWarmup()
         {
-            EditorApplication.delayCall += ConfigAssetLayout.WarmupTypeFolderCache;
+            EditorApplication.delayCall += Warmup;
+            EditorApplication.projectChanged -= OnProjectChanged;
+            EditorApplication.projectChanged += OnProjectChanged;
+            EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.update += OnEditorUpdate;
+        }
+
+        private static void Warmup()
+        {
+            // 首次查询可能已通过 EnsureReady 建好索引，这里不重复扫一次全工程
+            if (!ConfigAssetIndex.Ready) ConfigAssetIndex.Rebuild();
+        }
+
+        private static void OnProjectChanged()
+        {
+            sPendingAt = EditorApplication.timeSinceStartup;
+        }
+
+        private static void OnEditorUpdate()
+        {
+            if (sPendingAt < 0) return;
+            if (EditorApplication.timeSinceStartup - sPendingAt < 0.15) return;
+            var since = sPendingAt;
+            sPendingAt = -1;
+            // 导入钩子已精确处理过的变更不再全工程扫描（日常 Ctrl+S 零额外开销）；
+            // 只有外部 VCS 拉取等未触发导入钩子的变更才做差集兜底。
+            if (!ConfigAssetIndex.HandledSince(since))
+                ConfigAssetIndex.Reconcile();
         }
     }
 }

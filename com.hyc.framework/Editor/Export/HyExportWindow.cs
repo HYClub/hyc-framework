@@ -35,6 +35,14 @@ namespace HYC.Framework.Editor.Export
         private double[] mDoneAt;
         private bool[] mRemoved;
 
+        // 列表虚拟化：mVisibleIndices[0..mVisibleCount) 是未移除行的原始索引；
+        // 只有 [mFirstVisible, mLastVisible) 这一段会真的画控件，其余用 Space 占位。
+        // 这些值全部在 Layout 阶段算好，Repaint 只读，保证同帧两次事件的控件集合完全一致。
+        private int[] mVisibleIndices;
+        private int mVisibleCount;
+        private int mFirstVisible;
+        private int mLastVisible;
+
         private static GUIStyle sMarkSt, sNameSt, sCountSt, sStateSt, sRightSt, sHeadSt, sDescSt;
 
         private static readonly Color Accent = new Color(0.29f, 0.54f, 0.96f);
@@ -67,11 +75,16 @@ namespace HYC.Framework.Editor.Export
             mState = new HyExportRowState[n];
             mDoneAt = new double[n];
             mRemoved = new bool[n];
+            mVisibleIndices = new int[n];
             for (var i = 0; i < n; i++)
             {
                 mState[i] = HyExportRowState.Pending;
                 mDoneAt[i] = -1;
+                mVisibleIndices[i] = i;
             }
+            mVisibleCount = n;
+            mFirstVisible = 0;
+            mLastVisible = Mathf.Min(n, 30); // 首帧兜底：Layout 还没算过也只画一屏
             mStepping = true;
             mFatal = null;
             // 兜底：万一模态循环里重绘调度变稀，鼠标在本窗上移动也会触发一次 OnGUI 推进
@@ -157,6 +170,24 @@ namespace HYC.Framework.Editor.Export
                 if (!mRemoved[i] && mDoneAt[i] >= 0) { settling = true; break; }
             }
             if (working || settling) Repaint();
+
+            // 列表虚拟化：可见行映射与可视区间只在 Layout 阶段重建，Repaint 只读缓存。
+            // 否则 1000+ 行时每帧要把全部行塞进 ScrollView，单帧 IMGUI 控件上万 → Unity 弹 Hold on。
+            var preview = HyExportEngine.Phase == HyExportPhase.Preview;
+            var vc = 0;
+            for (var i = 0; i < count; i++)
+            {
+                if (!preview && mRemoved[i]) continue;
+                mVisibleIndices[vc++] = i;
+            }
+            mVisibleCount = vc;
+
+            // 视口行数上界：即便整个窗口都用作列表也不会超过这么多行，再加 2 行缓冲。
+            var maxRows = Mathf.Max(24, Mathf.CeilToInt(position.height / RowHeight)) + 2;
+            var y = Mathf.Max(0f, mScroll.y - 15f); // 扣掉滚动区内顶部 15f 的列头
+            var first = Mathf.Clamp(Mathf.FloorToInt(y / RowHeight) - 2, 0, vc);
+            mFirstVisible = first;
+            mLastVisible = Mathf.Min(vc, first + maxRows);
         }
 
         // ---------- 绘制 ----------
@@ -183,7 +214,7 @@ namespace HYC.Framework.Editor.Export
             GUILayout.Space(6f);
             DrawProgress(phase, isPreview, total, processed);
             GUILayout.Space(6f);
-            DrawList(isPreview);
+            DrawList();
             GUILayout.Space(4f);
             if (!running && !isPreview)
             {
@@ -306,23 +337,31 @@ namespace HYC.Framework.Editor.Export
             return string.IsNullOrEmpty(stage) ? "当前：" + head : $"当前：{head} · {stage}";
         }
 
-        private void DrawList(bool isPreview)
+        private void DrawList()
         {
             var rows = HyExportEngine.Rows;
             mScroll = EditorGUILayout.BeginScrollView(mScroll, GUILayout.ExpandHeight(true));
 
+            // 列头仍在滚动区内（与行共用同一个内容宽度，列不会错位）；
+            // 它占 15f，虚拟化的 y 换算要扣掉这段高度。
             DrawColumnHeader();
 
-            var visible = 0;
-            for (var i = 0; i < rows.Count && i < mState.Length; i++)
+            // 不可见行用空白占位，保持滚动条范围与整体高度正确。
+            // 两段 Space 无条件绘制（0 高度也合法）：滚动时控件集合不增减，
+            // 同帧 Layout / Repaint 的可见行集合恒定由缓存决定。
+            var first = mFirstVisible;
+            var last = mLastVisible;
+            GUILayout.Space(first * RowHeight);
+
+            for (var k = first; k < last; k++)
             {
-                // 预览态：全部列出来（还没跑，不会有「已完成并移除」）
-                if (!isPreview && mRemoved[i]) continue;
-                visible++;
+                var i = mVisibleIndices[k];
                 DrawRow(i, rows[i]);
             }
 
-            if (visible == 0)
+            GUILayout.Space((mVisibleCount - last) * RowHeight);
+
+            if (mVisibleCount == 0)
             {
                 GUILayout.Space(14f);
                 LabelCentered(rows.Count == 0 ? "（没有可导出的内容）" : "（列表已清空）", EditorStyles.miniLabel);

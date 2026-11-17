@@ -146,23 +146,52 @@ namespace HYC.Framework.Config.Editor
             };
         }
 
+        /// <summary>
+        /// 一次遍历把资产按**精确类型**分组：窗口计数与真正导出的资产列表来自同一份分组，
+        /// 生成期不再各自 FindAssets；注入 <see cref="ConfigExportService.ExportAll"/> 后，
+        /// 每个作业也不再跑全工程扫描。
+        /// </summary>
         private static void AddTypeJobs(HYC.Framework.Editor.Export.HyExportRequest req,
                                         List<Type> types, List<ScriptableObject> all,
                                         bool client, bool server)
         {
             if (types == null) return;
+            var groups = GroupByExactType(all);
             for (var i = 0; i < types.Count; i++)
             {
                 var type = types[i];
+                var assets = groups.TryGetValue(type, out var list) ? list : null;
                 req.jobs.Add(new HYC.Framework.Editor.Export.HyExportJob
                 {
                     name = type.Name,
-                    count = CountByType(all, type),
+                    count = assets != null ? assets.Count : 0,
                     unit = "个资产",
                     // 必须整类型导出：Blob/JSON 一类型一个产物，逐资产导出会互相覆盖
-                    run = () => ConfigExportService.ExportAll(type, client, server, false),
+                    run = () => ConfigExportService.ExportAll(type, client, server, false, assets),
                 });
             }
+        }
+
+        /// <summary>按 GetType()==键 精确分组（不把派生类型算进基类），与 CollectAssets 口径一致。</summary>
+        private static Dictionary<Type, List<ConfigBase>> GroupByExactType(List<ScriptableObject> all)
+        {
+            var groups = new Dictionary<Type, List<ConfigBase>>();
+            if (all == null) return groups;
+            for (var i = 0; i < all.Count; i++)
+            {
+                var so = all[i];
+                if (so == null) continue;               // Unity 伪 null：已销毁
+                var cb = so as ConfigBase;
+                if (cb == null) continue;               // 枚举 / 模板等不进导出分组
+                var t = so.GetType();
+                if (!groups.TryGetValue(t, out var list))
+                {
+                    list = new List<ConfigBase>();
+                    groups[t] = list;
+                }
+                list.Add(cb);
+            }
+            return groups;
         }
 
         /// <summary>
@@ -175,22 +204,6 @@ namespace HYC.Framework.Config.Editor
             if (extra != null && !all.Contains(extra))
                 all.Add(extra); // 单资产导出可能不在根目录下
             return ConfigIdService.EnsureUniqueBeforeExport(all, opName) ? all : null;
-        }
-
-        private static int CountByType(List<ScriptableObject> all, Type type)
-        {
-            if (all == null || all.Count == 0)
-                return CountAssetsOfType(type);
-            var n = 0;
-            for (var i = 0; i < all.Count; i++)
-                if (all[i] != null && type.IsAssignableFrom(all[i].GetType())) n++;
-            return n;
-        }
-
-        private static int CountAssetsOfType(Type type)
-        {
-            var guids = AssetDatabase.FindAssets("t:" + type.FullName);
-            return guids == null ? 0 : guids.Length;
         }
 
         // ---------- 执行与收尾 ----------

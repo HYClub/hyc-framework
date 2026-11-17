@@ -147,17 +147,21 @@ namespace HYC.Framework.Config.Editor
         {
             var result = new List<ScriptableObject>();
             var ns = ConfigDataSettings.Namespace;
-            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder }))
+            // 数据源统一为 ConfigAssetIndex：不再各自 FindAssets / LoadAssetAtPath 全扫。
+            var entries = string.IsNullOrEmpty(folder)
+                ? ConfigAssetIndex.All()
+                : ConfigAssetIndex.ByFolder(folder);
+            for (var i = 0; i < entries.Count; i++)
             {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
-                if (asset == null)
-                    continue;
-                var t = asset.GetType();
-                if (t == typeof(ConfigTemplate))
-                    continue;
-                if (t.Namespace == null || !t.Namespace.StartsWith(ns))
-                    continue;
+                var e = entries[i];
+                // 先用索引里的类型做过滤，只有真正需要的条目才反序列化：
+                // 全量 LoadAssetAtPath 会白加载贴图 / 其他 ScriptableObject，是旧实现卡主线程的原因。
+                var t = e.AssetType;
+                if (t == null || t == typeof(HYC.Framework.Config.ConfigTemplate)) continue;
+                if (t.Namespace == null || !t.Namespace.StartsWith(ns)) continue;
+
+                var asset = e.Asset;
+                if (asset == null) continue;
                 result.Add(asset);
             }
             return result;
@@ -217,9 +221,20 @@ namespace HYC.Framework.Config.Editor
             return issues;
         }
 
-        /// <summary>为问题资产重新派发 ID/GUID（优先走当前构造器，失败时用统一规则兜底）。</summary>
+        /// <summary>为问题资产重新派发 ID/GUID。返回成功写入的资产数。</summary>
         public static int Reissue(List<DuplicateIssue> issues)
         {
+            if (issues == null || issues.Count == 0) return 0;
+
+            // 网络构造器断线时每个 RequestIdSync 都会重连并等超时；批量派发前先探一次，
+            // 不通就整体放弃，避免 N×连接超时把编辑器主线程卡死。本地构造器不需要探测。
+            if (!(Provider is LocalConfigIdProvider) && !Ping())
+            {
+                Debug.LogError("[ConfigId] ID 服务器不可用，已放弃批量重新派发（避免逐个连接超时卡死编辑器）。" +
+                               "请检查 HYC Settings → 配置 → ID 构造器后重试。");
+                return 0;
+            }
+
             var count = 0;
             foreach (var issue in issues)
             {
@@ -228,9 +243,19 @@ namespace HYC.Framework.Config.Editor
                 {
                     cid = RequestIdSync();
                 }
-                catch
+                catch (Exception e)
                 {
-                    cid = ConfigId.Generate();
+                    // 本地构造器本就在进程内生成，可以就地兜底；网络构造器失败绝不能静默改本地号，
+                    // 否则多机唯一性失效且没人知道——直接中止，由调用方拦下导出。
+                    if (Provider is LocalConfigIdProvider)
+                    {
+                        cid = ConfigId.Generate();
+                    }
+                    else
+                    {
+                        Debug.LogError($"[ConfigId] 向 ID 服务器请求新 ID 失败，已中止重新派发：{e.Message}");
+                        break;
+                    }
                 }
                 if (TryWriteId(issue.Asset, cid))
                 {
@@ -273,6 +298,13 @@ namespace HYC.Framework.Config.Editor
             {
                 var n = Reissue(issues);
                 Debug.Log($"[ConfigId] 已重新派发 {n} 个资产的 ID/GUID");
+                // 部分派发成功也必须拦下导出：剩下的资产会带着重复 / 未分配的 ID 进 Blob。
+                if (n < issues.Count)
+                {
+                    Debug.LogError($"[ConfigId] 仅 {n}/{issues.Count} 个资产派发成功，已中止导出（{context}）。" +
+                                   "请修复 ID 服务器连接或冲突后重新导出。");
+                    return false;
+                }
                 return true;
             }
             return choice == 2; // 仍然导出（用户坚持）

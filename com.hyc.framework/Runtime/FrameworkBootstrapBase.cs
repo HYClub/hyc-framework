@@ -132,7 +132,12 @@ namespace HYC.Framework.Runtime
             while (!preload.IsCompleted)
                 yield return null;
             if (preload.IsFaulted)
-                Debug.LogError($"[HYC] StreamingAssets 预加载失败：{preload.Exception}");
+            {
+                // 预取失败后绝不能继续建 World：此时缓存是空的，System.OnCreate 读配置/本地化/音频
+                // 会全落空并刷一片红错，真正的根因（预取失败）反而被淹没。中止引导，让错误可见。
+                Debug.LogError($"[HYC] StreamingAssets 预加载失败，已中止引导（不建 World）：{preload.Exception}");
+                yield break;
+            }
 
             try
             {

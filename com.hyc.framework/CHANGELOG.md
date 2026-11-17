@@ -6,6 +6,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-18
+
+### 修复：服务端产物不进客户端包体（SceneContent）
+
+- **规则**：服务端不产 Blob、服务导出目录不进客户端。`Editor/SceneContent/SceneContentExporter.cs`
+  不再写 `Assets/StreamingAssets/SceneContent/server/<guid>.blob`；改为把服务端 payload 写成
+  `{ServerExportDir}/SceneContent/<guid>.json`（默认 `Exports/Server/`，纯 JSON，扁平 float + payloadJson，
+  另带 key / guid / assetPath / version）。客户端仍只写 `<guid>.blob` + `index.json`；
+  `SceneContentBlob.BlobVersion = 3` / `LevelGuid` / 往返自校验 /
+  `SceneContentManifest.ManifestVersion = 1` 全不动，存量客户端 blob 零重导。
+- `Editor/DataEditor/ConfigDataSettings.cs` 新增 `IsServerExportDirInsideAssets(dir)`，导出器与
+  `ConfigDataSettingsWindow` 共用：目录落在 Assets 内时导出器报 Error 拒绝、设置窗口保存时拦截并常驻提示
+  （IMGUI 提示块始终绘制，只换文案 / 级别，控件集合逐帧一致）。
+- `Runtime/SceneContent/SceneContentLoader.cs` 保留 `Load` / `LoadByKey` 的 `side` 参数（宿主兼容），
+  传 `SceneContentSide.Server` 明确报 Error 并返回 false，不再从包体读服务端数据；
+  导出器检测旧 `SceneContent/server/` 残留目录并报 Error 提示删除。
+- `SceneContentSide.Server` 语义改为「payload 字段裁剪」，枚举值不变。
+- 同步 `Documentation~/14-场景内容物-SceneContent.md`、包内 `AGENTS.md`；`scripts/verify-gate.sh`
+  新增第 10 项静态断言服务端产物边界，头部注释编号与实际检查项对齐。
+
+### 修复：存档崩溃不丢档（SaveManager）
+
+- 主档缺失 / 损坏时 `Get<T>` 回退读 `.bak` 并写回主档；不支持 `File.Replace` 的平台改为
+  「先备份再覆盖写」，删掉 `File.Delete(path)` 与写入之间「两份都不在」的崩溃窗口。
+- 空 payload 按合法空档处理，不再被误判成坏档而从旧备份回滚数据。
+- `Delete<T>` / `DeleteAll` 连 `.tmp` / `.bak` / `.corrupt_*` 一起清，避免删除后被 `.bak` 复活；
+  `Has<T>` 把 `.bak` 计入。类注释里的绝对化保证改成实际语义。
+
+### 修复：批量 ID 重派发不再卡死编辑器（ConfigIdService）
+
+- `Reissue` 批量前先做一次网络可用性预检，断线整体放弃，不再让 N 个资产各自重连超时（N×5s）。
+- 网络构造器请求失败不再静默 `ConfigId.Generate()` 本地兜底（会破坏多机唯一性且无人察觉），
+  只有本地构造器才就地兜底；`EnsureUniqueBeforeExport` 在派发数不足时直接拦下导出。
+
+### 变更：新增 `ConfigAssetIndex` —— 全包唯一配置资产索引（统一数据源 + 增量更新）
+
+- 新增 `Editor/DataEditor/ConfigAssetIndex.cs`：以规范化资产路径为主键的「配置数据库」，
+  `Entry` 存 `Path` / `Guid` / `AssetType`（精确类型）/ `Folder` / `FolderGuid` / `TypeFolder` /
+  `Asset`（**懒加载**，首次访问才反序列化）。派生视图 `All()`、`ByType(Type)`、`CountByType(Type)`、
+  `ByFolder(folder)`（含任意深度子目录）按 `Revision` 缓存，结构不变时 O(1)。
+  索引只登记事实、不做业务过滤，各调用方沿用原有过滤条件 ⇒ 接入前后行为一致。
+- **增量更新、避免重建**：`OnPostprocessAllAssets` → `Upsert` / `Remove` / `Move` 只动受影响的桶；
+  域重载后静态字典清空且 Unity 不重导入未变动资产 ⇒ `[InitializeOnLoad]` + `delayCall` 补一次
+  `Rebuild()`（整个会话唯一一次全量扫描）；`projectChanged` 防抖 150ms 仅在导入钩子未处理过本次变更时
+  才 `Reconcile()` 做 GUID 差集对齐（外部 VCS 拉取兜底），日常 Ctrl+S 零额外扫描；菜单「刷新」显式
+  `Reconcile()` 不重建结构。每次结构变更 `Revision++` 供调用方判断派生缓存是否过期。
+- **回调安全**：`TryPeek(path)` 是唯一纯内存查询，可在禁止调用 AssetDatabase 的
+  `AssetModificationProcessor.OnWillMoveAsset` 里使用；其余查询会 `EnsureReady()`。
+- **接入方（全部改为读索引）**：`ConfigAssetLayout` 的类型文件夹缓存并入索引（`Register` /
+  `Unregister` / `WarmupTypeFolderCache` 保留公开签名转调）；`ConfigDataTree` 的 `InstallFiles` /
+  `LoadAssetsUnder<T>` / `HasAnyAssetOfType` / `GetFolderStats` 与 `ConfigDataWindow` 的模板枚举保存；
+  `ConfigEnumCodeGen.LoadAllEnums`、`ConfigIconApplier` 的 `SyncAll` / `FindTemplateForType` / 菜单兜底
+  （走 `ByTypeAssignable`，含派生类型以对齐 `FindAssets("t:Type")` 语义）；
+  导出的 `CollectConfigAssets` / `CollectConfigTypes` / `ExportFolder` / `CollectAssets`。
+  旧的 `mFolderStatsCache`、`ComputeFolderStats`、`CountByType` 全部删除。
+- **刻意不接**（语义不同，硬套会改变行为）：数文件夹全部资产的 `FindAssets("", folder).Length`、
+  框架级模板目录 `FrameworkTemplatesFolder`（包内资产）、`ConfigExcelImporter` 的按名搜索与
+  `ConfigExcelPendingImport` 中间态、`DuplicateIdGuard` 的 `TalentTreeAsset`、`GUIDrawer` 的 `BTTreeAsset`。
+- **导出注入**：`ConfigExportRunner.GroupByExactType` 一次遍历按 `GetType()==键` 精确分组，
+  窗口计数与实际导出资产同源（修掉旧 `IsAssignableFrom` 口径导致的派生类计数虚高）；
+  经 `ConfigExportService.ExportAll(..., suppliedAssets)` → `ConfigBaseExport.ExportAllCore(..., suppliedAssets)`
+  注入，**均为新增可选参数**，既有调用与生成的 `XxxExport` 代码零改动。
+  千余作业不再各自跑一次全工程 `FindAssets`。
+- 索引计数同步 367/657 → 368/660；`Documentation~/90-编辑器工具链.md` 新增「配置资产索引」章节。
+
+### 修复：数据编辑器左树右键菜单卡顿（统计缓存 + 单次扫描）
+
+> 本条目的 `mFolderStatsCache` / `ComputeFolderStats` 已被上面的统一索引取代，保留作为演进记录。
+
+- 根因：文件夹 / 根目录右键在 `menu.ShowAsContext()` **之前**同步跑三次全量 `AssetDatabase.FindAssets`
+  （`CountExportableAssetsByType` 一次 + `CountAssetsUnder` 两次），且前者对每个 GUID 做
+  `LoadAssetAtPath<ScriptableObject>` 触发 N 次资产反序列化。上一轮左树优化（懒加载 / 标签缓存）
+  只覆盖**行绘制路径**，右键菜单是独立路径、从未受益，所以菜单弹出前会出现 Unity 的 "Hold on" 等待框。
+- **单次扫描**：新增 `ComputeFolderStats`，一次 `FindAssets("t:ScriptableObject", folder)` 同时数出
+  可导出配置类型 / 枚举定义 / 配置模板；用 `AssetDatabase.GetMainAssetTypeAtPath` 取类型替代
+  `LoadAssetAtPath`，`ConfigDataSettings.Namespace` 提到循环外。过滤规则与
+  `ConfigExportService.ExportFolder` 一致，菜单里的计数不变；两个旧的统计方法删除。
+- **按路径缓存**：`mFolderStatsCache` 缓存统计结果，`GetFolderStats` 命中即 O(1)。失效挂在
+  `BuildRoot`（每次 `Reload` 必经），因此增删改、外部导入（`projectChanged` 防抖后 Reload）自动失效，
+  不需要在每个写操作里逐点清理。缓存值是 ValueTuple，未新增类型。
+- **菜单「刷新」= 显式重建缓存**：`RefreshFromMenu` 清缓存 + `Reload`；文件夹右键额外传入路径，
+  立即重算该目录，使刷新后的第一次右键直接命中缓存且计数为刷新时刻的最新值。
+  文件 / 虚拟文件夹 / 外部节点的「刷新」只清缓存 + Reload，下次右键懒算。
+- `EnableBuildProfiling = true` 时多打一行 `FolderStats` 耗时（仅缓存未命中时），可据此核对缓存是否生效。
+- 未新增文件与公开类型，`Documentation~/100-文件与类索引.md` 计数不变。
+
 ## [2.2.0] - 2026-11-14
 
 ### 变更：导出通用化 —— `Editor/Export/` 通用导出层（所有导出共用模态清单窗）
@@ -448,9 +534,9 @@ API 实证（2022.3.35f1c1 安装目录 XML）：`TreeView.showAlternatingRowBac
 - **配置模板支持「唯一」（Single）**：`ConfigTemplate` 新增 `unique` 字段，模板 Inspector 在「基类模板」下方提供勾选框（默认不勾）。勾选后生成 `[CfgAsset("...", 0, unique: true)]`，即既有的 `CfgAssetAttribute.Unique` 语义（创建器不再提供二次创建、`ConfigAssetFactory.Create` 拒绝重复、`CreateMany` 不支持批量）。此前该能力只能靠手写特性获得，模板产出一律 Multiple。
 
 
-### ⚠️ Breaking（3.0.0 升级必读）
+### ⚠️ Breaking（2.1.0 升级必读）
 
-本版含**删除公共类型与语义反转**，按 SemVer 升为 3.0.0。逐条对照迁移：
+本版含**删除公共类型与语义反转**。曾按破坏性评估过 3.0.0，最终为保持版本序列连续定版 2.1.0（未发 3.0.0）。逐条对照迁移：
 
 | # | 破坏性变更 | 替代写法 | 需重生成配置代码 |
 | --- | --- | --- | --- |

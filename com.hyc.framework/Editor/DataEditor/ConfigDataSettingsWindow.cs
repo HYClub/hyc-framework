@@ -127,6 +127,14 @@ namespace HYC.Framework.Config.Editor
             EditorGUILayout.LabelField("导出", EditorStyles.boldLabel);
             mClientExportDir = EditorGUILayout.TextField("客户端导出目录", mClientExportDir);
             mServerExportDir = EditorGUILayout.TextField("服务器导出目录", mServerExportDir);
+            // 控件集合必须逐帧一致：HelpBox 始终绘制，只按校验结果换文案 / 级别。
+            var serverDirInsideAssets = ConfigDataSettings.IsServerExportDirInsideAssets(mServerExportDir);
+            EditorGUILayout.HelpBox(
+                serverDirInsideAssets
+                    ? "服务器导出目录必须位于工程 Assets 之外（默认 Exports/Server）。" +
+                      "放在 Assets / StreamingAssets 内会把服务端 JSON / 枚举等产物一并打进客户端包体。"
+                    : "服务器导出目录：服务端产物只写这里，不产 Blob、也不进客户端包体。",
+                serverDirInsideAssets ? MessageType.Error : MessageType.Info);
             mSideTypeIsStruct = EditorGUILayout.Toggle("导出类型为 struct（字段平铺）", mSideTypeIsStruct);
 
             EditorGUILayout.Space();
@@ -218,6 +226,14 @@ namespace HYC.Framework.Config.Editor
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("保存", GUILayout.Width(80)))
             {
+                if (ConfigDataSettings.IsServerExportDirInsideAssets(mServerExportDir))
+                {
+                    EditorUtility.DisplayDialog("错误",
+                        "服务器导出目录不能位于 Assets 内。\n" +
+                        "服务端产物只交付服务端进程，放进 Assets（含 StreamingAssets）会被打进客户端包体。\n" +
+                        "请改到工程 Assets 外的目录，例如 Exports/Server。", "确定");
+                    return;
+                }
                 if (mClientFormat == 1 && !ConfigDataSettings.IsUnderStreamingAssets(mBlobOutputDir))
                 {
                     EditorUtility.DisplayDialog("错误",

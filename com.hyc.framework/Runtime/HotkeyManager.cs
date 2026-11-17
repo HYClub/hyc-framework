@@ -182,17 +182,22 @@ namespace HYC.Framework.Input
         {
             if (handle.ID == 0 || !_idToState.TryGetValue(handle.ID, out var hotkey)) return;
 
-            if (hotkey.InputAction != null)
+            // 多个 hotkey 可能共享同一个 InputAction（同一 path）。OnNativeCallback 是按 path 分发给
+            // ids 列表里全部 hotkey 的，所以委托只该在「最后一个使用者离开」时摘掉。
+            // 旧写法无条件 -= ：叠窗关掉其中一个就把唯一委托摘了，另一个窗口的导航/热键静默失效。
+            bool actionStillUsed = false;
+            if (_pathToIDs.TryGetValue(hotkey.InputActionPath, out var ids))
+            {
+                ids.Remove(handle.ID);
+                actionStillUsed = ids.Count > 0;
+                if (!actionStillUsed) _pathToIDs.Remove(hotkey.InputActionPath);
+            }
+
+            if (!actionStillUsed && hotkey.InputAction != null)
             {
                 hotkey.InputAction.started -= OnNativeCallback;
                 hotkey.InputAction.performed -= OnNativeCallback;
                 hotkey.InputAction.canceled -= OnNativeCallback;
-            }
-
-            if (_pathToIDs.TryGetValue(hotkey.InputActionPath, out var ids))
-            {
-                ids.Remove(handle.ID);
-                if (ids.Count == 0) _pathToIDs.Remove(hotkey.InputActionPath);
             }
 
             _idToState.Remove(handle.ID);

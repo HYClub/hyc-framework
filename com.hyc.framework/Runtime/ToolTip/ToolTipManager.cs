@@ -30,44 +30,54 @@ namespace HYC.Framework.UI
         /// <summary>On entering a hot area.</summary>
         public static void OnEnterToolTip(AbsTipComponent hotArea)
         {
-            if (mTipView != null)
-                UIManager.Close(mTipView);
-            mTipViewType = null;
-
-            if (hotArea != null)
+            // 先算出目标渲染器类型，再决定「复用 or 换」——不要在方法开头无条件清空 mTipViewType，
+            // 否则下面的类型比较恒为真，同一个 Tip 会被 Close 两次。
+            // GetData 是 abstract，只调一次取结果（子类实现不保证幂等）。
+            var data = hotArea == null ? null : hotArea.GetData();
+            var viewType = data == null ? null : QueryRenderer(data.GetType());
+            if (viewType == null)
             {
-                var data = hotArea.GetData();
                 if (data != null)
-                {
-                    var dataType = data.GetType();
-                    var viewType = QueryRenderer(dataType);
-                    if (viewType != null)
-                    {
-                        if (viewType != mTipViewType)
-                        {
-                            if (mTipView != null)
-                                UIManager.Close(mTipView);
-
-                            mHotArea = hotArea;
-
-                            mTipViewType = viewType;
-                            mTipView = UIManager.OpenToolTip(viewType) as AbsTipView;
-
-                            mTipView.HotArea = hotArea;
-                        }
-                        else
-                        {
-                            mTipView.HotArea = hotArea;
-                        }
-
-                        return;
-                    }
-                    else
-                    {
-                        Debug.LogError($"未找到数据对应的Tip渲染器! ({dataType})");
-                    }
-                }
+                    Debug.LogError($"未找到数据对应的Tip渲染器! ({data.GetType()})");
+                // 无有效渲染器：收掉可能存在的旧 Tip（成对清 mTipView / mTipViewType）。
+                CloseCurrentTip();
+                return;
             }
+
+            if (viewType == mTipViewType && mTipView != null)
+            {
+                // 同类型直接复用，只换数据。
+                mHotArea = hotArea;
+                mTipView.HotArea = hotArea;
+                return;
+            }
+
+            // 类型不同：关旧的（成对清状态），再开新的。
+            CloseCurrentTip();
+            mHotArea = hotArea;
+            mTipViewType = viewType;
+            var tip = UIManager.OpenToolTip(viewType) as AbsTipView;
+            if (tip == null)
+            {
+                // 渲染器已登记但窗口打不开（层/资源缺失）：不能让 mTipViewType 悬空指向一个不存在的 Tip，
+                // 否则下次同类型进入会误走「复用」分支并 NRE。
+                mTipViewType = null;
+                mHotArea = null;
+                Debug.LogError($"[ToolTip] 无法打开 Tip 视图: {viewType.Name}");
+                return;
+            }
+            mTipView = tip;
+            mTipView.HotArea = hotArea;
+        }
+
+        private static void CloseCurrentTip()
+        {
+            if (mTipView != null)
+            {
+                UIManager.Close(mTipView);
+                mTipView = null;
+            }
+            mTipViewType = null;
         }
 
         /// <summary>On leaving a hot area.</summary>

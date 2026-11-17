@@ -199,7 +199,16 @@ namespace HYC.Framework.Editor.Export
             if (Phase == HyExportPhase.Preview) return true; // 预览态不推进，等用户点执行
             try
             {
-                return StepInternal();
+                // 单步耗时监测：只在超过阈值时打一条，正常速度不刷屏。
+                // 模态窗的 Hold on 来自「某一步在 OnGUI 里同步跑太久」，Console 能直接指出是哪一步。
+                var phase = Phase;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var more = StepInternal();
+                sw.Stop();
+                if (sw.ElapsedMilliseconds >= 500)
+                    Debug.LogWarning("[Export] 单步耗时 " + sw.ElapsedMilliseconds + " ms（阶段 " + phase +
+                                     "，行 " + sActiveRow + "）；持续出现说明该步仍是同步重活");
+                return more;
             }
             catch (Exception ex)
             {

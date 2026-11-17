@@ -10,15 +10,17 @@
 #   任何环境都能跑，且能在提交前本地跑。
 #
 # 它守什么（都是"文档/版本与磁盘脱节"这类静默腐化）：
-#   1. 文件索引里的 .cs 数与类型数 == 磁盘实际
-#   2. 索引各分组标题的文件数之和 == 总声明数
+#   1. 文件索引自检：.cs 数与类型数 == 磁盘实际；分组标题之和 == 总声明数
+#   2. 新增 .cs 是否漏了 .meta（Unity 靠 .meta 记GUID，漏了会重新生成 =引用丢失）；含孤儿 .meta
 #   3. 最新 tag 的版本号 == package.json 的 version
-#   4. 新增 .cs 是否漏了 .meta（Unity 靠 .meta 记GUID，漏了会重新生成 =引用丢失）
-#   5. 包内 .cs 是否存在中文主菜单路径（菜单英文化是既定约定）
-#   6. 非泛型声明是否带了 where 约束（CS0080，沙箱禁 csc 时只能静态抓）
-#   7. [InitializeOnLoad] 是否修饰在 class 上（CS0592，同上）
-#   8. Documentation~/README.md 自称的「共 N 篇」== 实际 .md 数（防新增文档后索引停在旧数字）
-#   9. HYC Framework 菜单项是否显式给 priority（Unity 默认 1000，漏写会沉到菜单最底部）
+#   4. 包内 .cs 是否存在中文主菜单路径（菜单英文化是既定约定）
+#   5. 非泛型声明是否带了 where 约束（CS0080，沙箱禁 csc 时只能静态抓）
+#   6. [InitializeOnLoad] 是否修饰在 class 上（CS0592，同上）
+#   7. Documentation~/README.md 自称的「共 N 篇」== 实际 .md 数（防新增文档后索引停在旧数字）
+#   8. HYC Framework 菜单项是否显式给 priority（Unity 默认 1000，漏写会沉到菜单最底部）
+#   9. 文档里的「当前版本」断言 == package.json 的 version（防幽灵版本号：曾残留 v3.0.0
+#       而实际 2.2.0，使用方按文档导入必然找错目录）。只抓 4 个明确断言位点，历史叙述不抓。
+#  10. 服务端产物边界：服务端只出 JSON 到 Assets 外的 ServerExportDir，不产 Blob、不进客户端包体
 #
 # 用法：
 #   bash scripts/verify-gate.sh
@@ -432,6 +434,120 @@ if [ -z "$nopri" ]; then
 else
   bad "以下菜单项缺 priority："
   echo "$nopri" | sed 's/^/         /'
+fi
+
+# ─────────────────────────────────────────────────────────────
+head_ "9. 文档当前版本断言 == package.json version"
+# ─────────────────────────────────────────────────────────────
+# 幽灵版本号血泪：文档写 v3.0.0、package.json 实际 2.2.0，v3.0.0 从未发版。
+# 只检查「声称当前版本」的 4 个位点——README 徽章 / git URL 锚 / 91 适用版本 /
+# Samples 导入落点。CHANGELOG 的版本标题与 Breaking 历史叙述刻意不抓（那些是史实）。
+ver_drift=$("$PY3" - "$REPO_ROOT" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+pkg = os.path.join(root, 'com.hyc.framework')
+pj = os.path.join(pkg, 'package.json')
+m = re.search(r'"version"\s*:\s*"([^"]+)"', open(pj, encoding='utf-8').read())
+if not m:
+    print('package.json 无法解析 version'); sys.exit(0)
+vv = m.group(1)
+# (文件, 正则) —— 只匹配「当前版本」语义的模式
+spots = [
+    ('README.md', r'img\.shields\.io/badge/Version-([0-9][^/?\-]*)'),
+    ('README.md', r'#v([0-9][0-9.]*)\s*`?\s*$'),
+    ('Documentation~/91-\u8bbe\u7f6e\u7a97\u53e3-\u914d\u7f6e\u5f0f\u5206\u7ec4.md',
+     r'\u9002\u7528\u7248\u672c[：:][^\n]*?v([0-9][0-9.]*)\+'),
+    ('Samples~/HYCSimple/README.md', r'version=([0-9][0-9.]*)'),
+    ('Samples~/HYCSimple/README.md', r'com\.hyc\.framework/([0-9][0-9.]*)/HYCSimple'),
+]
+bad = []
+for rel, pat in spots:
+    fp = os.path.join(pkg, rel.replace('/', os.sep))
+    if not os.path.isfile(fp):
+        bad.append('%s 文件不存在' % rel); continue
+    found = re.findall(pat, open(fp, encoding='utf-8').read(), re.M)
+    if not found:
+        bad.append('%s 未找到版本断言（%s），格式可能变了' % (rel, pat))
+    for f in found:
+        if f != vv:
+            bad.append('%s 声称 %s，实际 package.json = %s' % (rel, f, vv))
+for b in bad:
+    print(b)
+PY
+)
+if [ -z "$ver_drift" ]; then
+  pass "文档当前版本断言全部与 package.json 一致"
+else
+  bad "发现版本漂移："
+  echo "$ver_drift" | sed 's/^/         /'
+fi
+
+# ─────────────────────────────────────────────────────────────
+head_ "10. 服务端产物边界（不进客户端包体）"
+# ─────────────────────────────────────────────────────────────
+# 硬规则：服务端只出 JSON 到 Assets 外的 ServerExportDir，不产 Blob、不写 StreamingAssets。
+# 这条错过一次：SceneContentExporter 曾把 server/<guid>.blob 写进 StreamingAssets，
+# 而「构建清单排除 server/」并不能阻止文件被打进包体——必须从写入源头掐掉。
+server_edge=$("$PY3" - "$REPO_ROOT" <<'PY'
+import os, re, sys
+root = os.path.join(sys.argv[1], 'com.hyc.framework')
+
+def read(rel):
+    p = os.path.join(root, rel.replace('/', os.sep))
+    if not os.path.isfile(p):
+        return None
+    return open(p, encoding='utf-8-sig', errors='replace').read()
+
+exp = read('Editor/SceneContent/SceneContentExporter.cs')
+ldr = read('Runtime/SceneContent/SceneContentLoader.cs')
+settings = read('Editor/HYCSettings.cs')
+if exp is None or ldr is None or settings is None:
+    print('缺少 SceneContent 相关源文件，无法断言产物边界')
+    sys.exit(0)
+
+bad = []
+if 'WriteSide(' in exp:
+    bad.append('SceneContentExporter 仍有按侧写 Blob 的 WriteSide()')
+if 'BlobDir + "/" + ServerSubDir' in exp:
+    bad.append('SceneContentExporter 仍把服务端 Blob 拼到 StreamingAssets')
+if 'ConfigDataSettings.ServerExportDir' not in exp:
+    bad.append('SceneContentExporter 未写往 ServerExportDir')
+if 'IsServerExportDirInsideAssets' not in exp:
+    bad.append('SceneContentExporter 缺「服务器导出目录在 Assets 内」校验')
+if 'ServerSubDir' in ldr:
+    bad.append('SceneContentLoader 仍保留 server/ 读取路径')
+if '只支持 SceneContentSide.Client' not in ldr:
+    bad.append('SceneContentLoader 未明确拒绝 SceneContentSide.Server')
+
+m = re.search(r'DefaultServerExportDir\s*=\s*"([^"]+)"', settings)
+if not m:
+    bad.append('HYCSettings 找不到 DefaultServerExportDir')
+elif m.group(1).replace('\\', '/').lower().startswith('assets/'):
+    bad.append('默认 ServerExportDir 落在 Assets 内：' + m.group(1))
+
+# 全包 .cs 里不得再出现「服务端 blob 写进 StreamingAssets」的旧路径字面量
+for base in ('Runtime', 'Editor', 'Tests'):
+    d = os.path.join(root, base)
+    if not os.path.isdir(d):
+        continue
+    for dp, dn, fns in os.walk(d):
+        for f in fns:
+            if not f.endswith('.cs'):
+                continue
+            p = os.path.join(dp, f)
+            for i, line in enumerate(open(p, encoding='utf-8-sig', errors='replace').read().split('\n'), 1):
+                if 'SceneContent/server/' in line and not line.lstrip().startswith('//'):
+                    bad.append('%s:%d 仍引用 StreamingAssets 下的 server blob：%s' %
+                               (os.path.relpath(p, root).replace('\\', '/'), i, line.strip()[:60]))
+for b in bad:
+    print(b)
+PY
+)
+if [ -z "$server_edge" ]; then
+  pass "服务端产物只在 Assets 外的 ServerExportDir，客户端只收 Blob"
+else
+  bad "服务端产物边界被破坏："
+  echo "$server_edge" | sed 's/^/         /'
 fi
 
 # ─────────────────────────────────────────────────────────────

@@ -351,6 +351,7 @@ namespace HYC.Framework.Config.Editor
         protected override TreeViewItem BuildRoot()
         {
             var sw = EnableBuildProfiling ? System.Diagnostics.Stopwatch.StartNew() : null;
+            // 统计数据源是 ConfigAssetIndex，靠 Revision 自动失效；这里不再清任何缓存字典
             mGuid2FolderNode.Clear();
 
             var folder = ConfigDataSettings.RootFolder;
@@ -434,16 +435,27 @@ namespace HYC.Framework.Config.Editor
             if (items == null || items.Length <= 0)
                 return;
 
-            var filters = string.Join(" ", items.Select(r => $"t:{r.Type.Name}").Distinct().ToArray());
-            var guids = AssetDatabase.FindAssets(filters, new[] { folder });
-            foreach (var guid in guids)
+            // 数据源统一为 ConfigAssetIndex：按文件夹取一屏条目，再按已注册的配置类型集合过滤。
+            // 索引里已有路径 / GUID / 类型 / 父目录 GUID，不再 FindAssets + 逐条反查。
+            var wantedList = items.Select(r => r.Type).Distinct().ToArray();
+            var entries = ConfigAssetIndex.ByFolder(folder);
+            for (var ei = 0; ei < entries.Count; ei++)
             {
-                var filePath = AssetDatabase.GUIDToAssetPath(guid);
-                var fileFolder = AssetDatabase.AssetPathToGUID(Path.GetDirectoryName(filePath));
+                var e = entries[ei];
+                if (e.AssetType == null) continue;
+                // 对齐 FindAssets("t:Type") 的含派生类型语义
+                var match = false;
+                for (var wi = 0; wi < wantedList.Length; wi++)
+                    if (wantedList[wi].IsAssignableFrom(e.AssetType)) { match = true; break; }
+                if (!match) continue;
+
+                var guid = e.Guid;
+                var filePath = e.Path;
+                var fileFolder = e.FolderGuid;
                 if (!mGuid2FolderNode.TryGetValue(fileFolder, out var folderNode))
                     continue;
 
-                var type = AssetDatabase.GetMainAssetTypeAtPath(filePath);
+                var type = e.AssetType;
                 var node = new ConfigDataTreeFileNode(guid, type)
                 {
                     id = GetFileID(filePath),
@@ -910,6 +922,59 @@ namespace HYC.Framework.Config.Editor
 
         #region 右键菜单
 
+        /// <summary>
+        /// 取文件夹统计。唯一数据源是 <see cref="ConfigAssetIndex"/>：索引按 Revision 维护
+        /// 「按文件夹」派生视图，这里只做纯内存分类计数——不再 <c>FindAssets</c>，也不再自建缓存字典。
+        /// 过滤规则与 <see cref="ConfigExportService.ExportFolder"/> 保持一致。
+        /// </summary>
+        private (List<KeyValuePair<Type, int>> exportable, int enumCount, int templateCount) GetFolderStats(string folder)
+        {
+            var counts = new Dictionary<Type, int>();
+            var enumCount = 0;
+            var templateCount = 0;
+            var ns = ConfigDataSettings.Namespace;
+
+            var entries = string.IsNullOrEmpty(folder)
+                ? ConfigAssetIndex.All()
+                : ConfigAssetIndex.ByFolder(folder);
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var type = entries[i].AssetType;
+                if (type == null) continue;
+
+                if (typeof(ConfigEnumDefinition).IsAssignableFrom(type))
+                {
+                    enumCount++;
+                    continue;
+                }
+                if (typeof(ConfigTemplate).IsAssignableFrom(type))
+                {
+                    templateCount++;
+                    continue;
+                }
+                if (type.Namespace == null || !type.Namespace.StartsWith(ns))
+                    continue;
+
+                counts.TryGetValue(type, out var n);
+                counts[type] = n + 1;
+            }
+
+            var exportable = new List<KeyValuePair<Type, int>>(counts);
+            exportable.Sort((a, b) => string.CompareOrdinal(
+                ConfigTypeDisplay.GetShortName(a.Key), ConfigTypeDisplay.GetShortName(b.Key)));
+            return (exportable, enumCount, templateCount);
+        }
+
+        /// <summary>
+        /// 菜单「刷新」：与资产库做一次差集对齐（<see cref="ConfigAssetIndex.Reconcile"/>，不重建结构），
+        /// 再重建树。索引的按文件夹视图靠 Revision 自动失效，无需逐点清缓存。
+        /// </summary>
+        private void RefreshFromMenu(string folder = null)
+        {
+            ConfigAssetIndex.Reconcile();
+            Reload();
+        }
+
         /// <summary>右键点击树空白区域（根目录菜单）。</summary>
         protected override void ContextClicked()
         {
@@ -956,7 +1021,7 @@ namespace HYC.Framework.Config.Editor
             menu.AddSeparator("");
             if (isRoot)
                 menu.AddItem(new GUIContent("全量清理后全量导出"), false, () => CleanAndExportAll());
-            menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+            menu.AddItem(new GUIContent("刷新"), false, () => RefreshFromMenu(path));
             menu.AddSeparator("");
             if (!isRoot)
             {
@@ -981,9 +1046,10 @@ namespace HYC.Framework.Config.Editor
         /// </summary>
         private void AddDynamicExportItems(GenericMenu menu, ConfigDataTreeFolderNode folder, string path)
         {
-            var exportable = CountExportableAssetsByType(path);
-            var enumCount = CountAssetsUnder(path, typeof(ConfigEnumDefinition));
-            var templateCount = CountAssetsUnder(path, typeof(ConfigTemplate));
+            var stats = GetFolderStats(path);
+            var exportable = stats.exportable;
+            var enumCount = stats.enumCount;
+            var templateCount = stats.templateCount;
 
             if (exportable.Count > 0)
             {
@@ -1028,49 +1094,23 @@ namespace HYC.Framework.Config.Editor
         }
 
         /// <summary>
-        /// 统计文件夹（递归，含子文件夹）下各可导出配置类型的资产数，按类型短名排序。
-        /// 过滤规则与 <see cref="ConfigExportService.ExportFolder"/> 完全一致（排除 <see cref="ConfigTemplate"/>、
-        /// 排除命名空间不在 <see cref="ConfigDataSettings.Namespace"/> 内的资产），
-        /// 保证菜单里写的「N 个」就是该文件夹内该类型的实际资产数。
+        /// 加载文件夹（递归，含子文件夹）下所有指定类型资产。
+        /// 数据源统一为 <see cref="ConfigAssetIndex"/>：先按类型过滤，只反序列化命中的条目。
+        /// 保留 IsAssignableFrom 语义（与 FindAssets("t:Type") 含派生类型一致）。
         /// </summary>
-        private static List<KeyValuePair<Type, int>> CountExportableAssetsByType(string folder)
-        {
-            var counts = new Dictionary<Type, int>();
-            foreach (var guid in AssetDatabase.FindAssets("t:ScriptableObject", new[] { folder }))
-            {
-                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(AssetDatabase.GUIDToAssetPath(guid));
-                if (asset == null)
-                    continue;
-
-                var type = asset.GetType();
-                if (type == typeof(ConfigTemplate))
-                    continue;
-                if (type.Namespace == null || !type.Namespace.StartsWith(ConfigDataSettings.Namespace))
-                    continue;
-
-                counts.TryGetValue(type, out var n);
-                counts[type] = n + 1;
-            }
-
-            var list = new List<KeyValuePair<Type, int>>(counts);
-            list.Sort((a, b) => string.CompareOrdinal(
-                ConfigTypeDisplay.GetShortName(a.Key), ConfigTypeDisplay.GetShortName(b.Key)));
-            return list;
-        }
-
-        /// <summary>统计文件夹（递归，含子文件夹）下指定类型资产的数量。</summary>
-        private static int CountAssetsUnder(string folder, Type type)
-            => AssetDatabase.FindAssets($"t:{type.Name}", new[] { folder }).Length;
-
-        /// <summary>加载文件夹（递归，含子文件夹）下所有指定类型资产。</summary>
         private static List<T> LoadAssetsUnder<T>(string folder) where T : UnityEngine.Object
         {
             var list = new List<T>();
-            foreach (var guid in AssetDatabase.FindAssets($"t:{typeof(T).Name}", new[] { folder }))
+            var entries = string.IsNullOrEmpty(folder)
+                ? ConfigAssetIndex.All()
+                : ConfigAssetIndex.ByFolder(folder);
+            var wanted = typeof(T); // IsAssignableFrom 对齐 FindAssets("t:Type") 的含派生语义
+            for (var i = 0; i < entries.Count; i++)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<T>(AssetDatabase.GUIDToAssetPath(guid));
-                if (asset != null)
-                    list.Add(asset);
+                var e = entries[i];
+                if (e.AssetType == null || !wanted.IsAssignableFrom(e.AssetType)) continue;
+                var asset = AssetDatabase.LoadAssetAtPath<T>(e.Path);
+                if (asset != null) list.Add(asset);
             }
             return list;
         }
@@ -1164,7 +1204,7 @@ namespace HYC.Framework.Config.Editor
                     menu.AddItem(new GUIContent(generated ? "重新生成代码" : "生成代码"), false, () => GenerateTemplateCode(tpl));
                 }
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+                menu.AddItem(new GUIContent("刷新"), false, () => RefreshFromMenu());
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("重命名"), false, () => BeginRename(file));
                 menu.AddSeparator("");
@@ -1185,7 +1225,7 @@ namespace HYC.Framework.Config.Editor
                     menu.AddItem(new GUIContent("导出"), false, () => ExportEnum(def));
                 }
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+                menu.AddItem(new GUIContent("刷新"), false, () => RefreshFromMenu());
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("重命名"), false, () => BeginRename(file));
                 menu.AddSeparator("");
@@ -1205,7 +1245,7 @@ namespace HYC.Framework.Config.Editor
                 menu.AddItem(new GUIContent("导出"), false, () => ExportSingleAsset(file));
                 menu.AddItem(new GUIContent("保存并导出"), false, () => SaveAndExportSingleAsset(file));
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+                menu.AddItem(new GUIContent("刷新"), false, () => RefreshFromMenu());
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("重命名"), false, () => BeginRename(file));
                 menu.AddSeparator("");
@@ -1234,7 +1274,7 @@ namespace HYC.Framework.Config.Editor
             });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent("展开全部"), false, () => SetExpanded(new List<int> { ConfigDataTreeVirtualFolderNode.NodeId }));
-            menu.AddItem(new GUIContent("刷新"), false, () => Reload());
+            menu.AddItem(new GUIContent("刷新"), false, () => RefreshFromMenu());
             return menu;
         }
 
@@ -1672,8 +1712,11 @@ namespace HYC.Framework.Config.Editor
         {
             var folder = ConfigDataSettings.RootFolder;
             ConfigDataSettings.EnsureRootFolder();
-            var guids = AssetDatabase.FindAssets($"t:{type.Name}", new[] { folder });
-            return guids.Any(g => type.IsAssignableFrom(AssetDatabase.GetMainAssetTypeAtPath(AssetDatabase.GUIDToAssetPath(g))));
+            var entries = ConfigAssetIndex.ByFolder(folder);
+            for (var i = 0; i < entries.Count; i++)
+                if (entries[i].AssetType != null && type.IsAssignableFrom(entries[i].AssetType))
+                    return true;
+            return false;
         }
 
         private void PingGuid(string guid)

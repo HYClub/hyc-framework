@@ -214,6 +214,6 @@ Samples~/HYCSimple/
   手动 Update；Loc 侧另加 `CanTakeOver` 守卫，宿主已加载自己的本地化表时**跳过 Reload**。
   详见文件头「示例默认不自动运行」一节。
 - ⚠️ 全部示例**尚未在 Unity 编译验证**（框架侧 C# 也还在等 Unity 编译）；导入后请按各 `AI-NOTES.md` 的验证清单跑一遍。
-- ⚠️ 版本漂移：`package.json` 当前 `version=3.0.0`，故官方 PM 导入落点为 `Assets/Samples/com.hyc.framework/3.0.0/HYCSimple/`；
+- ✅ 版本对齐：`package.json` 当前 `version=2.3.0`，故官方 PM 导入落点为 `Assets/Samples/com.hyc.framework/2.3.0/HYCSimple/`；
   发版前记得核对 CHANGELOG 顶部与服务端版本号一致。
 - 🛠️ 菜单快捷导入落点是 `Assets/HYCSimple/`（不是 `Assets/Samples/<包名>/`，规避 PM 保留区）；两路请二选一。

@@ -5,7 +5,7 @@
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.2.0-orange)
+![Version](https://img.shields.io/badge/Version-2.3.0-orange)
 
 ---
 
@@ -64,7 +64,7 @@ https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework
 ```
 
 > 💡 可追加 `#<tag>` 或 `#<commit>` 锁定版本，例如
-> `https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework#v2.2.0`
+> `https://github.com/HYClub/hyc-framework.git?path=com.hyc.framework#v2.3.0`
 > （建议基于当前 `main` 打一个 tag，便于可复现地引用某个发布版本）。
 
 ---

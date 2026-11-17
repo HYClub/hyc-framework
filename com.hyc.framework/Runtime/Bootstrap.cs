@@ -93,6 +93,17 @@ namespace HYC.Framework.Runtime
                 return false;
             }
 
+            // 同步入口在 NeedsPreload 平台（WebGL / Android）且预取未完成时读不到 StreamingAssets：
+            // 此时缓存为空，System.OnCreate 会静默读空数据。明确拒绝并指向异步入口（文档 60 的承诺）。
+            // 必须带 !IsPreloaded：NeedsPreload 是平台常量，InitializeAsync 在 await PreloadAsync 之后
+            // 也会走到这里，只判平台会把已预取完成的推荐入口一并拒绝（WebGL/Android 引导必失败）。
+            if (HYC.Framework.IO.StreamingAssets.NeedsPreload && !HYC.Framework.IO.StreamingAssets.IsPreloaded)
+            {
+                UnityEngine.Debug.LogError("[HYC.Framework] FrameworkBootstrap.Initialize（同步）在 StreamingAssets 预取完成前" +
+                                           "无法读取数据，已中止引导。请改用 await new FrameworkBootstrap().InitializeAsync(name)。");
+                return false;
+            }
+
             var host = new FrameworkWorld(defaultWorldName);
             World.DefaultGameObjectInjectionWorld = host.World;
             host.Install(Installers, BootMode);

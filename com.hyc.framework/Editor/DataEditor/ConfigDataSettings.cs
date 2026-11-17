@@ -121,6 +121,32 @@ namespace HYC.Framework.Config.Editor
             set => HYCSettings.Instance.ServerExportDir = value;
         }
 
+        /// <summary>
+        /// 服务器导出目录是否落在 <c>Assets</c> 内。服务端产物只交付给服务端进程，
+        /// 落在 Assets（含 StreamingAssets）里会被 Unity 一并打进客户端包体。
+        /// <para>同时接受项目相对路径与绝对路径；路径非法或为空按「不安全」处理，
+        /// 让调用方走报错而不是写出一份位置不确定的产物。</para>
+        /// </summary>
+        public static bool IsServerExportDirInsideAssets(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return true;
+            string full;
+            try
+            {
+                full = Path.GetFullPath(dir);
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+            // Application.dataPath 是工程 Assets 的绝对路径；Path.GetFullPath 对相对路径
+            // 按当前工作目录（Unity 工程根）解析，与 GetAbsoluteRootFolder 用的是同一套前提。
+            var assets = UnityEngine.Application.dataPath.Replace('\\', '/').TrimEnd('/');
+            var normalized = full.Replace('\\', '/').TrimEnd('/');
+            return string.Equals(normalized, assets, StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith(assets + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>客户端/服务器导出类型：true = struct（字段平铺），false = class（保持继承链）。</summary>
         public static bool SideTypeIsStruct
         {

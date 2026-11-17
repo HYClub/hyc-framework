@@ -13,11 +13,11 @@ namespace HYC.Framework.SceneContent.Editor
 {
     /// <summary>
     /// 场景内容导出：扫描关卡资产（Prefab / Scene）上所有实现 <see cref="ISceneContentMarker"/> 的组件，
-    /// 按导出侧写 <c>StreamingAssets/SceneContent/&lt;guid&gt;.blob</c>（客户端）与
-    /// <c>StreamingAssets/SceneContent/server/&lt;guid&gt;.blob</c>（服务端），并做 TryRead 往返自校验。
+    /// 客户端写 <c>StreamingAssets/SceneContent/&lt;guid&gt;.blob</c>（唯一进客户端包体的产物，做 TryRead 往返自校验），
+    /// 服务端写 <c>ServerExportDir/SceneContent/&lt;guid&gt;.json</c>（Assets 外、非 Blob，只交付服务端进程）。
     /// <para>
     /// 关卡身份 = 资产 .meta 的 GUID：导出时由 <see cref="AssetDatabase.AssetPathToGUID"/> 取得，
-    /// 并以此命名 Blob。同时把「业务 key → GUID」登记进
+    /// 并以此命名产物。同时把「业务 key → GUID」登记进
     /// <c>StreamingAssets/SceneContent/index.json</c>，运行期关卡加载器用业务 key 调
     /// <c>SceneContentLoader.LoadByKey</c>（或仍按 GUID 调 <c>Load</c>）。
     /// 不依赖任何手填 id，也不使用关卡名。
@@ -29,7 +29,14 @@ namespace HYC.Framework.SceneContent.Editor
         /// <summary>客户端 Blob 输出目录（必须位于 StreamingAssets 内，运行期才能读取）。</summary>
         public const string BlobDir = "Assets/StreamingAssets/SceneContent";
 
-        /// <summary>服务端 Blob 输出子目录（与 <see cref="SceneContentLoader"/> 的读取路径一致）。</summary>
+        /// <summary>服务端 JSON 产物在 ServerExportDir 下的子目录名。</summary>
+        private const string ServerJsonSubDir = "SceneContent";
+
+        /// <summary>服务端交付文件的结构版本（与客户端 Blob 版本互不相干）。</summary>
+        private const int ServerDocVersion = 1;
+
+        /// <summary>旧版服务端 Blob 子目录名；导出流程已不再使用，保留仅为兼容既有引用。</summary>
+        [System.Obsolete("服务端产物已改为 ServerExportDir/SceneContent/<guid>.json，不再写入 StreamingAssets。")]
         public const string ServerSubDir = "server";
 
         private const string Ext = ".blob";
@@ -64,7 +71,7 @@ namespace HYC.Framework.SceneContent.Editor
 
         /// <summary>
         /// 导出选中资产（Prefab 或 Scene）。返回是否成功。
-        /// <para>除了两侧 Blob，还会把「业务 key → 资产 GUID」登记进
+        /// <para>除了客户端 Blob 与服务端 JSON，还会把「业务 key → 资产 GUID」登记进
         /// <c>SceneContent/index.json</c> 供运行期 <c>SceneContentLoader.LoadByKey</c> 使用：
         /// <paramref name="alias"/> 显式传入时用它，否则按「Addressables 地址 > 资产名」自动推断。</para>
         /// </summary>
@@ -106,15 +113,19 @@ namespace HYC.Framework.SceneContent.Editor
             try
             {
                 if (roots.Count == 0) return false;
+                WarnLegacyServerBlobs();
+                var key = ResolveKey(path, guid, alias);
                 var client = Collect(roots, SceneContentSide.Client);
                 var server = Collect(roots, SceneContentSide.Server);
-                var ok = WriteSide(client, guid, SceneContentSide.Client);
-                ok &= WriteSide(server, guid, SceneContentSide.Server);
-                // 只在 Blob 两侧都写成功后登记清单，避免清单指向缺失 / 损坏的 blob。
+
+                // 清单只在客户端 Blob 写成功后登记，避免清单指向缺失 / 损坏的 blob；
+                // 服务端 JSON 属另一条交付链，它失败不该让客户端产物失去可寻址的业务 key。
                 // 清单是纯磁盘文件：不需要 AssetDatabase.ImportAsset，
                 // WebGL / Android 构建期由 StreamingAssetsManifestBuilder 递归收进预取清单。
-                if (ok) ok = WriteManifest(ResolveKey(path, guid, alias), guid, path);
-                return ok;
+                var ok = WriteClientBlob(client, guid);
+                if (ok) ok = WriteManifest(key, guid, path);
+                var serverOk = WriteServerJson(server, guid, key, path);
+                return ok && serverOk;
             }
             finally
             {
@@ -267,11 +278,11 @@ namespace HYC.Framework.SceneContent.Editor
             }
         }
 
-        private static bool WriteSide(List<SceneContentEntryData> data, string guid, SceneContentSide side)
+        /// <summary>客户端产物：写 StreamingAssets 内的 Blob 并做 TryRead 往返自校验。</summary>
+        private static bool WriteClientBlob(List<SceneContentEntryData> data, string guid)
         {
-            var dir = side == SceneContentSide.Server ? BlobDir + "/" + ServerSubDir : BlobDir;
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, guid + Ext);
+            if (!Directory.Exists(BlobDir)) Directory.CreateDirectory(BlobDir);
+            var path = Path.Combine(BlobDir, guid + Ext);
             WriteBlob(path, guid, data);
 
             // 自校验：读回确认版本、guid 与条数一致
@@ -291,11 +302,112 @@ namespace HYC.Framework.SceneContent.Editor
             check.Dispose();
             var ok = readBackCount == data.Count && readBackGuid == guid;
             if (ok)
-                Debug.Log($"[SceneContent] 导出完成（{side}）：guid={guid}，{data.Count} 条 → {path}");
+                Debug.Log($"[SceneContent] 导出完成（客户端 Blob）：guid={guid}，{data.Count} 条 → {path}");
             else
-                Debug.LogError($"[SceneContent] 导出自校验不一致（{side}）：期望 guid={guid}/{data.Count} 条，" +
+                Debug.LogError($"[SceneContent] 导出自校验不一致（客户端）：期望 guid={guid}/{data.Count} 条，" +
                                $"实际 {readBackGuid}/{readBackCount} 条。");
             return ok;
+        }
+
+        /// <summary>
+        /// 服务端产物：写 JSON 到 <c>ServerExportDir/SceneContent/&lt;guid&gt;.json</c>。
+        /// <para>服务端不消费 Unity Blob，也不该把数据写进 StreamingAssets —— 那里的内容
+        /// 在所有平台都会被打进客户端包体。目录落在 Assets 内时直接拒绝，避免误配把服务端数据带进包。</para>
+        /// </summary>
+        private static bool WriteServerJson(List<SceneContentEntryData> data, string guid,
+            string key, string assetPath)
+        {
+            var root = HYC.Framework.Config.Editor.ConfigDataSettings.ServerExportDir;
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                Debug.LogError("[SceneContent] 服务器导出目录为空（HYC Settings → 配置 → 服务器导出目录），" +
+                               "已跳过服务端产物。");
+                return false;
+            }
+            if (HYC.Framework.Config.Editor.ConfigDataSettings.IsServerExportDirInsideAssets(root))
+            {
+                Debug.LogError($"[SceneContent] 服务器导出目录「{root}」位于 Assets 内，" +
+                               "服务端产物会被打进客户端包体。请改到工程 Assets 外的目录（如 Exports/Server）。");
+                return false;
+            }
+
+            var dir = Path.Combine(root, ServerJsonSubDir);
+            var file = Path.Combine(dir, guid + ".json");
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var doc = new ServerDoc
+                {
+                    version = ServerDocVersion,
+                    key = key,
+                    guid = guid,
+                    assetPath = assetPath,
+                    entries = new List<ServerEntry>(data.Count),
+                };
+                for (int i = 0; i < data.Count; i++)
+                {
+                    var d = data[i];
+                    doc.entries.Add(new ServerEntry
+                    {
+                        contentTypeId = d.contentTypeId,
+                        posX = d.position.x,
+                        posY = d.position.y,
+                        posZ = d.position.z,
+                        rotX = d.rotation.x,
+                        rotY = d.rotation.y,
+                        rotZ = d.rotation.z,
+                        rotW = d.rotation.w,
+                        scaleX = d.scale.x,
+                        scaleY = d.scale.y,
+                        scaleZ = d.scale.z,
+                        payloadJson = d.payloadJson ?? "",
+                    });
+                }
+                // 无 BOM：服务端解析侧不必额外处理 U+FEFF。
+                File.WriteAllText(file,
+                    Newtonsoft.Json.JsonConvert.SerializeObject(doc, Newtonsoft.Json.Formatting.Indented),
+                    new System.Text.UTF8Encoding(false));
+                Debug.Log($"[SceneContent] 导出完成（服务端 JSON）：guid={guid}，{data.Count} 条 → {file}");
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SceneContent] 写服务端 JSON 失败（{file}）：{e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>服务端交付文件结构：纯 JSON，扁平 float，不含 Unity Blob 二进制。</summary>
+        private sealed class ServerDoc
+        {
+            public int version;
+            public string key;
+            public string guid;
+            public string assetPath;
+            public List<ServerEntry> entries;
+        }
+
+        private sealed class ServerEntry
+        {
+            public int contentTypeId;
+            public float posX, posY, posZ;
+            public float rotX, rotY, rotZ, rotW;
+            public float scaleX, scaleY, scaleZ;
+            public string payloadJson;
+        }
+
+        private static bool sLegacyServerWarned;
+
+        /// <summary>旧版把服务端 Blob 写进 StreamingAssets；残留目录仍会进客户端包体，明确提示清理。</summary>
+        private static void WarnLegacyServerBlobs()
+        {
+            if (sLegacyServerWarned) return;
+            var legacy = BlobDir + "/server";
+            if (!Directory.Exists(legacy)) return;
+            sLegacyServerWarned = true;
+            Debug.LogError("[SceneContent] 检测到旧版服务端 Blob 目录 " + legacy +
+                           "。服务端产物已改到 ServerExportDir/SceneContent/<guid>.json，" +
+                           "请删除该目录及其 .meta —— 它仍在 StreamingAssets 内，会被打进客户端包体。");
         }
 
         private static void WriteBlob(string path, string guid, List<SceneContentEntryData> data)

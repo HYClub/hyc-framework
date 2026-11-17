@@ -33,9 +33,11 @@ namespace HYC.Framework.Config.Editor
         /// </summary>
         public static void SyncAll()
         {
-            foreach (var g in AssetDatabase.FindAssets("t:ConfigTemplate"))
+            // 数据源统一为 ConfigAssetIndex（delayCall 阶段 EnsureReady 会兜底建索引）。
+            var entries = ConfigAssetIndex.ByTypeAssignable(typeof(HYC.Framework.Config.ConfigTemplate));
+            for (var i = 0; i < entries.Count; i++)
             {
-                var tpl = AssetDatabase.LoadAssetAtPath<ConfigTemplate>(AssetDatabase.GUIDToAssetPath(g));
+                var tpl = entries[i].Asset as ConfigTemplate;
                 if (tpl != null && HasIcon(tpl))
                     ApplyCore(tpl);
             }
@@ -71,9 +73,10 @@ namespace HYC.Framework.Config.Editor
             var ns = ConfigDataSettings.Namespace;
             if (type.Namespace == null || string.IsNullOrEmpty(ns) || !type.Namespace.StartsWith(ns))
                 return null;
-            foreach (var g in AssetDatabase.FindAssets("t:ConfigTemplate"))
+            var entries = ConfigAssetIndex.ByTypeAssignable(typeof(HYC.Framework.Config.ConfigTemplate));
+            for (var i = 0; i < entries.Count; i++)
             {
-                var tpl = AssetDatabase.LoadAssetAtPath<ConfigTemplate>(AssetDatabase.GUIDToAssetPath(g));
+                var tpl = entries[i].Asset as ConfigTemplate;
                 if (tpl != null && tpl.className == type.Name)
                     return tpl;
             }
@@ -104,9 +107,10 @@ namespace HYC.Framework.Config.Editor
         {
             var templates = 0;
             var scripts = 0;
-            foreach (var g in AssetDatabase.FindAssets("t:ConfigTemplate"))
+            var entries = ConfigAssetIndex.ByTypeAssignable(typeof(HYC.Framework.Config.ConfigTemplate));
+            for (var i = 0; i < entries.Count; i++)
             {
-                var tpl = AssetDatabase.LoadAssetAtPath<ConfigTemplate>(AssetDatabase.GUIDToAssetPath(g));
+                var tpl = entries[i].Asset as ConfigTemplate;
                 if (tpl == null || !HasIcon(tpl) || !tpl.generateCode)
                     continue;
                 templates++;

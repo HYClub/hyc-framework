@@ -187,8 +187,10 @@ namespace HYC.Framework.BT.Editor
 
             // IMGUI 全手绘编辑器(工具栏 + 画布 + minimap + 左栏 + 底栏)
             _graphIMGUI = new BTGraphIMGUI(tree);
-            _graphIMGUI.OnRequestOpenTree = (t) => OpenTree(t);
-            _graphIMGUI.OnRequestNewTree = CreateNewTree;
+            // 切树/新建会重建宿主的 IMGUIContainer（本方法下半段），不能在 IMGUI 绘制回调内部
+            // 同步改布局——与 TalentGraphIMGUI 的 DeferredOpen/DeferredNewTree 对齐，推迟一拍。
+            _graphIMGUI.OnRequestOpenTree = (t) => UnityEditor.EditorApplication.delayCall += () => OpenTree(t);
+            _graphIMGUI.OnRequestNewTree = () => UnityEditor.EditorApplication.delayCall += CreateNewTree;
             _graphIMGUI.OnRequestSave = SaveCurrentTree;
             _imguiContainer = new IMGUIContainer(() => _graphIMGUI.DrawGUI());
             _imguiContainer.style.flexGrow = 1;

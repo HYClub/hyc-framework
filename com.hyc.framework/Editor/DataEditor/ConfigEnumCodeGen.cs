@@ -24,11 +24,15 @@ namespace HYC.Framework.Config.Editor
             var root = ConfigDataSettings.RootFolder;
             if (!AssetDatabase.IsValidFolder(root))
                 return result;
-            foreach (var guid in AssetDatabase.FindAssets("t:ConfigEnumDefinition", new[] { root }))
+            // 数据源统一为 ConfigAssetIndex：只读目标类型条目，不各自全库 FindAssets。
+            var entries = ConfigAssetIndex.ByFolder(root);
+            for (var i = 0; i < entries.Count; i++)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<ConfigEnumDefinition>(AssetDatabase.GUIDToAssetPath(guid));
-                if (asset != null)
-                    result.Add(asset);
+                var e = entries[i];
+                if (e.AssetType == null ||
+                    !typeof(HYC.Framework.Config.ConfigEnumDefinition).IsAssignableFrom(e.AssetType)) continue;
+                var asset = e.Asset as ConfigEnumDefinition;
+                if (asset != null) result.Add(asset);
             }
             return result;
         }

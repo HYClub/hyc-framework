@@ -172,7 +172,6 @@ namespace HYC.Framework.BT.Editor
             root.NodeCount = asset.Nodes.Count;
 
             var nodeArr = builder.Allocate(ref root.Nodes, asset.Nodes.Count);
-            var childArr = builder.Allocate(ref root.ChildNodes, asset.Nodes.Count * 4); // 预分配, 后续填实际
 
             // 第一遍: 计算各池大小并填充节点结构
             // (BlobBuilder 需先分配, 再填充; 这里先收集参数到临时列表)
@@ -240,7 +239,9 @@ namespace HYC.Framework.BT.Editor
                     }
                 }
             }
-            // 写入子节点索引表
+            // 写入子节点索引表。容量必须按实际边数 childIdx.Count 分配——
+            // 旧写法预分配 Nodes.Count*4，单节点超过 4 个子节点时越界写坏后续 Blob 池，烘焙期不报错。
+            var childArr = builder.Allocate(ref root.ChildNodes, childIdx.Count);
             for (int i = 0; i < childIdx.Count; i++)
                 childArr[i] = childIdx[i];
 

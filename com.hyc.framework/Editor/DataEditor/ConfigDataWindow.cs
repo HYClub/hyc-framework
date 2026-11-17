@@ -416,10 +416,15 @@ namespace HYC.Framework.Config.Editor
                     any = true;
                 }
             }
-            // 模板与枚举不在 CollectConfigAssets（命名空间过滤）内，单独扫
-            foreach (var guid in AssetDatabase.FindAssets("t:ConfigTemplate t:ConfigEnumDefinition", new[] { ConfigDataSettings.RootFolder }))
+            // 模板与枚举不在 CollectConfigAssets（命名空间过滤）内，从统一索引里按类型取。
+            var entries = ConfigAssetIndex.ByFolder(ConfigDataSettings.RootFolder);
+            for (var i = 0; i < entries.Count; i++)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(AssetDatabase.GUIDToAssetPath(guid));
+                var t = entries[i].AssetType;
+                if (t == null) continue;
+                if (!typeof(HYC.Framework.Config.ConfigTemplate).IsAssignableFrom(t) &&
+                    !typeof(HYC.Framework.Config.ConfigEnumDefinition).IsAssignableFrom(t)) continue;
+                var asset = entries[i].Asset;
                 if (asset != null && EditorUtility.IsDirty(asset))
                 {
                     EditorUtility.SetDirty(asset);

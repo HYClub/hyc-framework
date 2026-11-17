@@ -62,10 +62,20 @@ namespace HYC.Framework.Config.Editor
             return ok;
         }
 
-        /// <summary>批量导出该类型全部配置实例（客户端 + 服务器）。返回 true 表示成功。</summary>
-        public bool ExportAllCore(bool exportClient, bool exportServer, bool refresh = true)
+        /// <summary>
+        /// 批量导出该类型全部配置实例（客户端 + 服务器）。返回 true 表示成功。
+        /// <para><paramref name="suppliedAssets"/> 由 <see cref="ConfigExportService.ExportAll"/> 从
+        /// 配置资产索引按精确类型分组注入，避免每个类型各自跑一次全工程 <c>FindAssets</c>；
+        /// 传 null 时退回 <see cref="CollectAssets"/>（兼容批处理等其它调用方）。
+        /// 可选参数 ⇒ 既有调用与生成的 XxxExport 代码都不需要改动。</para>
+        /// </summary>
+        public bool ExportAllCore(bool exportClient, bool exportServer, bool refresh = true,
+                                  IReadOnlyList<ConfigBase> suppliedAssets = null)
         {
-            var all = CollectAssets();
+            // WriteClientBlob 的形参是 IList<ConfigBase>（生成代码 override 它），故统一成 List。
+            var all = suppliedAssets != null
+                ? (suppliedAssets as List<ConfigBase> ?? new List<ConfigBase>(suppliedAssets))
+                : CollectAssets();
             var ok = true;
 
             if (exportClient)
@@ -172,14 +182,17 @@ namespace HYC.Framework.Config.Editor
             return true;
         }
 
-        /// <summary>收集本类型全部配置资产（精确匹配 ConfigType——派生类型的资产归它自己的导出类，不混入）。</summary>
+        /// <summary>
+        /// 收集本类型全部配置资产（精确匹配 ConfigType——派生类型的资产归它自己的导出类，不混入）。
+        /// 数据源统一为 <see cref="ConfigAssetIndex"/>：按精确类型取桶，不再各自跑全工程 FindAssets。
+        /// </summary>
         private List<ConfigBase> CollectAssets()
         {
             var result = new List<ConfigBase>();
-            var guids = AssetDatabase.FindAssets("t:" + ConfigType.FullName);
-            for (var i = 0; i < guids.Length; i++)
+            var entries = ConfigAssetIndex.ByType(ConfigType);
+            for (var i = 0; i < entries.Count; i++)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<ConfigBase>(AssetDatabase.GUIDToAssetPath(guids[i]));
+                var asset = entries[i].Asset as ConfigBase;
                 if (asset == null) continue;
                 if (asset.GetType() != ConfigType) continue;
                 result.Add(asset);

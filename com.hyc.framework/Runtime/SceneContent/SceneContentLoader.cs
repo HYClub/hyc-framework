@@ -17,11 +17,12 @@ namespace HYC.Framework.SceneContent
     /// Blob 身份 = 资产 .meta 的 GUID（导出时以此命名文件）；运行期身份 = 业务 key，
     /// 由导出期生成的 <c>SceneContent/index.json</c> 把 key 映射成 GUID，无需手抄资产 GUID。
     /// </para>
+    /// <para>运行期只加载客户端 Blob：服务端数据写在外，由服务端进程自行读取，
+    /// 既不产 Blob 也不进客户端包体。</para>
     /// </summary>
     public static class SceneContentLoader
     {
         private const string BlobRelativeDir = "SceneContent/";
-        private const string ServerSubDir = "server/";
 
         /// <summary>
         /// 按<b>业务 key</b>（配置 id / Addressables 地址 / 资产名）加载：读导出期生成的
@@ -30,6 +31,7 @@ namespace HYC.Framework.SceneContent
         /// <para>
         /// 关卡加载器运行期只持有业务身份（如 <c>LevelConfig.MapAddress</c>），拿不到资产 GUID；
         /// 这是推荐的运行期入口。清单由编辑器导出时自动维护，无需手抄 GUID。
+        /// <paramref name="side"/> 只支持 Client；服务端数据不在客户端包体内。
         /// </para>
         /// </summary>
         /// <param name="key">导出时登记的业务 key（显式 alias > Addressables 地址 > 资产名）。</param>
@@ -91,13 +93,14 @@ namespace HYC.Framework.SceneContent
         }
 
         /// <summary>
-        /// 从 StreamingAssets 读取 <c>SceneContent/&lt;guid&gt;.blob</c>（客户端）或
-        /// <c>SceneContent/server/&lt;guid&gt;.blob</c>（服务端）并生成。
+        /// 从 StreamingAssets 读取 <c>SceneContent/&lt;guid&gt;.blob</c> 并生成。
         /// 需 StreamingAssets 已预取（走异步引导入口 <c>FrameworkBootstrap.InitializeAsync</c>）。
+        /// <para><paramref name="side"/> 只支持 <see cref="SceneContentSide.Client"/>：服务端数据在
+        /// <c>ServerExportDir/SceneContent/&lt;guid&gt;.json</c>，由服务端进程自行读取，不在客户端包体内。</para>
         /// </summary>
         /// <param name="guid">关卡资产 .meta 的 GUID（与导出文件名一致）。</param>
         /// <param name="spawner">生成实例的注入点（GameObject 或 Entity 由游戏实现）。</param>
-        /// <param name="side">读取哪一侧的产物，默认客户端。</param>
+        /// <param name="side">保留兼容；传 Server 会明确报错并返回 false。</param>
         public static bool Load(string guid, ISceneContentSpawner spawner,
             SceneContentSide side = SceneContentSide.Client)
         {
@@ -106,8 +109,14 @@ namespace HYC.Framework.SceneContent
                 Debug.LogError("[SceneContent] guid 为空，无法加载关卡内容。");
                 return false;
             }
-            var dir = side == SceneContentSide.Server ? BlobRelativeDir + ServerSubDir : BlobRelativeDir;
-            var bytes = StreamingAssets.ReadBytes(dir + guid + ".blob");
+            if (side == SceneContentSide.Server)
+            {
+                Debug.LogError("[SceneContent] 服务端数据不随客户端包体分发：请在服务端进程读取 " +
+                               "ServerExportDir/SceneContent/<guid>.json。" +
+                               "运行期 Load / LoadByKey 只支持 SceneContentSide.Client。");
+                return false;
+            }
+            var bytes = StreamingAssets.ReadBytes(BlobRelativeDir + guid + ".blob");
             return LoadBytes(bytes, guid, spawner);
         }
 
@@ -127,8 +136,20 @@ namespace HYC.Framework.SceneContent
             try
             {
                 ref var root = ref blobRef.Value;
-                // ★EA0001：Blob 成员可能只活在 blob storage 里，必须以（非只读）ref 访问，
-                //   不能按值拷出（`var arr = root.Entries` 会报 EA0001）。
+                // ★EA0001：Blob 成员（BlobArray）必须按非只读 ref 访问，不能按值拷出。
+                //   自校验：Blob 内的 LevelGuid 是导出端 Encoding.UTF8.GetBytes(guid) 写入的，
+                //   还原后与调用方给的 guid 比对——不符说明加载到了错误关卡的 blob，明确报错而非静默生成。
+                ref var guidBytes = ref root.LevelGuid;
+                var guidBuf = new byte[guidBytes.Length];
+                for (int k = 0; k < guidBytes.Length; k++) guidBuf[k] = guidBytes[k];
+                var blobGuid = System.Text.Encoding.UTF8.GetString(guidBuf);
+                if (!string.Equals(blobGuid, guid, StringComparison.Ordinal))
+                {
+                    Debug.LogError($"[SceneContent] 关卡身份不匹配：请求 guid={guid}，blob 内 LevelGuid={blobGuid}。" +
+                                   "已中止生成，避免加载错关卡。请重新导出或核对 index.json 映射。");
+                    return false;
+                }
+
                 ref var arr = ref root.Entries;
                 for (int i = 0; i < arr.Length; i++)
                 {

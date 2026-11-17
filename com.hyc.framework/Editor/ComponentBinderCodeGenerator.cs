@@ -127,7 +127,9 @@ namespace HYC.Framework.UI.Editor
                 {
                     if (PrefabUtility.GetOutermostPrefabInstanceRoot(binder.gameObject) != null) continue;
                     var fileName = ResolveClassName(setting, binder) + ".cs";
-                    var key = prefabPath + "|" + fileName;
+                    // 分隔符用 \t：prefabPath / fileName 都不含制表符。旧版用 '|' 与缓存行分隔符
+                    // 撞车（key 自身带 '|'），Split('|') 解析错位导致 signature 恒 parse 失败、缓存失效。
+                    var key = prefabPath + "\t" + fileName;
                     if (cache.TryGetValue(key, out var entry)
                         && entry.Signature == sig
                         && File.Exists(Path.Combine(saveFolder, fileName)))
@@ -337,7 +339,7 @@ namespace HYC.Framework.UI.Editor
             foreach (var line in File.ReadAllLines(path))
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                var parts = line.Split('|');
+                var parts = line.Split('\t');
                 if (parts.Length < 3) continue;
                 if (long.TryParse(parts[2], out var sig))
                     dict[parts[0]] = new CacheEntry { FileName = parts[1], Signature = sig };
@@ -349,7 +351,7 @@ namespace HYC.Framework.UI.Editor
         {
             var sb = new StringBuilder();
             foreach (var kv in cache)
-                sb.AppendLine(kv.Key + "|" + kv.Value.FileName + "|" + kv.Value.Signature);
+                sb.AppendLine(kv.Key + "\t" + kv.Value.FileName + "\t" + kv.Value.Signature);
             File.WriteAllText(CachePath(saveFolder), sb.ToString());
         }
 

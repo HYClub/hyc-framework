@@ -51,9 +51,11 @@ namespace HYC.Framework.Save
     ///
     /// 三条属于存储层本分的保证：
     /// ① 原子写（先写 .tmp，再用 <see cref="File.Replace(string,string,string)"/> 顶替正式文件，
-    ///    旧版自动备份成 <c>.bak</c>），任何时刻崩溃都不会丢失上一版完整数据；
+    ///    旧版自动备份成 <c>.bak</c>）；不支持该 API 的平台改为「先备份再覆盖写」。
+    ///    <c>Get&lt;T&gt;</c> 在主档缺失 / 损坏时回退 <c>.bak</c>，保证至少有一份完整数据可读；
     /// ② 坏档改名 .corrupt 备份，绝不静默覆盖 —— 静默覆盖等于进度凭空消失且无从追查；
-    /// ③ 格式版本写在文件里，以后改格式有退路。
+    /// ③ 格式版本写在文件里，以后改格式有退路；
+    /// ④ 删除存档会连 .tmp / .bak / .corrupt_* 一起清，避免 <c>Get&lt;T&gt;</c> 从备份里复活已删的档。
     ///
     /// 注意：读写都是<b>即时落盘、无内存缓存</b>，<c>Get</c> 会读文件。
     /// 别放在每帧循环里，取一次存成局部变量。
@@ -123,11 +125,13 @@ namespace HYC.Framework.Save
                     }
                     catch (PlatformNotSupportedException)
                     {
-                        // WebGL 等不支持 File.Replace 的平台：退回「先备份再移动」，
-                        // 仍能保证崩溃时 .bak 或正式文件至少留有一份完整数据。
-                        if (!File.Exists(bak)) File.Copy(path, bak, true);
-                        File.Delete(path);
-                        File.Move(tmp, path);
+                        // WebGL 等不支持 File.Replace 的平台：先把旧档完整复制成 .bak，
+                        // 再覆盖写正式文件。绝不 Delete 正式文件——删除与写入之间崩溃会同时失去两份；
+                        // 覆盖写中途崩溃时 .bak 完整，Get<T> 会回退它。
+                        File.Copy(path, bak, true);
+                        File.Copy(tmp, path, true);
+                        try { File.Delete(tmp); }
+                        catch (Exception e) { Log.Warn("SaveManager.Save 清理 .tmp 失败: " + e.Message); }
                     }
                 }
                 else
@@ -142,17 +146,39 @@ namespace HYC.Framework.Save
         }
 
         /// <summary>
-        /// 按 <typeparamref name="T"/> 读回。文件不存在或读不出来时返回 <c>default</c>。
+        /// 按 <typeparamref name="T"/> 读回。主档不存在 / 读不出来时回退上一版 <c>.bak</c> 并写回主档，
+        /// 避免覆盖写中途崩溃后用户看起来「存档凭空消失」；两份都不可用时返回 <c>default</c>。
         /// 读不出来会先把原文件改名为 <c>.corrupt_*</c> 备份，不覆盖。
         /// </summary>
         public static T Get<T>()
         {
-            var type = typeof(T);
-            var path = PathOf(type);
-            if (!File.Exists(path))
+            var path = PathOf(typeof(T));
+            if (TryReadEnvelope<T>(path, out var value, true))
+                return value;
+
+            var bak = path + ".bak";
+            // 备份本身坏了不要改名：那样既丢了备份，又会让下面的回写找不到源文件。
+            if (File.Exists(bak) && TryReadEnvelope<T>(bak, out var backup, false))
             {
-                return default;
+                Log.Warn("SaveManager.Get 主档不可用，已从 .bak 恢复上一版: " + path);
+                try
+                {
+                    File.Copy(bak, path, true);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "SaveManager.Get 回写主档失败: " + path);
+                }
+                return backup;
             }
+            return default;
+        }
+
+        /// <summary>读单个存档文件；失败返回 false。坏档按 <paramref name="backupOnCorrupt"/> 决定是否改名备份。</summary>
+        private static bool TryReadEnvelope<T>(string path, out T value, bool backupOnCorrupt)
+        {
+            value = default;
+            if (!File.Exists(path)) return false;
 
             string text;
             try
@@ -162,7 +188,7 @@ namespace HYC.Framework.Save
             catch (Exception ex)
             {
                 Log.Error(ex, "SaveManager.Get 读取失败: " + path);
-                return default;
+                return false;
             }
 
             try
@@ -170,27 +196,27 @@ namespace HYC.Framework.Save
                 var envelope = _options.Serializer.Deserialize<SaveEnvelope>(text);
                 if (envelope == null)
                 {
-                    BackupCorrupt(path);
-                    return default;
+                    if (backupOnCorrupt) BackupCorrupt(path);
+                    return false;
                 }
                 if (envelope.formatVersion != FormatVersion)
                 {
                     Log.Warn("SaveManager.Get 格式版本不匹配(文件 " + envelope.formatVersion
                         + " vs 当前 " + FormatVersion + ")，按坏档处理: " + path);
-                    BackupCorrupt(path);
-                    return default;
+                    if (backupOnCorrupt) BackupCorrupt(path);
+                    return false;
                 }
-                if (string.IsNullOrEmpty(envelope.payload))
-                {
-                    return default;
-                }
-                return _options.Serializer.Deserialize<T>(envelope.payload);
+                // 空 payload 是合法的「空档」，必须按读取成功返回；
+                // 判成坏档会让下面的 .bak 回退翻出更早的数据，等于存档回滚。
+                if (!string.IsNullOrEmpty(envelope.payload))
+                    value = _options.Serializer.Deserialize<T>(envelope.payload);
+                return true;
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "SaveManager.Get 反序列化失败: " + path);
-                BackupCorrupt(path);
-                return default;
+                if (backupOnCorrupt) BackupCorrupt(path);
+                return false;
             }
         }
 
@@ -205,22 +231,20 @@ namespace HYC.Framework.Save
             return existing == null ? new T() : existing;
         }
 
-        /// <summary>存档文件是否存在。只看文件，不解析内容。</summary>
+        /// <summary>主档或上一版备份存在即视为有档（<c>Get&lt;T&gt;</c> 会回退备份）。不解析内容。</summary>
         public static bool Has<T>()
         {
-            return File.Exists(PathOf(typeof(T)));
+            var path = PathOf(typeof(T));
+            return File.Exists(path) || File.Exists(path + ".bak");
         }
 
-        /// <summary>删除 <typeparamref name="T"/> 的存档文件。不存在则什么都不做。</summary>
+        /// <summary>删除 <typeparamref name="T"/> 的存档文件及其全部副产物。不存在则什么都不做。</summary>
         public static void Delete<T>()
         {
             var path = PathOf(typeof(T));
             try
             {
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
+                DeleteArtifacts(path);
             }
             catch (Exception ex)
             {
@@ -228,7 +252,7 @@ namespace HYC.Framework.Save
             }
         }
 
-        /// <summary>删除存档目录下全部 <c>.dat</c> 文件。目录本身保留。</summary>
+        /// <summary>删除存档目录下全部存档文件及其副产物。目录本身保留。</summary>
         public static void DeleteAll()
         {
             try
@@ -238,7 +262,8 @@ namespace HYC.Framework.Save
                 {
                     return;
                 }
-                var files = Directory.GetFiles(dir, "*" + Extension);
+                // 副产物也必须清：否则清空存档后 Get<T> 仍能从 .bak 读回旧数据。
+                var files = Directory.GetFiles(dir, "*" + Extension + "*");
                 for (int i = 0; i < files.Length; i++)
                 {
                     File.Delete(files[i]);
@@ -248,6 +273,21 @@ namespace HYC.Framework.Save
             {
                 Log.Error(ex, "SaveManager.DeleteAll 失败: " + _options.RootPath);
             }
+        }
+
+        /// <summary>删除主档与它的 .tmp / .bak / .corrupt_* 副产物。</summary>
+        private static void DeleteArtifacts(string path)
+        {
+            if (File.Exists(path)) File.Delete(path);
+            var tmp = path + ".tmp";
+            if (File.Exists(tmp)) File.Delete(tmp);
+            var bak = path + ".bak";
+            if (File.Exists(bak)) File.Delete(bak);
+
+            var dir = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            foreach (var f in Directory.GetFiles(dir, Path.GetFileName(path) + ".corrupt_*"))
+                File.Delete(f);
         }
 
         /// <summary>把坏档改名备份，腾出原路径。备份失败不影响主流程。</summary>
